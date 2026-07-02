@@ -38,9 +38,14 @@ Do not mention tools, files, memory, or how you work unless the user explicitly 
 
 $voiceSystemPrompt = "$((Get-Content $personalityPath -Raw).Trim())`n`n$fixedInstructions"
 
-# Voice clone reference (must match cliff.wav exactly).
-$voiceRefAudio = Join-Path $PSScriptRoot "cliff.wav"
-$voiceRefText = "Hi, this is my voice for the assistant. I speak at a normal pace, with clear pronunciation. I use this mic for everyday conversation, and I want the assistant to sound like me."
+# Voice clone reference from voices/{id}/ (audio.wav + ref_text.txt).
+$voiceInfoJson = python -c "import json; from buddy_tools.voices import resolve_voice, DEFAULT_VOICE_ID; audio, text = resolve_voice(DEFAULT_VOICE_ID); print(json.dumps({'audio': str(audio), 'ref_text': text}))"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to resolve default voice. Ensure voices/cliff/audio.wav and voices/cliff/ref_text.txt exist."
+}
+$voiceInfo = $voiceInfoJson | ConvertFrom-Json
+$voiceRefAudio = $voiceInfo.audio
+$voiceRefText = $voiceInfo.ref_text
 
 # VAD: wait for this much silence (ms) before treating your turn as finished.
 # Default is 64ms (very aggressive). Try 500-800 if it cuts you off mid-sentence.

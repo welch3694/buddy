@@ -43,7 +43,9 @@ Update model paths in `start-llama-server-speech.bat` if your GGUF files live so
    .\start-speech-to-speech.ps1
    ```
 
-Voice cloning uses `cliff.wav` as the reference audio. Edit the system prompt, model name, and VAD settings in `start-speech-to-speech.ps1` as needed.
+Voice cloning uses named voices in `voices/` (default: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. See `voices/README.md` to add voices manually.
+
+Personalities define behavior and reference a voice by id. The default personality is `buddy` in `personalities/buddy/`. See `personalities/README.md`. Edit model name and VAD settings in `start-speech-to-speech.ps1` as needed.
 
 ## Memory and local tools
 
@@ -59,7 +61,8 @@ buddy/
 ├── run_speech_to_speech.py   # Entry point with buddy_tools patches applied
 ├── start-speech-to-speech.ps1
 ├── start-llama-server-speech.bat
-├── cliff.wav                 # Voice clone reference audio
+├── voices/                   # Named voice clone pairs (audio.wav + ref_text.txt)
+├── personalities/            # Named behavior profiles (profile.yaml + prompt.md)
 ├── memory/                   # Persistent markdown memory
 └── buddy_tools/              # Local tool integration (memory, camera, screen, …)
 ```
