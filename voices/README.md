@@ -17,3 +17,5 @@ voices/
 ```
 
 Default voice id: `cliff` (see `buddy_tools.voices.DEFAULT_VOICE_ID`).
+
+At runtime, switching to a voice folder updates both `audio.wav` and `ref_text.txt` together (see `buddy_tools.voice_session.apply_voice`).

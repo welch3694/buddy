@@ -98,3 +98,22 @@ def resolve_voice(voice_id: str | None = None, voices_dir: Path | None = None) -
     """Return (audio_path, ref_text) for TTS voice cloning."""
     profile = get_voice(voice_id or DEFAULT_VOICE_ID, voices_dir)
     return profile.audio_path, profile.ref_text
+
+
+def ref_text_for_audio_path(audio_path: str | Path) -> str | None:
+    """Load ref_text.txt from the same voice folder as audio.wav, if present."""
+    path = Path(audio_path)
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+
+    if resolved.name != AUDIO_FILENAME:
+        return None
+
+    ref_text_path = resolved.parent / REF_TEXT_FILENAME
+    if not ref_text_path.is_file():
+        return None
+
+    ref_text = ref_text_path.read_text(encoding="utf-8").strip()
+    return ref_text or None
