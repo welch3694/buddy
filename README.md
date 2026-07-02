@@ -52,6 +52,7 @@ Personalities define behavior and reference a voice by id. The active personalit
 Facts the assistant should remember across sessions are stored as markdown files in `memory/`. The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
 
 - **Memory:** `list_memory`, `read_memory`, `update_memory`, `append_memory`, `write_memory`
+- **Personalities:** `list_personalities`, `list_voices`, `switch_personality`, `switch_voice`, `create_personality`, `update_personality`, `delete_personality`
 - **Vision:** `capture_camera` (webcam), `capture_screen` (display screenshot)
 
 ## Project layout

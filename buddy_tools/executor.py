@@ -19,7 +19,10 @@ from speech_to_speech.pipeline.handler_types import LLMIn, LLMOut, TTSIn
 from speech_to_speech.pipeline.messages import EndOfResponse, GenerateResponseRequest, LLMResponseChunk
 from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
 
+from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import execute_tool
+from buddy_tools.result import ToolExecutionResult
+from buddy_tools.voice_session import apply_voice
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,28 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         for tool in self._pending_tools:
             result = execute_tool(self.memory_dir, tool.name, tool.arguments)
             logger.info("Executed tool %s -> %s", tool.name, result.output[:120])
+
+            if result.personality_switch_id:
+                try:
+                    profile = apply_personality_switch(
+                        result.personality_switch_id,
+                        runtime_config=runtime_config,
+                        chat=chat,
+                        memory_dir=self.memory_dir,
+                    )
+                    result = ToolExecutionResult(output=f"Now speaking as {profile.name}.")
+                except (FileNotFoundError, ValueError, OSError) as exc:
+                    logger.exception("Personality switch failed")
+                    result = ToolExecutionResult(output=f"Error: could not switch personality: {exc}")
+
+            if result.voice_switch_id:
+                try:
+                    voice_profile = apply_voice(result.voice_switch_id, runtime_config=runtime_config)
+                    result = ToolExecutionResult(output=f"Now using the {voice_profile.id} voice.")
+                except (FileNotFoundError, ValueError) as exc:
+                    logger.exception("Voice switch failed")
+                    result = ToolExecutionResult(output=f"Error: could not switch voice: {exc}")
+
             output_item = RealtimeConversationItemFunctionCallOutput(
                 type="function_call_output",
                 call_id=tool.call_id,

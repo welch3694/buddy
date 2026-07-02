@@ -9,7 +9,7 @@ A folder is a valid personality only when **both** files are present.
 
 ## Active personality
 
-`personalities/active.json` stores the active personality id (default: `buddy`). `start-speech-to-speech.ps1` loads the active profile at startup.
+`personalities/active.json` stores the active personality id (default: `buddy`). `start-speech-to-speech.ps1` loads the active profile at startup. During conversation, ask Buddy to switch personas (e.g. "switch to coach") or create new ones by voice.
 
 ## profile.yaml
 

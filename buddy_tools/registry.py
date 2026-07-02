@@ -11,20 +11,28 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
 from buddy_tools.memory import (
+    MEMORY_TOOL_DEFINITIONS,
     MEMORY_TOOL_NAMES,
     build_memory_instructions,
     execute_memory_tool,
     load_memory_summary,
+)
+from buddy_tools.personality_tools import (
+    PERSONALITY_TOOL_DEFINITIONS,
+    PERSONALITY_TOOL_NAMES,
+    build_personality_instructions,
+    execute_personality_tool,
 )
 from buddy_tools.result import ToolExecutionResult
 from buddy_tools.screen import SCREEN_TOOL_DEFINITIONS, execute_screen_tool
 
 logger = logging.getLogger(__name__)
 
-from buddy_tools.memory import MEMORY_TOOL_DEFINITIONS
-
 ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
-    MEMORY_TOOL_DEFINITIONS + CAMERA_TOOL_DEFINITIONS + SCREEN_TOOL_DEFINITIONS
+    MEMORY_TOOL_DEFINITIONS
+    + PERSONALITY_TOOL_DEFINITIONS
+    + CAMERA_TOOL_DEFINITIONS
+    + SCREEN_TOOL_DEFINITIONS
 )
 
 
@@ -32,6 +40,7 @@ def build_tool_instructions(base_prompt: str, memory_summary: str) -> str:
     return (
         f"{base_prompt.strip()}\n\n"
         f"{build_memory_instructions()}\n\n"
+        f"{build_personality_instructions()}\n\n"
         "You can see through the user's webcam with capture_camera. Call it when they ask what you "
         "see, what is in front of you, to look at something, or to describe their surroundings. "
         "After capturing, describe what you see in natural spoken language without mentioning "
@@ -60,6 +69,9 @@ def execute_tool(memory_dir: Path, tool_name: str, arguments_json: str) -> ToolE
 
         if tool_name in MEMORY_TOOL_NAMES:
             return execute_memory_tool(memory_dir, tool_name, args)
+
+        if tool_name in PERSONALITY_TOOL_NAMES:
+            return execute_personality_tool(tool_name, args)
 
         return ToolExecutionResult(output=f"Error: unknown tool {tool_name!r}")
     except ValueError as exc:
