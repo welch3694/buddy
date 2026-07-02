@@ -1,4 +1,4 @@
-"""Wire memory tools into the speech-to-speech runtime config and pipeline."""
+"""Wire local tools into the speech-to-speech runtime config and pipeline."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ from typing import Any
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
-from voice_memory.tools import (
-    ALL_TOOL_DEFINITIONS,
-    build_memory_instructions,
-    load_memory_summary,
-)
+from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 
 _MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
 
@@ -27,8 +23,8 @@ def set_memory_dir(path: Path) -> None:
     _MEMORY_DIR = path.resolve()
 
 
-def configure_runtime_memory(runtime_config: RuntimeConfig | None, memory_dir: Path | None = None) -> None:
-    """Register memory tools and preload memory into session instructions."""
+def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_dir: Path | None = None) -> None:
+    """Register local tools and preload memory into session instructions."""
     if runtime_config is None:
         return
 
@@ -37,12 +33,12 @@ def configure_runtime_memory(runtime_config: RuntimeConfig | None, memory_dir: P
 
     summary = load_memory_summary(root)
     base = runtime_config.session.instructions or ""
-    runtime_config.session.instructions = build_memory_instructions(base, summary)
+    runtime_config.session.instructions = build_tool_instructions(base, summary)
     runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
     runtime_config.session.tool_choice = "auto"
 
 
-def insert_memory_tool_executor(
+def insert_local_tool_executor(
     handlers: list[Any],
     *,
     stop_event: Event,
@@ -51,12 +47,12 @@ def insert_memory_tool_executor(
     transcription_notifier_setup: dict[str, Any],
     speculative_turns: Any | None,
 ) -> list[Any]:
-    """Insert MemoryToolExecutor between the LLM handler and LMOutputProcessor."""
-    from voice_memory.executor import MemoryToolExecutor
+    """Insert LocalToolExecutor between the LLM handler and LMOutputProcessor."""
+    from buddy_tools.executor import LocalToolExecutor
 
     runtime_config = transcription_notifier_setup.get("runtime_config")
     memory_dir = get_memory_dir()
-    configure_runtime_memory(runtime_config, memory_dir)
+    configure_runtime_tools(runtime_config, memory_dir)
 
     lm_bridge: Queue[Any] = Queue()
     new_handlers: list[Any] = []
@@ -71,7 +67,7 @@ def insert_memory_tool_executor(
             handler.queue_out = lm_bridge
             new_handlers.append(handler)
             new_handlers.append(
-                MemoryToolExecutor(
+                LocalToolExecutor(
                     stop_event,
                     queue_in=lm_bridge,
                     queue_out=lm_response_queue,

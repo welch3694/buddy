@@ -1,4 +1,4 @@
-"""Execute memory tool calls in local mode and trigger LLM follow-up."""
+"""Execute local tool calls and trigger LLM follow-up."""
 
 from __future__ import annotations
 
@@ -19,15 +19,15 @@ from speech_to_speech.pipeline.handler_types import LLMIn, LLMOut, TTSIn
 from speech_to_speech.pipeline.messages import EndOfResponse, GenerateResponseRequest, LLMResponseChunk
 from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
 
-from voice_memory.tools import execute_tool
+from buddy_tools.registry import execute_tool
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
 
 
-class MemoryToolExecutor(BaseHandler[LLMOut, LLMOut]):
-    """Intercepts LLM output, runs memory tools locally, and re-queues follow-up generations."""
+class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
+    """Intercepts LLM output, runs local tools, and re-queues follow-up generations."""
 
     def setup(
         self,
@@ -88,11 +88,12 @@ class MemoryToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     logger.exception("Failed to record tool output for %s", tool.call_id)
 
             if result.image_data_uri:
+                caption = result.image_caption or "Here is the captured image."
                 image_msg = RealtimeConversationItemUserMessage(
                     type="message",
                     role="user",
                     content=[
-                        UserContent(type="input_text", text="Here is what the camera sees."),
+                        UserContent(type="input_text", text=caption),
                         UserContent(
                             type="input_image",
                             image_url=result.image_data_uri,
@@ -102,9 +103,9 @@ class MemoryToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 )
                 try:
                     chat.add_item(image_msg)
-                    logger.info("Injected camera image into chat for tool %s", tool.name)
+                    logger.info("Injected image into chat for tool %s", tool.name)
                 except ChatItemError as exc:
-                    logger.error("Could not inject camera image for %s: %s", tool.call_id, exc)
+                    logger.error("Could not inject image for %s: %s", tool.call_id, exc)
 
         self._pending_tools.clear()
         self._tool_rounds += 1
