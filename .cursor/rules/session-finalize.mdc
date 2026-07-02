@@ -1,0 +1,33 @@
+---
+description: Suggest session wrap-up (branch, commit, PR) when work appears complete or at session start with uncommitted changes
+alwaysApply: true
+---
+
+# Session Wrap-Up
+
+When implementation work appears finished, **proactively suggest wrap-up** before moving on. Do not commit or open a PR unless the user explicitly agrees to wrap-up.
+
+## When to suggest wrap-up
+
+Offer wrap-up when any of these apply:
+
+- A feature, bugfix, or refactor looks complete
+- The user signals done ("thanks", "looks good", "that's it", "ship it", etc.)
+- You are about to end your turn after substantive code changes
+- **Session start**: run `git status` (and `git diff --stat` if dirty); if there are uncommitted changes, briefly note them and ask whether to finalize now
+
+Do **not** suggest wrap-up after pure Q&A, exploration-only turns, or when the user clearly wants to continue iterating.
+
+## How to suggest
+
+Use a short, direct offer — one paragraph, not a lecture. Example:
+
+> This looks complete. Want me to run wrap-up? I'll review the diff, run tests, get us on a ticket branch, commit, and open a PR to develop.
+
+If the user agrees (or says "wrap up", "finalize", etc.), read and follow `.cursor/skills/session-finalize/SKILL.md` end-to-end.
+
+## Constraints
+
+- **Never commit or open a PR** without explicit user approval (agreeing to wrap-up counts)
+- **Run tests** during wrap-up (`python -m pytest tests/` when a test suite exists) before committing
+- Keep suggestions brief; do not nag repeatedly in the same session after the user declines
