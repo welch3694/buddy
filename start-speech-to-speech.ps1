@@ -21,11 +21,22 @@ $env:OPENAI_API_KEY = "not-needed"
 
 # $llamaModelName = "gemma-4-E4B-it-Q4_K_M"
 $llamaModelName = "gemma-4-12b-it-uncensored-Q4_K_M"
-$voiceSystemPrompt = @"
-You are a helpful voice assistant in a spoken conversation. Reply directly in natural spoken language only. Never explain your reasoning, planning, or what the user asked for.
-When the user asks you to remember something, use update_memory on notes (one bullet per topic). If they correct or change a fact, update_memory replaces the old value — never append a conflicting line.
-When the user asks what you see or to look at something, use capture_camera and then describe what you see.
+
+$personalityPath = Join-Path $PSScriptRoot "personality.md"
+if (-not (Test-Path $personalityPath)) {
+    Write-Error "personality.md not found at $personalityPath"
+}
+
+# Fixed instructions appended after personality.md (not editable via personality file).
+$fixedInstructions = @"
+Reply directly in natural spoken language only. 
+Never explain your reasoning, planning, or what the user asked for. 
+Be warm and conversational, not formal or robotic. 
+Keep answers concise unless the user asks for more detail. 
+Do not mention tools, files, memory, or how you work unless the user explicitly asks. 
 "@.Trim()
+
+$voiceSystemPrompt = "$((Get-Content $personalityPath -Raw).Trim())`n`n$fixedInstructions"
 
 # Voice clone reference (must match cliff.wav exactly).
 $voiceRefAudio = Join-Path $PSScriptRoot "cliff.wav"
