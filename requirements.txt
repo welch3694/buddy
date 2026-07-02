@@ -1,0 +1,7 @@
+# Install PyTorch for your platform first (CUDA example):
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+# Then install the rest:
+#   pip install -r requirements.txt
+
+speech-to-speech @ git+https://github.com/huggingface/speech-to-speech.git@1e63f7e9343e491809d0d60e64f7ea551dbe845a
