@@ -5,34 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from openai.types.realtime import RealtimeFunctionTool
 
-from voice_memory.camera import capture_frame
+from buddy_tools.result import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-
-
-def _sanitize_name(name: str) -> str:
-    cleaned = name.strip().lower().replace(" ", "_")
-    cleaned = re.sub(r"[^a-z0-9_-]", "", cleaned)
-    if not cleaned or not _SAFE_NAME.match(cleaned):
-        raise ValueError(f"Invalid memory document name: {name!r}")
-    return cleaned
-
-
-def _resolve_path(memory_dir: Path, name: str) -> Path:
-    memory_root = memory_dir.resolve()
-    path = (memory_root / f"{_sanitize_name(name)}.md").resolve()
-    if path.parent != memory_root:
-        raise ValueError(f"Invalid memory document name: {name!r}")
-    return path
-
 
 MEMORY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
@@ -120,29 +102,23 @@ MEMORY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     ),
 ]
 
-CAMERA_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="capture_camera",
-        description=(
-            "Capture a photo from the user's default webcam for visual analysis. "
-            "Call when the user asks what you see, to look at something, or to describe "
-            "their surroundings."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-]
-
-ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = MEMORY_TOOL_DEFINITIONS + CAMERA_TOOL_DEFINITIONS
+MEMORY_TOOL_NAMES = frozenset(tool.name for tool in MEMORY_TOOL_DEFINITIONS)
 
 
-@dataclass(frozen=True)
-class ToolExecutionResult:
-    output: str
-    image_data_uri: str | None = None
+def _sanitize_name(name: str) -> str:
+    cleaned = name.strip().lower().replace(" ", "_")
+    cleaned = re.sub(r"[^a-z0-9_-]", "", cleaned)
+    if not cleaned or not _SAFE_NAME.match(cleaned):
+        raise ValueError(f"Invalid memory document name: {name!r}")
+    return cleaned
+
+
+def _resolve_path(memory_dir: Path, name: str) -> Path:
+    memory_root = memory_dir.resolve()
+    path = (memory_root / f"{_sanitize_name(name)}.md").resolve()
+    if path.parent != memory_root:
+        raise ValueError(f"Invalid memory document name: {name!r}")
+    return path
 
 
 def load_memory_summary(memory_dir: Path, max_chars: int = 4000) -> str:
@@ -204,9 +180,8 @@ def _upsert_fact_line(content: str, topic: str, value: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def build_memory_instructions(base_prompt: str, memory_summary: str) -> str:
+def build_memory_instructions() -> str:
     return (
-        f"{base_prompt.strip()}\n\n"
         "You have persistent memory stored as markdown files. Use the memory tools when needed:\n"
         "- update_memory: set or correct one fact (preferred for remember / changed my mind)\n"
         "- append_memory: only for new facts that do not contradict existing memory\n"
@@ -216,83 +191,56 @@ def build_memory_instructions(base_prompt: str, memory_summary: str) -> str:
         "Each topic should have one current value in memory. Never store conflicting lines "
         "for the same topic (e.g. both blue and red as favorite color).\n"
         "Keep memory concise (bullet points like '- Favorite color: red').\n"
-        "After saving memory, confirm briefly in spoken language without mentioning tools or files.\n\n"
-        "You can see through the user's webcam with capture_camera. Call it when they ask what you "
-        "see, what is in front of you, to look at something, or to describe their surroundings. "
-        "After capturing, describe what you see in natural spoken language without mentioning "
-        "tools or cameras.\n\n"
-        "Current memory snapshot:\n"
-        f"{memory_summary}"
+        "After saving memory, confirm briefly in spoken language without mentioning tools or files."
     )
 
 
-def execute_tool(memory_dir: Path, tool_name: str, arguments_json: str) -> ToolExecutionResult:
+def execute_memory_tool(memory_dir: Path, tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:
     memory_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        args: dict[str, Any] = json.loads(arguments_json or "{}")
-    except json.JSONDecodeError as exc:
-        return ToolExecutionResult(output=f"Error: invalid tool arguments JSON: {exc}")
 
-    try:
-        if tool_name == "capture_camera":
-            try:
-                data_uri = capture_frame()
-            except Exception as exc:
-                logger.exception("Camera capture failed")
-                return ToolExecutionResult(output=f"Error: camera capture failed: {exc}")
-            return ToolExecutionResult(
-                output="Camera capture succeeded.",
-                image_data_uri=data_uri,
-            )
+    if tool_name == "list_memory":
+        names = sorted(p.stem for p in memory_dir.glob("*.md"))
+        return ToolExecutionResult(output=json.dumps({"documents": names}))
 
-        if tool_name == "list_memory":
-            names = sorted(p.stem for p in memory_dir.glob("*.md"))
-            return ToolExecutionResult(output=json.dumps({"documents": names}))
+    if tool_name == "read_memory":
+        path = _resolve_path(memory_dir, str(args.get("name", "")))
+        if not path.exists():
+            return ToolExecutionResult(output="")
+        return ToolExecutionResult(output=path.read_text(encoding="utf-8"))
 
-        if tool_name == "read_memory":
-            path = _resolve_path(memory_dir, str(args.get("name", "")))
-            if not path.exists():
-                return ToolExecutionResult(output="")
-            return ToolExecutionResult(output=path.read_text(encoding="utf-8"))
+    if tool_name == "update_memory":
+        path = _resolve_path(memory_dir, str(args.get("name", "")))
+        topic = str(args.get("topic", "")).strip()
+        value = str(args.get("value", "")).strip()
+        if not topic:
+            return ToolExecutionResult(output="Error: topic is empty")
+        if not value:
+            return ToolExecutionResult(output="Error: value is empty")
+        existing = path.read_text(encoding="utf-8") if path.exists() else "# Notes\n"
+        updated = _upsert_fact_line(existing, topic, value)
+        path.write_text(updated, encoding="utf-8")
+        logger.info("Memory update: %s topic=%r value=%r", path.name, topic, value)
+        return ToolExecutionResult(output=f"Updated {topic} in {path.stem}")
 
-        if tool_name == "update_memory":
-            path = _resolve_path(memory_dir, str(args.get("name", "")))
-            topic = str(args.get("topic", "")).strip()
-            value = str(args.get("value", "")).strip()
-            if not topic:
-                return ToolExecutionResult(output="Error: topic is empty")
-            if not value:
-                return ToolExecutionResult(output="Error: value is empty")
-            existing = path.read_text(encoding="utf-8") if path.exists() else "# Notes\n"
-            updated = _upsert_fact_line(existing, topic, value)
-            path.write_text(updated, encoding="utf-8")
-            logger.info("Memory update: %s topic=%r value=%r", path.name, topic, value)
-            return ToolExecutionResult(output=f"Updated {topic} in {path.stem}")
+    if tool_name == "write_memory":
+        path = _resolve_path(memory_dir, str(args.get("name", "")))
+        content = str(args.get("content", ""))
+        path.write_text(content.rstrip() + "\n", encoding="utf-8")
+        logger.info("Memory write: %s (%d chars)", path.name, len(content))
+        return ToolExecutionResult(output=f"Saved {path.stem}")
 
-        if tool_name == "write_memory":
-            path = _resolve_path(memory_dir, str(args.get("name", "")))
-            content = str(args.get("content", ""))
-            path.write_text(content.rstrip() + "\n", encoding="utf-8")
-            logger.info("Memory write: %s (%d chars)", path.name, len(content))
-            return ToolExecutionResult(output=f"Saved {path.stem}")
+    if tool_name == "append_memory":
+        path = _resolve_path(memory_dir, str(args.get("name", "")))
+        content = str(args.get("content", "")).strip()
+        if not content:
+            return ToolExecutionResult(output="Error: content is empty")
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").rstrip()
+            new_text = f"{existing}\n{content}\n"
+        else:
+            new_text = f"{content}\n"
+        path.write_text(new_text, encoding="utf-8")
+        logger.info("Memory append: %s", path.name)
+        return ToolExecutionResult(output=f"Appended to {path.stem}")
 
-        if tool_name == "append_memory":
-            path = _resolve_path(memory_dir, str(args.get("name", "")))
-            content = str(args.get("content", "")).strip()
-            if not content:
-                return ToolExecutionResult(output="Error: content is empty")
-            if path.exists():
-                existing = path.read_text(encoding="utf-8").rstrip()
-                new_text = f"{existing}\n{content}\n"
-            else:
-                new_text = f"{content}\n"
-            path.write_text(new_text, encoding="utf-8")
-            logger.info("Memory append: %s", path.name)
-            return ToolExecutionResult(output=f"Appended to {path.stem}")
-
-        return ToolExecutionResult(output=f"Error: unknown tool {tool_name!r}")
-    except ValueError as exc:
-        return ToolExecutionResult(output=f"Error: {exc}")
-    except OSError as exc:
-        logger.exception("Memory tool %s failed", tool_name)
-        return ToolExecutionResult(output=f"Error: could not access memory file: {exc}")
+    return ToolExecutionResult(output=f"Error: unknown memory tool {tool_name!r}")

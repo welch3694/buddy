@@ -7,6 +7,9 @@ import logging
 import sys
 
 import cv2
+from openai.types.realtime import RealtimeFunctionTool
+
+from buddy_tools.result import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +17,22 @@ DEFAULT_DEVICE_INDEX = 0
 DEFAULT_MAX_WIDTH = 768
 JPEG_QUALITY = 85
 WARMUP_FRAMES = 3
+
+CAMERA_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
+    RealtimeFunctionTool(
+        type="function",
+        name="capture_camera",
+        description=(
+            "Capture a photo from the user's default webcam for visual analysis. "
+            "Call when the user asks what you see, to look at something, or to describe "
+            "their surroundings."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+]
 
 
 def _open_camera(device_index: int) -> cv2.VideoCapture:
@@ -56,3 +75,16 @@ def capture_frame(
         return data_uri
     finally:
         cap.release()
+
+
+def execute_camera_tool() -> ToolExecutionResult:
+    try:
+        data_uri = capture_frame()
+    except Exception as exc:
+        logger.exception("Camera capture failed")
+        return ToolExecutionResult(output=f"Error: camera capture failed: {exc}")
+    return ToolExecutionResult(
+        output="Camera capture succeeded.",
+        image_data_uri=data_uri,
+        image_caption="Here is what the camera sees.",
+    )

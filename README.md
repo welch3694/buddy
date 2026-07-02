@@ -45,18 +45,21 @@ Update model paths in `start-llama-server-speech.bat` if your GGUF files live so
 
 Voice cloning uses `cliff.wav` as the reference audio. Edit the system prompt, model name, and VAD settings in `start-speech-to-speech.ps1` as needed.
 
-## Memory
+## Memory and local tools
 
-Facts the assistant should remember across sessions are stored as markdown files in `memory/`. The `voice_memory` package patches speech-to-speech to expose `list_memory`, `read_memory`, `update_memory`, `append_memory`, and `write_memory` tools that run locally.
+Facts the assistant should remember across sessions are stored as markdown files in `memory/`. The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
+
+- **Memory:** `list_memory`, `read_memory`, `update_memory`, `append_memory`, `write_memory`
+- **Vision:** `capture_camera` (webcam), `capture_screen` (display screenshot)
 
 ## Project layout
 
 ```
 buddy/
-├── run_speech_to_speech.py   # Entry point with memory patches applied
+├── run_speech_to_speech.py   # Entry point with buddy_tools patches applied
 ├── start-speech-to-speech.ps1
 ├── start-llama-server-speech.bat
 ├── cliff.wav                 # Voice clone reference audio
 ├── memory/                   # Persistent markdown memory
-└── voice_memory/             # Memory tool integration
+└── buddy_tools/              # Local tool integration (memory, camera, screen, …)
 ```

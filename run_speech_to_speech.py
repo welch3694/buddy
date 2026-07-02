@@ -11,11 +11,11 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from voice_memory.patch import apply_memory_patches
+from buddy_tools import apply_patches
 
 
 def main() -> None:
-    apply_memory_patches()
+    apply_patches()
     from speech_to_speech.s2s_pipeline import main as s2s_main
 
     s2s_main()
