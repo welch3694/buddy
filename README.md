@@ -45,7 +45,7 @@ Update model paths in `start-llama-server-speech.bat` if your GGUF files live so
 
 Voice cloning uses named voices in `voices/` (default: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. See `voices/README.md` to add voices manually.
 
-Personalities define behavior and reference a voice by id. The default personality is `buddy` in `personalities/buddy/`. See `personalities/README.md`. Edit model name and VAD settings in `start-speech-to-speech.ps1` as needed.
+Personalities define behavior and reference a voice by id. The active personality is set in `personalities/active.json` (default: `buddy`). See `personalities/README.md`. Edit model name and VAD settings in `start-speech-to-speech.ps1` as needed.
 
 ## Memory and local tools
 

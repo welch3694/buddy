@@ -22,30 +22,16 @@ $env:OPENAI_API_KEY = "not-needed"
 # $llamaModelName = "gemma-4-E4B-it-Q4_K_M"
 $llamaModelName = "gemma-4-12b-it-uncensored-Q4_K_M"
 
-$personalityPath = Join-Path $PSScriptRoot "personality.md"
-if (-not (Test-Path $personalityPath)) {
-    Write-Error "personality.md not found at $personalityPath"
-}
-
-# Fixed instructions appended after personality.md (not editable via personality file).
-$fixedInstructions = @"
-Reply directly in natural spoken language only. 
-Never explain your reasoning, planning, or what the user asked for. 
-Be warm and conversational, not formal or robotic. 
-Keep answers concise unless the user asks for more detail. 
-Do not mention tools, files, memory, or how you work unless the user explicitly asks. 
-"@.Trim()
-
-$voiceSystemPrompt = "$((Get-Content $personalityPath -Raw).Trim())`n`n$fixedInstructions"
-
-# Voice clone reference from voices/{id}/ (audio.wav + ref_text.txt).
-$voiceInfoJson = python -c "import json; from buddy_tools.voices import resolve_voice, DEFAULT_VOICE_ID; audio, text = resolve_voice(DEFAULT_VOICE_ID); print(json.dumps({'audio': str(audio), 'ref_text': text}))"
+# Active personality prompt + voice from personalities/ and voices/.
+$startupJson = python -c "import json; from buddy_tools.startup import resolve_startup_config; print(json.dumps(resolve_startup_config()))"
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to resolve default voice. Ensure voices/cliff/audio.wav and voices/cliff/ref_text.txt exist."
+    Write-Error "Failed to resolve active personality. Ensure personalities/buddy/ and voices/cliff/ exist."
 }
-$voiceInfo = $voiceInfoJson | ConvertFrom-Json
-$voiceRefAudio = $voiceInfo.audio
-$voiceRefText = $voiceInfo.ref_text
+$startup = $startupJson | ConvertFrom-Json
+$voiceSystemPrompt = $startup.init_chat_prompt
+$voiceRefAudio = $startup.audio
+$voiceRefText = $startup.ref_text
+Write-Host "Active personality: $($startup.personality_name) ($($startup.personality_id)), voice: $($startup.voice_id)"
 
 # VAD: wait for this much silence (ms) before treating your turn as finished.
 # Default is 64ms (very aggressive). Try 500-800 if it cuts you off mid-sentence.

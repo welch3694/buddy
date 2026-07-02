@@ -3,13 +3,13 @@
 Named behavior profiles for the Buddy voice assistant. Each personality is a folder under `personalities/` with:
 
 - `profile.yaml` — metadata (name, voice, behaviors, memory namespace)
-- `prompt.md` — persona and tone instructions (replaces the legacy root `personality.md`)
+- `prompt.md` — persona and tone instructions
 
 A folder is a valid personality only when **both** files are present.
 
 ## Active personality
 
-`personalities/active.json` stores the active personality id (default: `buddy`). Startup and runtime switching read this file (see issue #11 for full startup integration).
+`personalities/active.json` stores the active personality id (default: `buddy`). `start-speech-to-speech.ps1` loads the active profile at startup.
 
 ## profile.yaml
 
@@ -33,7 +33,3 @@ The `id` must match the folder name. `voice_id` must reference a valid voice in 
 3. Optionally set `"id": "your_id"` in `active.json`
 
 Or use `buddy_tools.personality.create_personality()` programmatically.
-
-## Legacy
-
-Root `personality.md` is kept for backward compatibility until startup loads the active personality (#11).

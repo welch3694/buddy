@@ -10,6 +10,7 @@ from typing import Any
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
+from buddy_tools.startup import build_init_instructions
 
 _MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
 
@@ -32,7 +33,7 @@ def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_dir: Pa
     root.mkdir(parents=True, exist_ok=True)
 
     summary = load_memory_summary(root)
-    base = runtime_config.session.instructions or ""
+    base = build_init_instructions()
     runtime_config.session.instructions = build_tool_instructions(base, summary)
     runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
     runtime_config.session.tool_choice = "auto"
