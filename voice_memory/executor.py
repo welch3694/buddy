@@ -8,7 +8,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from openai.types.realtime import RealtimeConversationItemFunctionCallOutput
+from openai.types.realtime import RealtimeConversationItemFunctionCallOutput, RealtimeConversationItemUserMessage
+from openai.types.realtime.realtime_conversation_item_user_message import Content as UserContent
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
@@ -70,11 +71,11 @@ class MemoryToolExecutor(BaseHandler[LLMOut, LLMOut]):
 
         for tool in self._pending_tools:
             result = execute_tool(self.memory_dir, tool.name, tool.arguments)
-            logger.info("Executed tool %s -> %s", tool.name, result[:120])
+            logger.info("Executed tool %s -> %s", tool.name, result.output[:120])
             output_item = RealtimeConversationItemFunctionCallOutput(
                 type="function_call_output",
                 call_id=tool.call_id,
-                output=result,
+                output=result.output,
                 status="completed",
             )
             try:
@@ -85,6 +86,25 @@ class MemoryToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     chat.add_item(output_item)
                 except ChatItemError:
                     logger.exception("Failed to record tool output for %s", tool.call_id)
+
+            if result.image_data_uri:
+                image_msg = RealtimeConversationItemUserMessage(
+                    type="message",
+                    role="user",
+                    content=[
+                        UserContent(type="input_text", text="Here is what the camera sees."),
+                        UserContent(
+                            type="input_image",
+                            image_url=result.image_data_uri,
+                            detail="auto",
+                        ),
+                    ],
+                )
+                try:
+                    chat.add_item(image_msg)
+                    logger.info("Injected camera image into chat for tool %s", tool.name)
+                except ChatItemError as exc:
+                    logger.error("Could not inject camera image for %s: %s", tool.call_id, exc)
 
         self._pending_tools.clear()
         self._tool_rounds += 1

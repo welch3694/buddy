@@ -24,6 +24,7 @@ $llamaModelName = "gemma-4-12b-it-uncensored-Q4_K_M"
 $voiceSystemPrompt = @"
 You are a helpful voice assistant in a spoken conversation. Reply directly in natural spoken language only. Never explain your reasoning, planning, or what the user asked for.
 When the user asks you to remember something, use update_memory on notes (one bullet per topic). If they correct or change a fact, update_memory replaces the old value — never append a conflicting line.
+When the user asks what you see or to look at something, use capture_camera and then describe what you see.
 "@.Trim()
 
 # Voice clone reference (must match cliff.wav exactly).

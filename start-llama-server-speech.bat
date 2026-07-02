@@ -10,12 +10,14 @@ set "MODEL=%MODEL_DIR%\gemma-4-12b-it-uncensored-Q4_K_M.gguf"
 set "MMPROJ=%MODEL_DIR%\mmproj-gemma-4-12B-it-bf16.gguf"
 
 REM D:\Llama\llama-server.exe -m %MODEL_DIR%\gemma-4-E4B-it-Q4_K_M.gguf --mmproj %MMPROJ% ^
+REM --cache-type-k q8_0 ^
+REM --cache-type-v q8_0 ^
+
 D:\Llama\llama-server.exe -m %MODEL% ^
     --mmproj %MMPROJ% ^
     --n-gpu-layers 99 ^
     --ctx-size 8192 ^
-    --cache-type-k q8_0 ^
-    --cache-type-v q8_0 ^
+    --reasoning off ^
     --temperature 0.3 ^
     --repeat-penalty 1.1 ^
     --min-p 0.1 ^

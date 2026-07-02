@@ -10,7 +10,7 @@ from typing import Any
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from voice_memory.tools import (
-    MEMORY_TOOL_DEFINITIONS,
+    ALL_TOOL_DEFINITIONS,
     build_memory_instructions,
     load_memory_summary,
 )
@@ -38,7 +38,7 @@ def configure_runtime_memory(runtime_config: RuntimeConfig | None, memory_dir: P
     summary = load_memory_summary(root)
     base = runtime_config.session.instructions or ""
     runtime_config.session.instructions = build_memory_instructions(base, summary)
-    runtime_config.session.tools = list(MEMORY_TOOL_DEFINITIONS)
+    runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
     runtime_config.session.tool_choice = "auto"
 
 
