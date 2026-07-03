@@ -11,7 +11,7 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 from buddy_tools.startup import build_init_instructions
-from buddy_tools.voice_session import register_pipeline_handlers
+from buddy_tools.voice_session import apply_startup_voice, register_pipeline_handlers
 
 _MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
 
@@ -84,4 +84,5 @@ def insert_local_tool_executor(
         new_handlers.append(handler)
 
     register_pipeline_handlers(new_handlers)
+    apply_startup_voice(runtime_config=runtime_config)
     return new_handlers

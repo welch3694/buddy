@@ -129,6 +129,7 @@ class PersonalitySessionTests(unittest.TestCase):
         chat = Chat(10)
         chat.buffer.append(Mock())
         handler = Mock()
+        handler.__class__.__name__ = "Qwen3TTSHandler"
         handler.ref_audio = None
         handler.ref_text = "old"
         set_tts_handler(handler)
@@ -161,7 +162,11 @@ class PersonalitySessionTests(unittest.TestCase):
                 call_id="call_test",
             )
         )
-        set_tts_handler(Mock(ref_audio=None, ref_text="old"))
+        handler = Mock()
+        handler.__class__.__name__ = "Qwen3TTSHandler"
+        handler.ref_audio = None
+        handler.ref_text = "old"
+        set_tts_handler(handler)
 
         apply_personality_switch(
             "coach",

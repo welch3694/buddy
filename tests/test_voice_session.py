@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 from buddy_tools import voices as voices_module
 from buddy_tools.patch import apply_patches
-from buddy_tools.voice_session import apply_voice, get_tts_handler, set_tts_handler
+from buddy_tools.voice_session import apply_startup_voice, apply_voice, get_tts_handler, set_tts_handler
 from buddy_tools.voices import ref_text_for_audio_path, set_voices_dir
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
@@ -64,6 +64,7 @@ class ApplyVoiceTests(unittest.TestCase):
 
     def test_apply_voice_updates_handler_and_runtime_config(self) -> None:
         handler = Mock()
+        handler.__class__.__name__ = "Qwen3TTSHandler"
         handler.ref_audio = None
         handler.ref_text = "old"
         runtime_config = RuntimeConfig()
@@ -77,11 +78,29 @@ class ApplyVoiceTests(unittest.TestCase):
 
     def test_apply_voice_uses_registered_handler_when_available(self) -> None:
         handler = Mock()
+        handler.__class__.__name__ = "Qwen3TTSHandler"
         set_tts_handler(handler)
 
         apply_voice("cliff")
 
         self.assertEqual(handler.ref_text, "Cliff transcript.")
+
+    def test_apply_voice_updates_pocket_handler(self) -> None:
+        voice_state = object()
+        model = Mock()
+        model.get_state_for_audio_prompt.return_value = voice_state
+        handler = Mock()
+        handler.__class__.__name__ = "PocketTTSHandler"
+        handler.model = model
+        handler.voice = "old"
+        runtime_config = RuntimeConfig()
+
+        profile = apply_voice("cliff", runtime_config=runtime_config, tts_handler=handler)
+
+        self.assertEqual(profile.id, "cliff")
+        self.assertTrue(str(handler.voice).endswith("cliff\\audio.wav") or str(handler.voice).endswith("cliff/audio.wav"))
+        self.assertIs(handler.voice_state, voice_state)
+        model.get_state_for_audio_prompt.assert_called_once()
 
 
 class Qwen3PatchTests(unittest.TestCase):
@@ -125,6 +144,32 @@ class Qwen3PatchTests(unittest.TestCase):
         apply_patches()
         second = Qwen3TTSHandler._apply_session_voice_override
         self.assertIs(first, second)
+
+    def test_patched_process_voice_clone_passes_cached_prompt(self) -> None:
+        apply_patches()
+        from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
+
+        handler = object.__new__(Qwen3TTSHandler)
+        handler.backend = "faster_qwen3_tts"
+        handler.ref_audio = self.audio_path
+        handler.ref_text = "Patched transcript."
+        handler.language = "auto"
+        handler.xvec_only = False
+        handler.streaming_chunk_size = 8
+        handler.parity_mode = False
+        handler.non_streaming_mode = True
+        handler.voice_clone_prompt = ["cached-prompt"]
+        handler._estimate_max_new_tokens = lambda _text: 512
+        handler._stream = lambda gen, label: list(gen)
+        handler.model = Mock()
+        handler.model.generate_voice_clone_streaming = Mock(return_value=iter(()))
+
+        list(handler._process_voice_clone("Hello there."))
+
+        kwargs = handler.model.generate_voice_clone_streaming.call_args.kwargs
+        self.assertEqual(kwargs["voice_clone_prompt"], ["cached-prompt"])
+        self.assertEqual(kwargs["ref_audio"], self.audio_path)
+        self.assertEqual(kwargs["ref_text"], "Patched transcript.")
 
 
 if __name__ == "__main__":
