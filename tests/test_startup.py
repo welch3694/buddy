@@ -7,9 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from buddy_tools import bootstrap as bootstrap_module
 from buddy_tools import personality as personality_module
 from buddy_tools import voices as voices_module
-from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
+from buddy_tools.data_dir import configure_user_data, reset_data_dir_config
+from buddy_tools.personality import create_personality, set_active_personality
 from buddy_tools.startup import (
     FIXED_VOICE_INSTRUCTIONS,
     build_init_instructions,
@@ -23,20 +25,25 @@ class StartupConfigTests(unittest.TestCase):
     def setUp(self) -> None:
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = bootstrap_module.get_memory_root()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
-        self.personalities_root = self.root / "personalities"
+        self.repo_root = self.root / "repo"
+        self.data_dir = self.root / "data"
+        (self.repo_root / "personalities").mkdir(parents=True)
         self.voices_root = self.root / "voices"
-        self.personalities_root.mkdir()
         self.voices_root.mkdir()
-        set_personalities_dir(self.personalities_root)
         set_voices_dir(self.voices_root)
         self._write_voice("cliff")
         self._write_voice("narrator")
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
+        configure_user_data()
 
     def tearDown(self) -> None:
-        set_personalities_dir(self._original_personalities_dir)
+        reset_data_dir_config()
+        personality_module.set_personalities_dir(self._original_personalities_dir)
         set_voices_dir(self._original_voices_dir)
+        bootstrap_module.set_memory_root(self._original_memory_root)
         self._tmpdir.cleanup()
 
     def _write_voice(self, voice_id: str, ref_text: str = "Reference transcript.") -> None:
@@ -71,8 +78,12 @@ class StartupConfigTests(unittest.TestCase):
         self.assertEqual(config["personality_id"], "coach")
         self.assertEqual(config["voice_id"], "narrator")
         self.assertIn("Coach prompt.", config["init_chat_prompt"])
-        self.assertTrue(str(config["audio"]).endswith("narrator\\audio.wav") or str(config["audio"]).endswith("narrator/audio.wav"))
+        self.assertTrue(
+            str(config["audio"]).endswith("narrator\\audio.wav")
+            or str(config["audio"]).endswith("narrator/audio.wav")
+        )
         self.assertEqual(config["ref_text"], "Reference transcript.")
+        self.assertEqual(config["data_dir"], str(self.data_dir.resolve()))
 
     def test_resolve_startup_config_is_json_serializable(self) -> None:
         create_personality("buddy", "Buddy", "Buddy prompt.", voice_id="cliff")
@@ -82,12 +93,28 @@ class StartupConfigTests(unittest.TestCase):
 
 
 class ProjectStartupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_memory_root = bootstrap_module.get_memory_root()
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.data_dir = self.root / "userdata"
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        personality_module.set_personalities_dir(self._original_personalities_dir)
+        bootstrap_module.set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
     def test_repo_startup_config_uses_buddy_and_cliff(self) -> None:
         config = resolve_startup_config()
         self.assertEqual(config["personality_id"], "buddy")
         self.assertEqual(config["voice_id"], "cliff")
         self.assertIn("Buddy", config["personality_name"])
         self.assertTrue(Path(config["audio"]).is_file())
+        self.assertEqual(config["data_dir"], str(self.data_dir.resolve()))
 
 
 if __name__ == "__main__":

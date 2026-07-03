@@ -141,10 +141,10 @@ class PersonalityManagerTests(unittest.TestCase):
         delete_personality("coach")
         self.assertEqual(list_personalities(), ["buddy"])
 
-    def test_cannot_delete_default_personality(self) -> None:
+    def test_delete_buddy_allowed(self) -> None:
         self._write_personality("buddy")
-        with self.assertRaises(ValueError):
-            delete_personality("buddy")
+        delete_personality("buddy")
+        self.assertEqual(list_personalities(), [])
 
     def test_delete_active_personality_resets_active_to_buddy(self) -> None:
         self._write_personality("buddy")
@@ -162,19 +162,37 @@ class PersonalityManagerTests(unittest.TestCase):
 
 class ProjectPersonalitiesTests(unittest.TestCase):
     def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
         self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_memory_root = None
+        from buddy_tools import bootstrap as bootstrap_module
+
+        self._original_memory_root = bootstrap_module.get_memory_root()
+        from buddy_tools.data_dir import configure_user_data, reset_data_dir_config
+
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.data_dir = self.root / "userdata"
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
+        configure_user_data()
 
     def tearDown(self) -> None:
-        set_personalities_dir(self._original_personalities_dir)
+        from buddy_tools.data_dir import reset_data_dir_config
+        from buddy_tools import bootstrap as bootstrap_module
 
-    def test_repo_buddy_personality_exists(self) -> None:
-        repo_personalities = Path(__file__).resolve().parent.parent / "personalities"
-        set_personalities_dir(repo_personalities)
-        profile = get_active_personality()
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        if self._original_memory_root is not None:
+            bootstrap_module.set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def test_repo_buddy_personality_seeds_into_data_dir(self) -> None:
+        profile = get_active_personality(validate_voice=False)
 
         self.assertEqual(profile.id, "buddy")
         self.assertIn("Buddy", profile.name)
         self.assertEqual(profile.voice_id, "cliff")
+        self.assertTrue((self.data_dir / "personalities" / "buddy" / "profile.yaml").is_file())
 
 
 if __name__ == "__main__":

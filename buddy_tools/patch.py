@@ -161,6 +161,10 @@ def apply_patches() -> None:
     if getattr(pipeline, "_buddy_tools_patches_applied", False):
         return
 
+    from buddy_tools.data_dir import configure_user_data
+
+    configure_user_data()
+
     _patch_qwen3_ref_text_sync()
     _patch_qwen3_voice_clone_stability()
     _patch_pocket_tts_voice_logging()
