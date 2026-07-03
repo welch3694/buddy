@@ -54,7 +54,13 @@ def build_tool_instructions(base_prompt: str, memory_summary: str) -> str:
     )
 
 
-def execute_tool(memory_dir: Path, tool_name: str, arguments_json: str) -> ToolExecutionResult:
+def execute_tool(
+    memory_root: Path,
+    tool_name: str,
+    arguments_json: str,
+    *,
+    persona_namespace: str,
+) -> ToolExecutionResult:
     try:
         args: dict[str, Any] = json.loads(arguments_json or "{}")
     except json.JSONDecodeError as exc:
@@ -68,7 +74,7 @@ def execute_tool(memory_dir: Path, tool_name: str, arguments_json: str) -> ToolE
             return execute_screen_tool(args)
 
         if tool_name in MEMORY_TOOL_NAMES:
-            return execute_memory_tool(memory_dir, tool_name, args)
+            return execute_memory_tool(memory_root, persona_namespace, tool_name, args)
 
         if tool_name in PERSONALITY_TOOL_NAMES:
             return execute_personality_tool(tool_name, args)
