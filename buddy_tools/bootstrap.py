@@ -47,7 +47,13 @@ def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_root: P
     profile = get_active_personality()
     summary = load_memory_summary(root, profile.memory_namespace)
     base = build_init_instructions()
-    runtime_config.session.instructions = build_tool_instructions(base, summary)
+    runtime_config.session.instructions = build_tool_instructions(
+        base,
+        summary,
+        memory_root=root,
+        persona_namespace=profile.memory_namespace,
+        personality_id=profile.id,
+    )
     runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
     runtime_config.session.tool_choice = "auto"
 
