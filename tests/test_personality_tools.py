@@ -53,7 +53,39 @@ class PersonalityToolTests(unittest.TestCase):
     def test_registry_includes_personality_tools(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
         self.assertIn("switch_personality", names)
+        self.assertIn("read_personality", names)
         self.assertIn("list_voices", names)
+
+    def test_read_personality_returns_on_disk_fields(self) -> None:
+        result = execute_personality_tool("read_personality", {"personality_id": "coach"})
+        payload = json.loads(result.output)
+        self.assertEqual(payload["personality_id"], "coach")
+        self.assertEqual(payload["name"], "Coach")
+        self.assertEqual(payload["prompt"], "You are Coach.")
+        self.assertEqual(payload["voice_id"], "narrator")
+        self.assertEqual(payload["memory_namespace"], "coach")
+        self.assertIsInstance(payload["behaviors"], dict)
+
+    def test_read_personality_defaults_to_active(self) -> None:
+        set_active_personality("coach")
+        result = execute_personality_tool("read_personality", {})
+        payload = json.loads(result.output)
+        self.assertEqual(payload["personality_id"], "coach")
+
+    def test_read_personality_invalid_id_errors(self) -> None:
+        result = execute_personality_tool("read_personality", {"personality_id": "missing"})
+        self.assertIn("Error", result.output)
+
+    def test_execute_tool_dispatches_read_personality(self) -> None:
+        result = execute_tool(
+            self.memory_root,
+            "read_personality",
+            '{"personality_id":"buddy"}',
+            persona_namespace="buddy",
+        )
+        payload = json.loads(result.output)
+        self.assertEqual(payload["personality_id"], "buddy")
+        self.assertEqual(payload["prompt"], "You are Buddy.")
 
     def test_list_personalities_tool(self) -> None:
         result = execute_personality_tool("list_personalities", {})
@@ -180,6 +212,7 @@ class PersonalitySessionTests(unittest.TestCase):
     def test_build_tool_instructions_includes_personality_help(self) -> None:
         text = build_tool_instructions("Base prompt.", "(no memory saved yet)")
         self.assertIn("global", text.lower())
+        self.assertIn("read_personality", text)
         self.assertIn("switch_personality", text)
         self.assertIn("list_voices", text)
 
