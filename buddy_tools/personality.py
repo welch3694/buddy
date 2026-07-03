@@ -317,11 +317,11 @@ def update_personality(
 
 
 def delete_personality(personality_id: str, personalities_dir: Path | None = None) -> None:
-    """Delete a personality folder. The default buddy personality cannot be removed."""
-    sanitized = _sanitize_personality_id(personality_id)
-    if sanitized == DEFAULT_PERSONALITY_ID:
-        raise ValueError(f"Cannot delete default personality {DEFAULT_PERSONALITY_ID!r}")
+    """Delete a personality folder from the user data dir.
 
+    Shipped templates (e.g. buddy) are re-seeded from the repo on next startup when missing.
+    """
+    sanitized = _sanitize_personality_id(personality_id)
     root = _personalities_root(personalities_dir)
     directory = _personality_dir(root, sanitized)
     if not directory.is_dir():

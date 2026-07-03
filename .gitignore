@@ -67,3 +67,7 @@ models/
 # Local-only test voices (never commit)
 voices/jack/
 voices/ron/
+
+# User runtime data (memory, active personality selection)
+memory/
+personalities/active.json

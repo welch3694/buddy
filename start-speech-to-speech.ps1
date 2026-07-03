@@ -35,15 +35,19 @@ try {
     # $llamaModelName = "gemma-4-E4B-it-Q4_K_M"
     $llamaModelName = "gemma-4-12b-it-uncensored-Q4_K_M"
 
-    # Active personality prompt + voice from personalities/ and voices/.
+    # Optional: store memory and personalities in a cloud-synced folder (Dropbox, Google Drive, etc.)
+    # $env:BUDDY_DATA_DIR = "D:\Dropbox\Buddy"
+
+    # Active personality prompt + voice from user data dir and voices/.
     $startupJson = python -c "import json; from buddy_tools.startup import resolve_startup_config; print(json.dumps(resolve_startup_config()))"
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to resolve active personality. Ensure personalities/buddy/ and voices/cliff/ exist."
+        throw "Failed to resolve active personality. Ensure personalities/buddy/ (template) and voices/cliff/ exist."
     }
     $startup = $startupJson | ConvertFrom-Json
     $voiceSystemPrompt = $startup.init_chat_prompt
     $voiceRefAudio = $startup.audio
     $voiceRefText = $startup.ref_text
+    Write-Host "Buddy data dir: $($startup.data_dir)"
     Write-Host "Active personality: $($startup.personality_name) ($($startup.personality_id)), voice: $($startup.voice_id)"
     Write-Host "TTS backend: $ttsBackend"
 
