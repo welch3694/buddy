@@ -75,6 +75,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         for tool in self._pending_tools:
             result = execute_tool(self.memory_dir, tool.name, tool.arguments)
             logger.info("Executed tool %s -> %s", tool.name, result.output[:120])
+            skip_chat_record = False
 
             if result.personality_switch_id:
                 try:
@@ -85,6 +86,8 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                         memory_dir=self.memory_dir,
                     )
                     result = ToolExecutionResult(output=f"Now speaking as {profile.name}.")
+                    # Chat was reset; the function_call is gone so tool output cannot be paired.
+                    skip_chat_record = True
                 except (FileNotFoundError, ValueError, OSError) as exc:
                     logger.exception("Personality switch failed")
                     result = ToolExecutionResult(output=f"Error: could not switch personality: {exc}")
@@ -97,20 +100,21 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     logger.exception("Voice switch failed")
                     result = ToolExecutionResult(output=f"Error: could not switch voice: {exc}")
 
-            output_item = RealtimeConversationItemFunctionCallOutput(
-                type="function_call_output",
-                call_id=tool.call_id,
-                output=result.output,
-                status="completed",
-            )
-            try:
-                chat.append_tool_output(tool.call_id, output_item)
-            except ChatItemError as exc:
-                logger.error("Could not append tool output for %s: %s", tool.call_id, exc)
+            if not skip_chat_record:
+                output_item = RealtimeConversationItemFunctionCallOutput(
+                    type="function_call_output",
+                    call_id=tool.call_id,
+                    output=result.output,
+                    status="completed",
+                )
                 try:
-                    chat.add_item(output_item)
-                except ChatItemError:
-                    logger.exception("Failed to record tool output for %s", tool.call_id)
+                    chat.append_tool_output(tool.call_id, output_item)
+                except ChatItemError as exc:
+                    logger.error("Could not append tool output for %s: %s", tool.call_id, exc)
+                    try:
+                        chat.add_item(output_item)
+                    except ChatItemError:
+                        logger.exception("Failed to record tool output for %s", tool.call_id)
 
             if result.image_data_uri:
                 caption = result.image_caption or "Here is the captured image."

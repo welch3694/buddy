@@ -147,6 +147,31 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertIn("narrator", runtime_config.session.audio.output.voice)
         self.assertEqual(handler.ref_text, "narrator transcript")
 
+    def test_personality_switch_clears_pending_function_calls(self) -> None:
+        """After switch, function_call is gone so tool output cannot be paired in chat."""
+        from openai.types.realtime import RealtimeConversationItemFunctionCall
+
+        runtime_config = RuntimeConfig()
+        chat = Chat(10)
+        chat.add_item(
+            RealtimeConversationItemFunctionCall(
+                type="function_call",
+                name="switch_personality",
+                arguments='{"personality_id":"coach"}',
+                call_id="call_test",
+            )
+        )
+        set_tts_handler(Mock(ref_audio=None, ref_text="old"))
+
+        apply_personality_switch(
+            "coach",
+            runtime_config=runtime_config,
+            chat=chat,
+            memory_dir=self.memory_dir,
+        )
+
+        self.assertEqual(chat.buffer, [])
+
     def test_build_tool_instructions_includes_personality_help(self) -> None:
         text = build_tool_instructions("Base prompt.", "(no memory saved yet)")
         self.assertIn("switch_personality", text)
