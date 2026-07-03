@@ -1,9 +1,16 @@
-# Install PyTorch for your platform first (CUDA example):
-#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+# Buddy-specific dependencies (safe to pip install on Windows).
 #
-# Then install the rest:
-#   pip install -r requirements.txt
+# Do NOT add speech-to-speech here — its default extras pull faster-qwen3-tts[ggml],
+# which requires qwentts-cpp-python (no Windows wheels). Use setup-venv.ps1 instead:
+#
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   .\setup-venv.ps1
+#
+# To switch TTS backends, set $ttsBackend in start-speech-to-speech.ps1.
+# Pocket requires HF login + kyutai/pocket-tts terms accepted for voice cloning.
 
-speech-to-speech @ git+https://github.com/huggingface/speech-to-speech.git@1e63f7e9343e491809d0d60e64f7ea551dbe845a
+pocket-tts>=2.1.0
 opencv-python-headless
 mss

@@ -18,7 +18,9 @@ python -m venv .venv
 # Install PyTorch for your CUDA version — see https://pytorch.org
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 
-pip install -r requirements.txt
+# Do not use plain pip install -r requirements.txt for everything — speech-to-speech
+# pulls faster-qwen3-tts[ggml], which fails on Windows (no qwentts-cpp-python wheels).
+.\setup-venv.ps1
 ```
 
 Update model paths in `start-llama-server-speech.bat` if your GGUF files live somewhere other than `D:\Llama\Models`.
@@ -45,7 +47,9 @@ Update model paths in `start-llama-server-speech.bat` if your GGUF files live so
 
 Voice cloning uses named voices in `voices/` (default: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. See `voices/README.md` to add voices manually.
 
-Personalities define behavior and reference a voice by id. The active personality is set in `personalities/active.json` (default: `buddy`). See `personalities/README.md`. Edit model name and VAD settings in `start-speech-to-speech.ps1` as needed.
+TTS defaults to **Pocket TTS** with voice cloning from `voices/cliff/audio.wav` (requires Hugging Face login and Kyutai terms). Set `$ttsBackend = "qwen3"` in `start-speech-to-speech.ps1` to use Qwen3 instead (occasional timbre drift; see issue #12).
+
+Personalities define behavior and reference a voice by id. The active personality is set in `personalities/active.json` (default: `buddy`). See `personalities/README.md`. Edit model name, TTS backend, and VAD settings in `start-speech-to-speech.ps1` as needed.
 
 ## Memory and local tools
 

@@ -1,4 +1,4 @@
-"""Runtime voice switching: keep Qwen3 ref_audio and ref_text in sync."""
+"""Runtime voice switching for Qwen3 and Pocket TTS handlers."""
 
 from __future__ import annotations
 
@@ -7,11 +7,15 @@ from typing import Any
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
+from buddy_tools.personality import get_active_personality
+from buddy_tools.voice_clone import refresh_voice_clone_prompt
 from buddy_tools.voices import VoiceProfile, get_voice
 
 logger = logging.getLogger(__name__)
 
 _tts_handler: Any | None = None
+
+SUPPORTED_TTS_HANDLERS = frozenset({"Qwen3TTSHandler", "PocketTTSHandler"})
 
 
 def get_tts_handler() -> Any | None:
@@ -24,12 +28,46 @@ def set_tts_handler(handler: Any | None) -> None:
 
 
 def register_pipeline_handlers(handlers: list[Any]) -> None:
-    """Capture the Qwen3 TTS handler instance from the live pipeline."""
+    """Capture the active TTS handler instance from the live pipeline."""
     for handler in handlers:
-        if handler.__class__.__name__ == "Qwen3TTSHandler":
+        class_name = handler.__class__.__name__
+        if class_name in SUPPORTED_TTS_HANDLERS:
             set_tts_handler(handler)
-            logger.debug("Registered Qwen3TTSHandler for runtime voice switching")
+            logger.debug("Registered %s for runtime voice switching", class_name)
             return
+
+
+def _apply_voice_to_handler(handler: Any, profile: VoiceProfile) -> None:
+    """Apply a voice profile to the live TTS handler."""
+    class_name = handler.__class__.__name__
+    audio_path = profile.audio_path
+    audio_value = str(audio_path)
+
+    if class_name == "Qwen3TTSHandler":
+        handler.ref_audio = audio_path
+        handler.ref_text = profile.ref_text
+        handler.voice_clone_prompt = None
+        refresh_voice_clone_prompt(handler)
+        logger.info("Applied voice %r to Qwen3 TTS handler", profile.id)
+        return
+
+    if class_name == "PocketTTSHandler":
+        handler.voice = audio_value
+        model = getattr(handler, "model", None)
+        if model is not None:
+            handler.voice_state = model.get_state_for_audio_prompt(audio_value)
+            logger.info("Applied voice %r to Pocket TTS handler", profile.id)
+        else:
+            logger.info(
+                "Queued voice %r for Pocket TTS handler (model not loaded yet)",
+                profile.id,
+            )
+        return
+
+    logger.warning(
+        "TTS handler %s is not supported for runtime voice switching; updated session only",
+        class_name,
+    )
 
 
 def apply_voice(
@@ -40,14 +78,11 @@ def apply_voice(
 ) -> VoiceProfile:
     """Apply a named voice to runtime config and the TTS handler atomically."""
     profile = get_voice(voice_id)
-    audio_path = profile.audio_path
-    audio_value = str(audio_path)
+    audio_value = str(profile.audio_path)
     handler = tts_handler if tts_handler is not None else get_tts_handler()
 
     if handler is not None:
-        handler.ref_audio = audio_path
-        handler.ref_text = profile.ref_text
-        logger.info("Applied voice %r to TTS handler", profile.id)
+        _apply_voice_to_handler(handler, profile)
 
     if runtime_config is not None:
         session = runtime_config.session
@@ -60,3 +95,12 @@ def apply_voice(
         raise ValueError("apply_voice requires runtime_config and/or an available TTS handler")
 
     return profile
+
+
+def apply_startup_voice(*, runtime_config: RuntimeConfig | None = None) -> VoiceProfile | None:
+    """Wire the active personality's voice into session config and the TTS handler."""
+    if runtime_config is None:
+        return None
+
+    profile = get_active_personality()
+    return apply_voice(profile.voice_id, runtime_config=runtime_config, tts_handler=get_tts_handler())
