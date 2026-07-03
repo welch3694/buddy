@@ -94,6 +94,7 @@ buddy/
 ├── start-llama-server-speech.bat
 ├── voices/                   # Named voice clone pairs (audio.wav + ref_text.txt)
 ├── personalities/            # Shipped personality templates (seeded into data dir)
+├── skills/                   # Global built-in skills (read-only at runtime)
 └── buddy_tools/              # Local tool integration (memory, camera, screen, …)
 ```
 

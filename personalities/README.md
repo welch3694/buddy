@@ -52,7 +52,16 @@ The `id` must match the folder name. `voice_id` must reference a valid voice in 
 
 ## Skills (Agent Skills layout)
 
-Each personality may define repeatable skills under `{data_dir}/personalities/{id}/skills/{skill-name}/`:
+Skills are guided workflows the model can run step-by-step. They come from two places:
+
+| Source | Location | Notes |
+|--------|----------|-------|
+| **Built-in** | Repo `skills/` | Cross-persona platform workflows; read-only at runtime |
+| **Persona** | `{data_dir}/personalities/{id}/skills/` | Optional per-persona or agent-authored skills |
+
+Built-ins are **not** copied into the data dir — they load from the repo on every lookup. See `skills/README.md` for collision policy and mutability rules.
+
+Each personality may define optional skills under `{data_dir}/personalities/{id}/skills/{skill-name}/`:
 
 ```
 personalities/coach/skills/
@@ -101,7 +110,7 @@ Put on headphones to avoid feedback.
 
 Active skill progress is stored in `{BUDDY_DATA_DIR}/memory/{namespace}/skill_state.json` (not global memory). Switching away from a persona mid-checklist preserves state in that persona's namespace; switching back allows resume.
 
-Skill tools (`list_skills`, `start_skill`, `advance_skill`, etc.) are registered globally but resolve against the **active** personality's `skills/` folder in the data dir.
+Skill tools (`list_skills`, `start_skill`, `advance_skill`, etc.) are registered globally. Discovery merges **built-in** skills from repo `skills/` with the **active** personality's `skills/` folder in the data dir; persona skills override built-ins when names collide.
 
 ## Adding a personality
 

@@ -10,12 +10,14 @@ from pathlib import Path
 from buddy_tools import personality as personality_module
 from buddy_tools import voices as voices_module
 from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.personality import create_personality, get_personality, set_personalities_dir
+from buddy_tools.data_dir import get_built_in_skills_dir, reset_data_dir_config
+from buddy_tools.personality import create_personality, get_personality, set_active_personality, set_personalities_dir
 from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
 from buddy_tools.skills import (
     discover_skills,
     execute_skill_tool,
+    get_skill_definition,
     load_skill_definition,
     load_skill_state,
     save_skill_state,
@@ -88,13 +90,17 @@ class SkillToolTests(unittest.TestCase):
 
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
         self.personalities_root = self.root / "personalities"
         self.voices_root = self.root / "voices"
         self.memory_root = self.root / "memory"
+        self.repo_root.mkdir()
+        (self.repo_root / "skills").mkdir()
         self.personalities_root.mkdir()
         self.voices_root.mkdir()
         self.memory_root.mkdir()
 
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.root / "data")
         set_personalities_dir(self.personalities_root)
         set_voices_dir(self.voices_root)
         set_memory_root(self.memory_root)
@@ -106,6 +112,7 @@ class SkillToolTests(unittest.TestCase):
         self._write_checklist_skill("coach", "equipment-setup")
 
     def tearDown(self) -> None:
+        reset_data_dir_config()
         set_personalities_dir(self._original_personalities_dir)
         set_voices_dir(self._original_voices_dir)
         if self._original_memory_root is not None:
@@ -298,6 +305,157 @@ class SkillToolTests(unittest.TestCase):
         names = [s.name for s in skills]
         self.assertIn("equipment-setup", names)
         self.assertNotIn("bad-skill", names)
+
+
+class GlobalBuiltinSkillTests(unittest.TestCase):
+    BUILTIN_SKILL = """\
+---
+name: edit-personality
+description: Safely update prompt.md with persona-only content.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Edit personality
+
+## Steps
+
+### confirm-target
+Which personality are we editing?
+
+### confirm-changes
+What should change?
+"""
+
+    PERSONA_OVERRIDE_SKILL = """\
+---
+name: edit-personality
+description: Persona-specific override for edit-personality.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Persona edit personality
+
+## Steps
+
+### step-one
+Persona override step.
+"""
+
+    def setUp(self) -> None:
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = None
+        from buddy_tools.bootstrap import get_memory_root
+
+        self._original_memory_root = get_memory_root()
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
+        self.personalities_root = self.root / "data" / "personalities"
+        self.voices_root = self.root / "voices"
+        self.memory_root = self.root / "data" / "memory"
+        self.builtin_skills_root = self.repo_root / "skills"
+
+        for path in (self.personalities_root, self.voices_root, self.memory_root):
+            path.mkdir(parents=True)
+        self.builtin_skills_root.mkdir(parents=True)
+
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.root / "data")
+        set_personalities_dir(self.personalities_root)
+        set_voices_dir(self.voices_root)
+        set_memory_root(self.memory_root)
+
+        self._write_voice("cliff")
+        create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
+        self._write_builtin_skill("edit-personality", self.BUILTIN_SKILL)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        set_voices_dir(self._original_voices_dir)
+        if self._original_memory_root is not None:
+            set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def _write_voice(self, voice_id: str) -> None:
+        voice_dir = self.voices_root / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(f"{voice_id} transcript", encoding="utf-8")
+
+    def _write_builtin_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.builtin_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def _write_persona_skill(self, personality_id: str, skill_name: str, content: str) -> None:
+        skill_dir = self.personalities_root / personality_id / "skills" / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_builtin_skills_dir_points_at_repo_skills(self) -> None:
+        self.assertEqual(get_built_in_skills_dir(), self.repo_root / "skills")
+
+    def test_discover_builtin_without_persona_skills_dir(self) -> None:
+        profile = get_personality("buddy")
+        self.assertFalse((profile.directory / "skills").exists())
+
+        skills = discover_skills(profile)
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].name, "edit-personality")
+        self.assertEqual(skills[0].source, "builtin")
+
+    def test_list_skills_tags_source(self) -> None:
+        set_active_personality("buddy")
+        result = execute_skill_tool(self.memory_root, "buddy", "list_skills", {})
+        payload = json.loads(result.output)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["source"], "builtin")
+
+    def test_start_builtin_skill_without_persona_copy(self) -> None:
+        set_active_personality("buddy")
+        started = execute_skill_tool(
+            self.memory_root,
+            "buddy",
+            "start_skill",
+            {"name": "edit-personality"},
+        )
+        self.assertIn("Started", started.output)
+        self.assertIn("confirm-target", started.output)
+
+    def test_get_skill_definition_resolves_builtin(self) -> None:
+        profile = get_personality("buddy")
+        skill = get_skill_definition(profile, "edit-personality")
+        self.assertEqual(skill.source, "builtin")
+        self.assertEqual(skill.name, "edit-personality")
+
+    def test_persona_skill_overrides_builtin_on_collision(self) -> None:
+        self._write_persona_skill("buddy", "edit-personality", self.PERSONA_OVERRIDE_SKILL)
+
+        profile = get_personality("buddy")
+        skills = discover_skills(profile)
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].source, "personality")
+        self.assertIn("Persona-specific override", skills[0].description)
+
+        skill = get_skill_definition(profile, "edit-personality")
+        self.assertEqual(skill.source, "personality")
+        self.assertIn("Persona override step", skill.steps[0].prompt)
+
+    def test_repo_edit_personality_skill_is_valid(self) -> None:
+        project_root = Path(__file__).resolve().parent.parent
+        skill_dir = project_root / "skills" / "edit-personality"
+        skill = load_skill_definition(skill_dir, source="builtin")
+        self.assertEqual(skill.name, "edit-personality")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertGreaterEqual(len(skill.steps), 2)
+        refs = skill_dir / "references" / "prompt-guidelines.md"
+        self.assertTrue(refs.is_file())
 
 
 if __name__ == "__main__":
