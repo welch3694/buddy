@@ -36,7 +36,10 @@ env/
 !.env.example
 
 # IDE and editor
-.cursor/
+.cursor/artifacts/*
+.cursor/debug.log
+.cursor/tmp/
+.cursor/plans/
 .vscode/
 .idea/
 *.swp
