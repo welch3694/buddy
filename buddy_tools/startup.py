@@ -33,6 +33,9 @@ def build_init_instructions() -> str:
 
 def resolve_startup_config() -> dict[str, Any]:
     """Return startup settings for the active personality and its voice."""
+    from buddy_tools.data_dir import configure_user_data
+
+    data_dir = configure_user_data()
     profile = get_active_personality()
     audio_path, ref_text = resolve_voice(profile.voice_id)
     return {
@@ -42,4 +45,5 @@ def resolve_startup_config() -> dict[str, Any]:
         "init_chat_prompt": build_voice_system_prompt(profile.prompt),
         "audio": str(audio_path),
         "ref_text": ref_text,
+        "data_dir": str(data_dir),
     }
