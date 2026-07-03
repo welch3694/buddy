@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import Any
 
 from buddy_tools.bootstrap import insert_local_tool_executor
+from buddy_tools.voice_clone import refresh_voice_clone_prompt, voice_clone_log_context
 from buddy_tools.voices import ref_text_for_audio_path
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ def _patch_qwen3_ref_text_sync() -> None:
         runtime_config: Any | None = None,
         response: Any | None = None,
     ) -> None:
+        previous_ref_audio = self.ref_audio
         original_apply(self, model_type, runtime_config, response)
         if self.ref_audio is None:
             return
@@ -39,10 +42,79 @@ def _patch_qwen3_ref_text_sync() -> None:
             return
 
         self.ref_text = ref_text
+        if self.ref_audio != previous_ref_audio:
+            self.voice_clone_prompt = None
+            refresh_voice_clone_prompt(self)
         logger.debug("Synced Qwen3-TTS ref_text from voice folder for %r", self.ref_audio)
 
     Qwen3TTSHandler._apply_session_voice_override = _apply_session_voice_override_with_ref_text  # type: ignore[method-assign]
     Qwen3TTSHandler._buddy_ref_text_patch_applied = True
+
+
+def _patch_qwen3_voice_clone_stability() -> None:
+    from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
+
+    if getattr(Qwen3TTSHandler, "_buddy_voice_clone_patch_applied", False):
+        return
+
+    original_warmup = Qwen3TTSHandler.warmup
+    original_process_voice_clone = Qwen3TTSHandler._process_voice_clone
+
+    def warmup_with_prompt_cache(self: Any) -> None:
+        original_warmup(self)
+        refresh_voice_clone_prompt(self)
+
+    def _process_voice_clone_with_cached_prompt(self: Any, text: str) -> Iterator[Any]:
+        if self.ref_audio is not None:
+            if getattr(self, "voice_clone_prompt", None) is None:
+                refresh_voice_clone_prompt(self)
+            logger.info("Qwen3-TTS synthesizing with %s", voice_clone_log_context(self))
+
+        if self.backend == "mlx":
+            yield from original_process_voice_clone(self, text)
+            return
+
+        utterance_max_new_tokens = self._estimate_max_new_tokens(text)
+        voice_clone_prompt = getattr(self, "voice_clone_prompt", None)
+        yield from self._stream(
+            self.model.generate_voice_clone_streaming(
+                text=text,
+                language=self.language,
+                ref_audio=self.ref_audio,
+                ref_text=self.ref_text,
+                xvec_only=self.xvec_only,
+                chunk_size=self.streaming_chunk_size,
+                max_new_tokens=utterance_max_new_tokens,
+                parity_mode=self.parity_mode,
+                non_streaming_mode=self.non_streaming_mode,
+                voice_clone_prompt=voice_clone_prompt,
+            ),
+            label="voice_clone_parity" if self.parity_mode else "voice_clone",
+        )
+
+    Qwen3TTSHandler.warmup = warmup_with_prompt_cache  # type: ignore[method-assign]
+    Qwen3TTSHandler._process_voice_clone = _process_voice_clone_with_cached_prompt  # type: ignore[method-assign]
+    Qwen3TTSHandler._buddy_voice_clone_patch_applied = True
+
+
+def _patch_pocket_tts_voice_logging() -> None:
+    from speech_to_speech.TTS.pocket_tts_handler import PocketTTSHandler
+    from speech_to_speech.pipeline.messages import EndOfResponse
+
+    if getattr(PocketTTSHandler, "_buddy_voice_log_patch_applied", False):
+        return
+
+    original_process = PocketTTSHandler.process
+
+    def process_with_voice_log(self: Any, tts_input: Any) -> Iterator[Any]:
+        if not isinstance(tts_input, EndOfResponse):
+            voice = getattr(self, "voice", None)
+            if voice is not None:
+                logger.info("Pocket TTS synthesizing with voice=%r", voice)
+        yield from original_process(self, tts_input)
+
+    PocketTTSHandler.process = process_with_voice_log  # type: ignore[method-assign]
+    PocketTTSHandler._buddy_voice_log_patch_applied = True
 
 
 def apply_patches() -> None:
@@ -52,6 +124,8 @@ def apply_patches() -> None:
         return
 
     _patch_qwen3_ref_text_sync()
+    _patch_qwen3_voice_clone_stability()
+    _patch_pocket_tts_voice_logging()
 
     original_build = pipeline._build_pipeline_handlers
 
