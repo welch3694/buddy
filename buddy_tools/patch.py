@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from buddy_tools.bootstrap import insert_local_tool_executor
+from buddy_tools.listening_pause import configure_listening_pause, process_transcription_with_listening_pause
 from buddy_tools.voice_clone import refresh_voice_clone_prompt, voice_clone_log_context
 from buddy_tools.voices import ref_text_for_audio_path
 
@@ -117,6 +118,43 @@ def _patch_pocket_tts_voice_logging() -> None:
     PocketTTSHandler._buddy_voice_log_patch_applied = True
 
 
+def _patch_transcription_notifier_listening_pause() -> None:
+    from speech_to_speech.STT.transcription_notifier import TranscriptionNotifier
+
+    if getattr(TranscriptionNotifier, "_buddy_listening_pause_patch_applied", False):
+        return
+
+    original_process = TranscriptionNotifier.process
+
+    def process_with_listening_pause(self: Any, transcription: Any) -> Iterator[Any]:
+        gated = process_transcription_with_listening_pause(self, transcription)
+        if gated is not None:
+            yield from gated
+            return
+        yield from original_process(self, transcription)
+
+    TranscriptionNotifier.process = process_with_listening_pause  # type: ignore[method-assign]
+    TranscriptionNotifier._buddy_listening_pause_patch_applied = True
+
+
+def _configure_listening_pause_from_handlers(
+    handlers: list[Any],
+    *,
+    should_listen: Any | None,
+) -> None:
+    cancel_scope = None
+    for handler in handlers:
+        handler_cancel_scope = getattr(handler, "cancel_scope", None)
+        if handler_cancel_scope is not None:
+            cancel_scope = handler_cancel_scope
+            break
+
+    configure_listening_pause(
+        cancel_scope=cancel_scope,
+        should_listen=should_listen,
+    )
+
+
 def apply_patches() -> None:
     import speech_to_speech.s2s_pipeline as pipeline
 
@@ -126,11 +164,16 @@ def apply_patches() -> None:
     _patch_qwen3_ref_text_sync()
     _patch_qwen3_voice_clone_stability()
     _patch_pocket_tts_voice_logging()
+    _patch_transcription_notifier_listening_pause()
 
     original_build = pipeline._build_pipeline_handlers
 
     def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
         handlers = original_build(*args, **kwargs)
+        _configure_listening_pause_from_handlers(
+            handlers,
+            should_listen=kwargs.get("should_listen"),
+        )
         return insert_local_tool_executor(
             handlers,
             stop_event=kwargs["stop_event"],

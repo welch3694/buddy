@@ -10,6 +10,7 @@ from typing import Any
 from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
+from buddy_tools.listening_pause import build_listening_pause_instructions
 from buddy_tools.memory import (
     MEMORY_TOOL_DEFINITIONS,
     MEMORY_TOOL_NAMES,
@@ -41,6 +42,7 @@ def build_tool_instructions(base_prompt: str, memory_summary: str) -> str:
         f"{base_prompt.strip()}\n\n"
         f"{build_memory_instructions()}\n\n"
         f"{build_personality_instructions()}\n\n"
+        f"{build_listening_pause_instructions()}\n\n"
         "You can see through the user's webcam with capture_camera. Call it when they ask what you "
         "see, what is in front of you, to look at something, or to describe their surroundings. "
         "After capturing, describe what you see in natural spoken language without mentioning "
