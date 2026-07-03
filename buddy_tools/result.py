@@ -10,3 +10,5 @@ class ToolExecutionResult:
     output: str
     image_data_uri: str | None = None
     image_caption: str | None = None
+    personality_switch_id: str | None = None
+    voice_switch_id: str | None = None
