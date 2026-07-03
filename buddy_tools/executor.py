@@ -19,8 +19,9 @@ from speech_to_speech.pipeline.handler_types import LLMIn, LLMOut, TTSIn
 from speech_to_speech.pipeline.messages import EndOfResponse, GenerateResponseRequest, LLMResponseChunk
 from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
 
+from buddy_tools.personality import get_active_personality
 from buddy_tools.personality_session import apply_personality_switch
-from buddy_tools.registry import execute_tool
+from buddy_tools.registry import execute_tool, refresh_session_instructions
 from buddy_tools.result import ToolExecutionResult
 from buddy_tools.voice_session import apply_voice
 
@@ -110,6 +111,20 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 except (FileNotFoundError, ValueError) as exc:
                     logger.exception("Voice switch failed")
                     result = ToolExecutionResult(output=f"Error: could not switch voice: {exc}")
+
+            if result.refresh_instructions:
+                try:
+                    profile = get_active_personality()
+                    refresh_session_instructions(
+                        runtime_config,
+                        memory_root=self.memory_root,
+                        persona_namespace=self.persona_namespace,
+                        personality_id=profile.id,
+                        include_full_skill_body=result.include_full_skill_body,
+                    )
+                except (FileNotFoundError, ValueError, OSError) as exc:
+                    logger.exception("Session instruction refresh failed")
+                    logger.warning("Could not refresh instructions after %s: %s", tool.name, exc)
 
             if not skip_chat_record:
                 output_item = RealtimeConversationItemFunctionCallOutput(

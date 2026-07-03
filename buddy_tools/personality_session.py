@@ -40,7 +40,13 @@ def apply_personality_switch(
     memory_root.mkdir(parents=True, exist_ok=True)
     summary = load_memory_summary(memory_root, profile.memory_namespace)
     base = build_voice_system_prompt(profile.prompt)
-    runtime_config.session.instructions = build_tool_instructions(base, summary)
+    runtime_config.session.instructions = build_tool_instructions(
+        base,
+        summary,
+        memory_root=memory_root,
+        persona_namespace=profile.memory_namespace,
+        personality_id=profile.id,
+    )
 
     apply_voice(profile.voice_id, runtime_config=runtime_config)
     reset_chat_history(chat)
