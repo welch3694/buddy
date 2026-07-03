@@ -35,11 +35,16 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
     def setup(
         self,
         text_prompt_queue: Queue[LLMIn] | None = None,
-        memory_dir: str | Path | None = None,
+        memory_root: str | Path | None = None,
+        persona_namespace: str | None = None,
         speculative_turns: SpeculativeTurnTracker | None = None,
+        *,
+        memory_dir: str | Path | None = None,
     ) -> None:
         self.text_prompt_queue = text_prompt_queue
-        self.memory_dir = Path(memory_dir) if memory_dir else Path("memory")
+        legacy_root = memory_dir or memory_root
+        self.memory_root = Path(legacy_root) if legacy_root else Path("memory")
+        self.persona_namespace = persona_namespace or "buddy"
         self.speculative_turns = speculative_turns
         self._pending_tools: list[ResponseFunctionToolCall] = []
         self._pending_context: GenerateResponseRequest | None = None
@@ -73,7 +78,12 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         chat = runtime_config.chat
 
         for tool in self._pending_tools:
-            result = execute_tool(self.memory_dir, tool.name, tool.arguments)
+            result = execute_tool(
+                self.memory_root,
+                tool.name,
+                tool.arguments,
+                persona_namespace=self.persona_namespace,
+            )
             logger.info("Executed tool %s -> %s", tool.name, result.output[:120])
             skip_chat_record = False
 
@@ -83,8 +93,9 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                         result.personality_switch_id,
                         runtime_config=runtime_config,
                         chat=chat,
-                        memory_dir=self.memory_dir,
+                        memory_root=self.memory_root,
                     )
+                    self.persona_namespace = profile.memory_namespace
                     result = ToolExecutionResult(output=f"Now speaking as {profile.name}.")
                     # Chat was reset; the function_call is gone so tool output cannot be paired.
                     skip_chat_record = True

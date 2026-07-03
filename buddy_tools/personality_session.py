@@ -31,14 +31,14 @@ def apply_personality_switch(
     *,
     runtime_config: RuntimeConfig,
     chat: Chat,
-    memory_dir: Path,
+    memory_root: Path,
 ) -> PersonalityProfile:
     """Activate a personality, refresh session instructions/voice, and reset chat."""
     set_active_personality(personality_id)
     profile = get_personality(personality_id)
 
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    summary = load_memory_summary(memory_dir)
+    memory_root.mkdir(parents=True, exist_ok=True)
+    summary = load_memory_summary(memory_root, profile.memory_namespace)
     base = build_voice_system_prompt(profile.prompt)
     runtime_config.session.instructions = build_tool_instructions(base, summary)
 

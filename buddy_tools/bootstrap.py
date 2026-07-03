@@ -9,31 +9,43 @@ from typing import Any
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
+from buddy_tools.memory import migrate_legacy_memory
+from buddy_tools.personality import get_active_personality
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 from buddy_tools.startup import build_init_instructions
 from buddy_tools.voice_session import apply_startup_voice, register_pipeline_handlers
 
-_MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory"
+_MEMORY_ROOT = Path(__file__).resolve().parent.parent / "memory"
+
+
+def get_memory_root() -> Path:
+    return _MEMORY_ROOT
+
+
+def set_memory_root(path: Path) -> None:
+    global _MEMORY_ROOT
+    _MEMORY_ROOT = path.resolve()
 
 
 def get_memory_dir() -> Path:
-    return _MEMORY_DIR
+    """Return the memory root directory (legacy name)."""
+    return get_memory_root()
 
 
 def set_memory_dir(path: Path) -> None:
-    global _MEMORY_DIR
-    _MEMORY_DIR = path.resolve()
+    set_memory_root(path)
 
 
-def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_dir: Path | None = None) -> None:
+def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_root: Path | None = None) -> None:
     """Register local tools and preload memory into session instructions."""
     if runtime_config is None:
         return
 
-    root = (memory_dir or _MEMORY_DIR).resolve()
+    root = (memory_root or _MEMORY_ROOT).resolve()
     root.mkdir(parents=True, exist_ok=True)
-
-    summary = load_memory_summary(root)
+    migrate_legacy_memory(root)
+    profile = get_active_personality()
+    summary = load_memory_summary(root, profile.memory_namespace)
     base = build_init_instructions()
     runtime_config.session.instructions = build_tool_instructions(base, summary)
     runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
@@ -53,8 +65,9 @@ def insert_local_tool_executor(
     from buddy_tools.executor import LocalToolExecutor
 
     runtime_config = transcription_notifier_setup.get("runtime_config")
-    memory_dir = get_memory_dir()
-    configure_runtime_tools(runtime_config, memory_dir)
+    memory_root = get_memory_root()
+    profile = get_active_personality()
+    configure_runtime_tools(runtime_config, memory_root)
 
     lm_bridge: Queue[Any] = Queue()
     new_handlers: list[Any] = []
@@ -75,7 +88,8 @@ def insert_local_tool_executor(
                     queue_out=lm_response_queue,
                     setup_kwargs={
                         "text_prompt_queue": text_prompt_queue,
-                        "memory_dir": memory_dir,
+                        "memory_root": memory_root,
+                        "persona_namespace": profile.memory_namespace,
                         "speculative_turns": speculative_turns,
                     },
                 )

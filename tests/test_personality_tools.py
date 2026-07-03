@@ -28,10 +28,10 @@ class PersonalityToolTests(unittest.TestCase):
         self.root = Path(self._tmpdir.name)
         self.personalities_root = self.root / "personalities"
         self.voices_root = self.root / "voices"
-        self.memory_dir = self.root / "memory"
+        self.memory_root = self.root / "memory"
         self.personalities_root.mkdir()
         self.voices_root.mkdir()
-        self.memory_dir.mkdir()
+        self.memory_root.mkdir()
         set_personalities_dir(self.personalities_root)
         set_voices_dir(self.voices_root)
         self._write_voice("cliff")
@@ -81,7 +81,7 @@ class PersonalityToolTests(unittest.TestCase):
         self.assertIn("Deleted personality guide", deleted.output)
 
     def test_execute_tool_dispatches_personality_tools(self) -> None:
-        result = execute_tool(self.memory_dir, "list_voices", "{}")
+        result = execute_tool(self.memory_root, "list_voices", "{}", persona_namespace="buddy")
         payload = json.loads(result.output)
         self.assertIn("cliff", payload["voices"])
 
@@ -94,10 +94,10 @@ class PersonalitySessionTests(unittest.TestCase):
         self.root = Path(self._tmpdir.name)
         self.personalities_root = self.root / "personalities"
         self.voices_root = self.root / "voices"
-        self.memory_dir = self.root / "memory"
+        self.memory_root = self.root / "memory"
         self.personalities_root.mkdir()
         self.voices_root.mkdir()
-        self.memory_dir.mkdir()
+        self.memory_root.mkdir()
         set_personalities_dir(self.personalities_root)
         set_voices_dir(self.voices_root)
         for voice_id in ("cliff", "narrator"):
@@ -138,7 +138,7 @@ class PersonalitySessionTests(unittest.TestCase):
             "coach",
             runtime_config=runtime_config,
             chat=chat,
-            memory_dir=self.memory_dir,
+            memory_root=self.memory_root,
         )
 
         self.assertEqual(profile.id, "coach")
@@ -172,13 +172,14 @@ class PersonalitySessionTests(unittest.TestCase):
             "coach",
             runtime_config=runtime_config,
             chat=chat,
-            memory_dir=self.memory_dir,
+            memory_root=self.memory_root,
         )
 
         self.assertEqual(chat.buffer, [])
 
     def test_build_tool_instructions_includes_personality_help(self) -> None:
         text = build_tool_instructions("Base prompt.", "(no memory saved yet)")
+        self.assertIn("global", text.lower())
         self.assertIn("switch_personality", text)
         self.assertIn("list_voices", text)
 
