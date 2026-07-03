@@ -63,3 +63,7 @@ htmlcov/
 .cache/
 models/
 *.gguf
+
+# Local-only test voices (never commit)
+voices/jack/
+voices/ron/
