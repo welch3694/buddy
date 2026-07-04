@@ -149,13 +149,9 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     status="completed",
                 )
                 try:
-                    chat.append_tool_output(tool.call_id, output_item)
+                    chat.add_item(output_item)
                 except ChatItemError as exc:
-                    logger.error("Could not append tool output for %s: %s", tool.call_id, exc)
-                    try:
-                        chat.add_item(output_item)
-                    except ChatItemError:
-                        logger.exception("Failed to record tool output for %s", tool.call_id)
+                    logger.error("Could not record tool output for %s: %s", tool.call_id, exc)
 
             if result.image_data_uri:
                 caption = result.image_caption or "Here is the captured image."
