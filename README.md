@@ -79,7 +79,9 @@ On first run, shipped personality templates (e.g. `buddy`) are copied into the d
 
 ## Memory and local tools
 
-Facts the assistant should remember across sessions are stored as markdown files under `{BUDDY_DATA_DIR}/memory/`. The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
+Facts the assistant should remember across sessions are stored as markdown files under `{BUDDY_DATA_DIR}/memory/`. Global notes (`memory/global/`) are shared across personas; persona notes (`memory/{persona}/`) are scoped to the active personality. The built-in **remember** skill (`skills/remember/`) guides a voice-friendly flow when the user says "remember that…" — confirm the fact, choose everyone vs between us, then save via memory tools.
+
+The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
 
 - **Memory:** `list_memory`, `read_memory`, `update_memory`, `append_memory`, `write_memory`
 - **Personalities:** `list_personalities`, `list_voices`, `switch_personality`, `switch_voice`, `create_personality`, `update_personality`, `delete_personality`

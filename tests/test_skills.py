@@ -458,6 +458,122 @@ Persona override step.
         self.assertTrue(refs.is_file())
 
 
+class RememberSkillTests(unittest.TestCase):
+    REMEMBER_SKILL = """\
+---
+name: remember
+description: Save a fact with global vs persona scope. Use when the user says remember that.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Remember
+
+## Steps
+
+### confirm-fact
+Restate and confirm.
+
+### choose-scope
+Share with everyone or keep it between us?
+
+### save-memory
+Use update_memory or append_memory with scope global or persona.
+
+### confirm-saved
+Confirm where it was saved.
+"""
+
+    def setUp(self) -> None:
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = None
+        from buddy_tools.bootstrap import get_memory_root
+
+        self._original_memory_root = get_memory_root()
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
+        self.personalities_root = self.root / "data" / "personalities"
+        self.voices_root = self.root / "voices"
+        self.memory_root = self.root / "data" / "memory"
+        self.builtin_skills_root = self.repo_root / "skills"
+
+        for path in (self.personalities_root, self.voices_root, self.memory_root):
+            path.mkdir(parents=True)
+        self.builtin_skills_root.mkdir(parents=True)
+
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.root / "data")
+        set_personalities_dir(self.personalities_root)
+        set_voices_dir(self.voices_root)
+        set_memory_root(self.memory_root)
+
+        self._write_voice("cliff")
+        self._write_voice("narrator")
+        create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
+        create_personality("coach", "Coach", "You are Coach.", voice_id="narrator")
+        self._write_builtin_skill("remember", self.REMEMBER_SKILL)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        set_voices_dir(self._original_voices_dir)
+        if self._original_memory_root is not None:
+            set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def _write_voice(self, voice_id: str) -> None:
+        voice_dir = self.voices_root / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(f"{voice_id} transcript", encoding="utf-8")
+
+    def _write_builtin_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.builtin_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_remember_skill_discoverable_for_all_personalities(self) -> None:
+        for personality_id in ("buddy", "coach"):
+            profile = get_personality(personality_id)
+            skills = discover_skills(profile)
+            names = {skill.name: skill.source for skill in skills}
+            self.assertIn("remember", names)
+            self.assertEqual(names["remember"], "builtin")
+
+    def test_list_skills_includes_remember_as_builtin(self) -> None:
+        set_active_personality("buddy")
+        result = execute_skill_tool(self.memory_root, "buddy", "list_skills", {})
+        payload = json.loads(result.output)
+        remember_entries = [entry for entry in payload if entry["name"] == "remember"]
+        self.assertEqual(len(remember_entries), 1)
+        self.assertEqual(remember_entries[0]["source"], "builtin")
+
+    def test_repo_remember_skill_is_valid_and_covers_scope(self) -> None:
+        project_root = Path(__file__).resolve().parent.parent
+        skill_dir = project_root / "skills" / "remember"
+        skill = load_skill_definition(skill_dir, source="builtin")
+        self.assertEqual(skill.name, "remember")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertEqual(len(skill.steps), 4)
+        self.assertEqual(skill.steps[0].step_id, "confirm-fact")
+        self.assertEqual(skill.steps[1].step_id, "choose-scope")
+
+        body_lower = skill.body.lower()
+        self.assertIn("share with everyone", body_lower)
+        self.assertIn("between us", body_lower)
+        self.assertIn("append_memory", skill.body)
+        self.assertIn("update_memory", skill.body)
+        self.assertIn("scope: global", body_lower)
+        self.assertIn("scope: persona", body_lower)
+
+        description_lower = skill.description.lower()
+        self.assertIn("remember", description_lower)
+        self.assertIn("start_skill", description_lower)
+
+
 class SharedUserSkillTests(unittest.TestCase):
     SHARED_SKILL_ALL = """\
 ---

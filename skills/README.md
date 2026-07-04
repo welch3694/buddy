@@ -56,6 +56,15 @@ Built-in skills are **read-only platform capabilities**:
 
 User-authored skills belong under `{BUDDY_DATA_DIR}/skills/` (shared, with optional scoping) or `{BUDDY_DATA_DIR}/personalities/{id}/skills/` (persona-only). To customize a built-in workflow, create a shared or persona-scoped skill with the same name (override) or a new name (fork).
 
+## Shipped built-ins
+
+| Skill | Purpose |
+|-------|---------|
+| `edit-personality` | Safe guided edit of a persona's `prompt.md` |
+| `remember` | Save a user fact with explicit global vs persona scope ("share with everyone" / "keep it between us") |
+
+The **remember** skill auto-starts when the user says "remember that", "don't forget", or similar — the model calls `start_skill` with name `remember` rather than saving memory directly. It uses existing `append_memory` / `update_memory` tools with `scope: global` or `scope: persona`; no separate persistence layer.
+
 ## Adding a built-in skill
 
 1. Create `skills/{skill-name}/SKILL.md` with valid frontmatter (`name` must match the directory)
