@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -13,7 +14,7 @@ import yaml
 from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.memory import persona_memory_dir
-from buddy_tools.personality import PersonalityProfile, get_active_personality
+from buddy_tools.personality import PersonalityProfile, get_active_personality, get_personality
 from buddy_tools.result import ToolExecutionResult
 from buddy_tools.timers import cancel_timers_for_skill
 from buddy_tools.tool_logging import safe_tool_context, tool_error
@@ -115,6 +116,115 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         description="Cancel the active skill and clear all progress.",
         parameters={"type": "object", "properties": {}},
     ),
+    RealtimeFunctionTool(
+        type="function",
+        name="create_skill",
+        description=(
+            "Create a new skill on disk. By default writes under the active personality's "
+            "skills/ folder; use scope shared only when the user wants a cross-persona skill."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Skill id (lowercase letters, digits, hyphens), e.g. director-flow",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "When-to-use description for skill discovery",
+                },
+                "body": {
+                    "type": "string",
+                    "description": (
+                        "Markdown body after frontmatter, or a full SKILL.md including --- frontmatter"
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["persona", "shared"],
+                    "description": "persona (default) or shared for cross-persona placement",
+                },
+                "personality_id": {
+                    "type": "string",
+                    "description": (
+                        "Target personality for persona scope (default active); for shared scope, "
+                        "limits visibility to this personality when set"
+                    ),
+                },
+                "skill_type": {
+                    "type": "string",
+                    "enum": ["checklist", "generic"],
+                    "description": "checklist requires ## Steps with ### step ids",
+                },
+            },
+            "required": ["name", "description", "body"],
+        },
+    ),
+    RealtimeFunctionTool(
+        type="function",
+        name="update_skill",
+        description=(
+            "Update an existing persona or shared skill's SKILL.md. Cannot modify built-in skills."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Skill name to update",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "New when-to-use description",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "New markdown body or full SKILL.md content",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["persona", "shared"],
+                    "description": "Which layer to update; defaults to highest-precedence match",
+                },
+                "personality_id": {
+                    "type": "string",
+                    "description": "Personality for persona scope or shared personality filter",
+                },
+                "skill_type": {
+                    "type": "string",
+                    "enum": ["checklist", "generic"],
+                },
+            },
+            "required": ["name"],
+        },
+    ),
+    RealtimeFunctionTool(
+        type="function",
+        name="delete_skill",
+        description=(
+            "Delete a persona or shared skill directory. Cannot delete built-in skills."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Skill name to delete",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["persona", "shared"],
+                    "description": "Which layer to delete; defaults to highest-precedence match",
+                },
+                "personality_id": {
+                    "type": "string",
+                    "description": "Personality for persona scope",
+                },
+            },
+            "required": ["name"],
+        },
+    ),
 ]
 
 SKILL_TOOL_NAMES = frozenset(tool.name for tool in SKILL_TOOL_DEFINITIONS)
@@ -207,6 +317,218 @@ def _validate_description(description: str) -> None:
         raise ValueError("Skill description is required")
     if len(description) > 1024:
         raise ValueError("Skill description exceeds 1024 characters")
+
+
+def _normalize_scope(raw_scope: str) -> Literal["persona", "shared"]:
+    scope = raw_scope.strip().lower() if raw_scope else "persona"
+    if scope not in ("persona", "shared"):
+        raise ValueError(f"Invalid skill scope: {raw_scope!r}")
+    return scope  # type: ignore[return-value]
+
+
+def _normalize_skill_type(raw_type: str) -> SkillType:
+    skill_type = raw_type.strip().lower() if raw_type else "generic"
+    if skill_type not in ("checklist", "generic"):
+        raise ValueError(f"Invalid skill type: {raw_type!r}")
+    return skill_type  # type: ignore[return-value]
+
+
+def _resolve_target_personality(personality_id: str) -> PersonalityProfile:
+    cleaned = personality_id.strip()
+    if cleaned:
+        return get_personality(cleaned)
+    return get_active_personality()
+
+
+def _skill_dir_for_scope(
+    scope: Literal["persona", "shared"],
+    name: str,
+    personality: PersonalityProfile,
+) -> tuple[Path, SkillSource]:
+    if scope == "persona":
+        return personality.directory / "skills" / name, "personality"
+    return _user_skills_dir() / name, "shared"
+
+
+def _compose_skill_md(
+    name: str,
+    description: str,
+    body: str,
+    *,
+    skill_type: SkillType = "generic",
+    personalities: frozenset[str] | None = None,
+) -> str:
+    stripped = body.strip()
+    if stripped.startswith("---"):
+        return stripped
+
+    buddy_lines: list[str] = []
+    if skill_type == "checklist":
+        buddy_lines.append("    type: checklist")
+    if personalities is not None:
+        ids = sorted(personalities)
+        buddy_lines.append(f"    personalities: {json.dumps(ids)}")
+
+    metadata_block = ""
+    if buddy_lines:
+        metadata_block = "metadata:\n  buddy:\n" + "\n".join(buddy_lines) + "\n"
+
+    return (
+        f"---\n"
+        f"name: {name}\n"
+        f"description: {description.strip()}\n"
+        f"{metadata_block}"
+        f"---\n\n"
+        f"{stripped}\n"
+    )
+
+
+def _write_and_validate_skill(
+    content: str,
+    skill_dir: Path,
+    source: SkillSource,
+    *,
+    is_new: bool = False,
+) -> SkillDefinition:
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_path = skill_dir / _SKILL_FILENAME
+    previous = skill_path.read_text(encoding="utf-8") if skill_path.is_file() and not is_new else None
+    skill_path.write_text(content, encoding="utf-8")
+    try:
+        return load_skill_definition(skill_dir, source=source)
+    except Exception:
+        if previous is not None:
+            skill_path.write_text(previous, encoding="utf-8")
+        else:
+            skill_path.unlink(missing_ok=True)
+            if skill_dir.is_dir() and not any(skill_dir.iterdir()):
+                skill_dir.rmdir()
+        raise
+
+
+def create_skill(
+    name: str,
+    description: str,
+    body: str,
+    *,
+    scope: str = "persona",
+    personality_id: str = "",
+    skill_type: str = "generic",
+) -> SkillDefinition:
+    sanitized = _sanitize_skill_name(name)
+    _validate_description(description)
+    normalized_scope = _normalize_scope(scope)
+    normalized_type = _normalize_skill_type(skill_type)
+    personality = _resolve_target_personality(personality_id)
+
+    shared_personalities: frozenset[str] | None = None
+    if normalized_scope == "shared" and personality_id.strip():
+        shared_personalities = frozenset({personality.id})
+
+    skill_dir, source = _skill_dir_for_scope(normalized_scope, sanitized, personality)
+    if (skill_dir / _SKILL_FILENAME).is_file():
+        raise FileExistsError(f"Skill {sanitized!r} already exists at {skill_dir}")
+
+    content = _compose_skill_md(
+        sanitized,
+        description,
+        body,
+        skill_type=normalized_type,
+        personalities=shared_personalities,
+    )
+    skill = _write_and_validate_skill(content, skill_dir, source, is_new=True)
+    logger.info(
+        "Created skill %r at %s (source=%s)",
+        skill.name,
+        skill.directory,
+        skill.source,
+    )
+    return skill
+
+
+def _find_writable_skill_dir(
+    personality: PersonalityProfile,
+    skill_name: str,
+    *,
+    scope: str = "",
+) -> tuple[Path, SkillSource]:
+    sanitized = _sanitize_skill_name(skill_name)
+    if scope:
+        normalized = _normalize_scope(scope)
+        skill_dir, source = _skill_dir_for_scope(normalized, sanitized, personality)
+        if not (skill_dir / _SKILL_FILENAME).is_file():
+            raise FileNotFoundError(f"Skill {skill_name!r} not found at {source} scope")
+        if source == "builtin":
+            raise ValueError(f"Cannot modify built-in skill {skill_name!r}")
+        return skill_dir, source
+
+    persona_dir = personality.directory / "skills" / sanitized
+    if (persona_dir / _SKILL_FILENAME).is_file():
+        return persona_dir, "personality"
+
+    shared_dir = _user_skills_dir() / sanitized
+    if (shared_dir / _SKILL_FILENAME).is_file():
+        return shared_dir, "shared"
+
+    raise FileNotFoundError(f"Skill {skill_name!r} not found in persona or shared scope")
+
+
+def update_skill(
+    name: str,
+    *,
+    description: str = "",
+    body: str = "",
+    scope: str = "",
+    personality_id: str = "",
+    skill_type: str = "",
+) -> SkillDefinition:
+    sanitized = _sanitize_skill_name(name)
+    personality = _resolve_target_personality(personality_id)
+    skill_dir, source = _find_writable_skill_dir(personality, sanitized, scope=scope)
+
+    if source == "builtin":
+        raise ValueError(f"Cannot modify built-in skill {sanitized!r}")
+
+    existing = load_skill_definition(skill_dir, source=source)
+    new_description = description.strip() or existing.description
+    _validate_description(new_description)
+    new_body = body.strip() or existing.body
+    new_type = _normalize_skill_type(skill_type) if skill_type.strip() else existing.skill_type
+
+    shared_personalities: frozenset[str] | None = None
+    if source == "shared":
+        try:
+            shared_personalities = _parse_personality_scope(existing.metadata)
+        except ValueError:
+            shared_personalities = None
+
+    content = _compose_skill_md(
+        sanitized,
+        new_description,
+        new_body,
+        skill_type=new_type,
+        personalities=shared_personalities,
+    )
+    skill = _write_and_validate_skill(content, skill_dir, source)
+    logger.info("Updated skill %r at %s", skill.name, skill.directory)
+    return skill
+
+
+def delete_skill(
+    name: str,
+    *,
+    scope: str = "",
+    personality_id: str = "",
+) -> None:
+    sanitized = _sanitize_skill_name(name)
+    personality = _resolve_target_personality(personality_id)
+    skill_dir, source = _find_writable_skill_dir(personality, sanitized, scope=scope)
+
+    if source == "builtin":
+        raise ValueError(f"Cannot delete built-in skill {sanitized!r}")
+
+    shutil.rmtree(skill_dir)
+    logger.info("Deleted skill %r from %s", sanitized, skill_dir)
 
 
 def _parse_checklist_steps(body: str) -> tuple[SkillStep, ...]:
@@ -515,13 +837,17 @@ def build_skill_instructions() -> str:
         "and the active persona:\n"
         "- list_skills: discover available skills (metadata, source: builtin/shared/personality, "
         "and scope for shared skills)\n"
+        "- create_skill: write a new skill to the active persona's skills/ folder by default; "
+        "use scope shared only when the user wants cross-persona placement\n"
+        "- update_skill / delete_skill: change or remove persona or shared skills (not built-ins)\n"
         "- start_skill: begin or resume a skill by name\n"
         "- skill_status: check current step and progress\n"
         "- advance_skill: move to the next checklist step after the user confirms verbally\n"
         "- read_skill_file: load reference material from the active skill when instructions require it\n"
         "- pause_skill / cancel_skill: suspend or abandon the active skill\n"
         "For checklist skills, walk one step at a time. Wait for verbal confirmation before "
-        "calling advance_skill. The tool returns the authoritative next step — do not invent step order."
+        "calling advance_skill. The tool returns the authoritative next step — do not invent step order. "
+        "When authoring skills, prefer persona scope unless the user asks for a shared skill."
     )
 
 
@@ -604,6 +930,15 @@ def execute_skill_tool(
 
     if tool_name == "cancel_skill":
         return _cancel_skill(memory_root, persona_namespace)
+
+    if tool_name == "create_skill":
+        return _create_skill_tool(args)
+
+    if tool_name == "update_skill":
+        return _update_skill_tool(args)
+
+    if tool_name == "delete_skill":
+        return _delete_skill_tool(args)
 
     return tool_error(tool_name, f"unknown skill tool {tool_name!r}")
 
@@ -793,3 +1128,65 @@ def _cancel_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionRes
         output=f"Cancelled skill {state.skill_name!r}.",
         refresh_instructions=True,
     )
+
+
+def _create_skill_tool(args: dict[str, Any]) -> ToolExecutionResult:
+    name = str(args.get("name", "")).strip()
+    description = str(args.get("description", "")).strip()
+    body = str(args.get("body", "")).strip()
+    if not name or not description or not body:
+        return tool_error(
+            "create_skill",
+            "name, description, and body are required",
+            context=safe_tool_context(args),
+        )
+    try:
+        skill = create_skill(
+            name,
+            description,
+            body,
+            scope=str(args.get("scope", "persona")),
+            personality_id=str(args.get("personality_id", "")),
+            skill_type=str(args.get("skill_type", "generic")),
+        )
+    except (ValueError, FileExistsError, OSError) as exc:
+        return tool_error("create_skill", str(exc), context=safe_tool_context(args))
+    return ToolExecutionResult(
+        output=(
+            f"Created skill {skill.name!r} at {skill.directory} "
+            f"(source: {skill.source})."
+        )
+    )
+
+
+def _update_skill_tool(args: dict[str, Any]) -> ToolExecutionResult:
+    name = str(args.get("name", "")).strip()
+    if not name:
+        return tool_error("update_skill", "name is required", context=safe_tool_context(args))
+    try:
+        skill = update_skill(
+            name,
+            description=str(args.get("description", "")),
+            body=str(args.get("body", "")),
+            scope=str(args.get("scope", "")),
+            personality_id=str(args.get("personality_id", "")),
+            skill_type=str(args.get("skill_type", "")),
+        )
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        return tool_error("update_skill", str(exc), context=safe_tool_context(args))
+    return ToolExecutionResult(output=f"Updated skill {skill.name!r} at {skill.directory}.")
+
+
+def _delete_skill_tool(args: dict[str, Any]) -> ToolExecutionResult:
+    name = str(args.get("name", "")).strip()
+    if not name:
+        return tool_error("delete_skill", "name is required", context=safe_tool_context(args))
+    try:
+        delete_skill(
+            name,
+            scope=str(args.get("scope", "")),
+            personality_id=str(args.get("personality_id", "")),
+        )
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        return tool_error("delete_skill", str(exc), context=safe_tool_context(args))
+    return ToolExecutionResult(output=f"Deleted skill {name!r}.")

@@ -139,6 +139,9 @@ class SkillToolTests(unittest.TestCase):
         self.assertIn("start_skill", names)
         self.assertIn("advance_skill", names)
         self.assertIn("cancel_skill", names)
+        self.assertIn("create_skill", names)
+        self.assertIn("update_skill", names)
+        self.assertIn("delete_skill", names)
 
     def test_list_skills_returns_metadata_only(self) -> None:
         from buddy_tools.personality import set_active_personality
@@ -829,6 +832,289 @@ Persona override step.
         self.assertIsNotNone(buddy_state)
         self.assertEqual(coach_state.step_index, 1)
         self.assertEqual(buddy_state.step_index, 0)
+
+
+class CreateSkillToolTests(unittest.TestCase):
+    GENERIC_BODY = """\
+# Director flow
+
+Walk the user through directing a scene.
+"""
+
+    CHECKLIST_BODY = """\
+# Warmup
+
+## Steps
+
+### stretch
+Do a quick stretch.
+
+### breathe
+Take three deep breaths.
+"""
+
+    BUILTIN_SKILL = GlobalBuiltinSkillTests.BUILTIN_SKILL
+
+    def setUp(self) -> None:
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = None
+        from buddy_tools.bootstrap import get_memory_root
+
+        self._original_memory_root = get_memory_root()
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
+        self.data_dir = self.root / "data"
+        self.personalities_root = self.data_dir / "personalities"
+        self.shared_skills_root = self.data_dir / "skills"
+        self.voices_root = self.root / "voices"
+        self.memory_root = self.data_dir / "memory"
+        self.builtin_skills_root = self.repo_root / "skills"
+
+        for path in (
+            self.personalities_root,
+            self.shared_skills_root,
+            self.voices_root,
+            self.memory_root,
+        ):
+            path.mkdir(parents=True)
+        self.builtin_skills_root.mkdir(parents=True)
+
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
+        set_personalities_dir(self.personalities_root)
+        set_voices_dir(self.voices_root)
+        set_memory_root(self.memory_root)
+
+        self._write_voice("cliff")
+        self._write_voice("narrator")
+        create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
+        create_personality("coach", "Coach", "You are Coach.", voice_id="narrator")
+        self._write_builtin_skill("edit-personality", self.BUILTIN_SKILL)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        set_voices_dir(self._original_voices_dir)
+        if self._original_memory_root is not None:
+            set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def _write_voice(self, voice_id: str) -> None:
+        voice_dir = self.voices_root / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(f"{voice_id} transcript", encoding="utf-8")
+
+    def _write_builtin_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.builtin_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_create_skill_defaults_to_persona_path(self) -> None:
+        set_active_personality("coach")
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "director-flow",
+                "description": "Guide scene direction.",
+                "body": self.GENERIC_BODY,
+            },
+        )
+        self.assertIn("Created skill", result.output)
+        self.assertIn("source: personality", result.output)
+
+        skill_path = self.personalities_root / "coach" / "skills" / "director-flow" / "SKILL.md"
+        self.assertTrue(skill_path.is_file())
+        skill = load_skill_definition(skill_path.parent, source="personality")
+        self.assertEqual(skill.name, "director-flow")
+        self.assertEqual(skill.source, "personality")
+
+    def test_create_skill_shared_scope(self) -> None:
+        set_active_personality("coach")
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "shared-warmup",
+                "description": "Warmup for all personas.",
+                "body": self.CHECKLIST_BODY,
+                "scope": "shared",
+                "skill_type": "checklist",
+            },
+        )
+        self.assertIn("source: shared", result.output)
+
+        skill_path = self.shared_skills_root / "shared-warmup" / "SKILL.md"
+        self.assertTrue(skill_path.is_file())
+        skill = load_skill_definition(skill_path.parent, source="shared")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertEqual(len(skill.steps), 2)
+
+        buddy_skills = discover_skills(get_personality("buddy"))
+        names = {s.name: s.source for s in buddy_skills}
+        self.assertEqual(names["shared-warmup"], "shared")
+
+    def test_create_skill_validation_errors(self) -> None:
+        set_active_personality("coach")
+
+        bad_name = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "!!!",
+                "description": "Test",
+                "body": self.GENERIC_BODY,
+            },
+        )
+        self.assertIn("Error", bad_name.output)
+
+        missing_desc = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {"name": "valid-name", "description": "", "body": self.GENERIC_BODY},
+        )
+        self.assertIn("Error", missing_desc.output)
+
+        checklist_no_steps = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "empty-checklist",
+                "description": "Missing steps.",
+                "body": "# No steps here",
+                "skill_type": "checklist",
+            },
+        )
+        self.assertIn("Error", checklist_no_steps.output)
+
+    def test_create_skill_discoverable_via_list_skills(self) -> None:
+        set_active_personality("coach")
+        execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "my-workflow",
+                "description": "A coach workflow.",
+                "body": self.GENERIC_BODY,
+            },
+        )
+
+        result = execute_skill_tool(self.memory_root, "coach", "list_skills", {})
+        payload = json.loads(result.output)
+        by_name = {entry["name"]: entry for entry in payload}
+        self.assertEqual(by_name["my-workflow"]["source"], "personality")
+
+    def test_persona_skill_overrides_shared_and_builtin(self) -> None:
+        set_active_personality("buddy")
+        execute_skill_tool(
+            self.memory_root,
+            "buddy",
+            "create_skill",
+            {
+                "name": "edit-personality",
+                "description": "Persona-authored override.",
+                "body": """\
+# Override
+
+## Steps
+
+### only-step
+Persona-authored step.
+""",
+                "skill_type": "checklist",
+            },
+        )
+
+        profile = get_personality("buddy")
+        skill = get_skill_definition(profile, "edit-personality")
+        self.assertEqual(skill.source, "personality")
+        self.assertIn("Persona-authored step", skill.steps[0].prompt)
+
+    def test_create_skill_rejects_duplicate(self) -> None:
+        set_active_personality("coach")
+        args = {
+            "name": "dup-skill",
+            "description": "First copy.",
+            "body": self.GENERIC_BODY,
+        }
+        first = execute_skill_tool(self.memory_root, "coach", "create_skill", args)
+        self.assertIn("Created skill", first.output)
+
+        second = execute_skill_tool(self.memory_root, "coach", "create_skill", args)
+        self.assertIn("Error", second.output)
+        self.assertIn("already exists", second.output)
+
+    def test_update_and_delete_skill(self) -> None:
+        set_active_personality("coach")
+        execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "temp-skill",
+                "description": "Original description.",
+                "body": self.GENERIC_BODY,
+            },
+        )
+
+        updated = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "update_skill",
+            {
+                "name": "temp-skill",
+                "description": "Updated description.",
+            },
+        )
+        self.assertIn("Updated skill", updated.output)
+        skill = get_skill_definition(get_personality("coach"), "temp-skill")
+        self.assertIn("Updated description", skill.description)
+
+        deleted = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "delete_skill",
+            {"name": "temp-skill"},
+        )
+        self.assertIn("Deleted skill", deleted.output)
+        with self.assertRaises(FileNotFoundError):
+            get_skill_definition(get_personality("coach"), "temp-skill")
+
+    def test_cannot_modify_builtin_skill(self) -> None:
+        set_active_personality("buddy")
+        result = execute_skill_tool(
+            self.memory_root,
+            "buddy",
+            "update_skill",
+            {"name": "edit-personality", "description": "Nope."},
+        )
+        self.assertIn("Error", result.output)
+
+        delete_result = execute_skill_tool(
+            self.memory_root,
+            "buddy",
+            "delete_skill",
+            {"name": "edit-personality"},
+        )
+        self.assertIn("Error", delete_result.output)
+
+    def test_repo_create_skill_builtin_is_valid(self) -> None:
+        project_root = Path(__file__).resolve().parent.parent
+        skill_dir = project_root / "skills" / "create-skill"
+        skill = load_skill_definition(skill_dir, source="builtin")
+        self.assertEqual(skill.name, "create-skill")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertGreaterEqual(len(skill.steps), 4)
+        self.assertIn("create_skill", skill.body)
 
 
 if __name__ == "__main__":
