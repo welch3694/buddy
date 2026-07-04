@@ -10,6 +10,7 @@ import cv2
 from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.tool_logging import log_tool_failure, safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def execute_camera_tool() -> ToolExecutionResult:
     try:
         data_uri = capture_frame()
     except Exception as exc:
-        logger.exception("Camera capture failed")
+        log_tool_failure("capture_camera", f"camera capture failed: {exc}", exc=exc)
         return ToolExecutionResult(output=f"Error: camera capture failed: {exc}")
     return ToolExecutionResult(
         output="Camera capture succeeded.",

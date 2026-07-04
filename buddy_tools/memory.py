@@ -11,6 +11,7 @@ from typing import Any, Literal
 from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.tool_logging import safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -315,9 +316,9 @@ def execute_memory_tool(
         topic = str(args.get("topic", "")).strip()
         value = str(args.get("value", "")).strip()
         if not topic:
-            return ToolExecutionResult(output="Error: topic is empty")
+            return tool_error(tool_name, "topic is empty", context=safe_tool_context(args))
         if not value:
-            return ToolExecutionResult(output="Error: value is empty")
+            return tool_error(tool_name, "value is empty", context=safe_tool_context(args))
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = path.read_text(encoding="utf-8") if path.exists() else "# Notes\n"
         updated = _upsert_fact_line(existing, topic, value)
@@ -337,7 +338,7 @@ def execute_memory_tool(
         path = _resolve_path(memory_root, persona_namespace, scope, str(args.get("name", "")))
         content = str(args.get("content", "")).strip()
         if not content:
-            return ToolExecutionResult(output="Error: content is empty")
+            return tool_error(tool_name, "content is empty", context=safe_tool_context(args))
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             existing = path.read_text(encoding="utf-8").rstrip()
@@ -348,4 +349,4 @@ def execute_memory_tool(
         logger.info("Memory append [%s]: %s", scope, path.name)
         return ToolExecutionResult(output=f"Appended to {scope}/{path.stem}")
 
-    return ToolExecutionResult(output=f"Error: unknown memory tool {tool_name!r}")
+    return tool_error(tool_name, f"unknown memory tool {tool_name!r}")

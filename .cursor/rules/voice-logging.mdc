@@ -1,0 +1,36 @@
+---
+description: Require clear logging when Buddy tools fail or stop (voice-only debugging)
+globs: buddy_tools/**/*.py
+alwaysApply: false
+---
+
+# Voice-only tool failure logging
+
+Buddy has no UI — application logs are the primary operator feedback channel.
+
+## Requirements
+
+- Every tool failure, stop, or incomplete outcome must log at **WARNING** or **ERROR** with:
+  - **tool name**
+  - **failure reason** (full message, never truncated)
+  - **safe context** (ids, scopes, short argument summaries — not full prompts or memory content)
+- Unexpected exceptions use `logger.exception` (via `log_tool_failure(..., exc=exc)`).
+- Do not return `"Error: …"` to the LLM without logging on the server side.
+
+## Pattern
+
+Use helpers from `buddy_tools.tool_logging`:
+
+```python
+from buddy_tools.tool_logging import log_tool_failure, safe_tool_context, tool_error
+
+# Expected validation / business-rule failure:
+return tool_error("my_tool", "reason here", context=safe_tool_context(args))
+
+# Unexpected exception in a tool entrypoint:
+except Exception as exc:
+    log_tool_failure("my_tool", f"operation failed: {exc}", exc=exc, context=safe_tool_context(args))
+    return ToolExecutionResult(output=f"Error: operation failed: {exc}")
+```
+
+The executor logs failures again at ERROR as a safety net; tool-level logs should still include argument context the executor does not have.
