@@ -8,6 +8,7 @@ from typing import Any
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.personality import get_active_personality
+from buddy_tools.tool_logging import log_tool_failure
 from buddy_tools.voice_clone import refresh_voice_clone_prompt
 from buddy_tools.voices import VoiceProfile, get_voice
 
@@ -87,11 +88,21 @@ def apply_voice(
     if runtime_config is not None:
         session = runtime_config.session
         if session.audio is None or session.audio.output is None:
+            log_tool_failure(
+                "apply_voice",
+                "runtime_config.session.audio.output is not initialized",
+                context={"voice_id": voice_id},
+            )
             raise ValueError("runtime_config.session.audio.output is not initialized")
         session.audio.output.voice = audio_value
         logger.info("Applied voice %r to runtime session", profile.id)
 
     if handler is None and runtime_config is None:
+        log_tool_failure(
+            "apply_voice",
+            "requires runtime_config and/or an available TTS handler",
+            context={"voice_id": voice_id},
+        )
         raise ValueError("apply_voice requires runtime_config and/or an available TTS handler")
 
     return profile

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
 from openai.types.realtime import RealtimeFunctionTool
@@ -18,9 +17,8 @@ from buddy_tools.personality import (
     update_personality,
 )
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.tool_logging import safe_tool_context, tool_error
 from buddy_tools.voices import DEFAULT_VOICE_ID, list_voices
-
-logger = logging.getLogger(__name__)
 
 PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
@@ -186,7 +184,7 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
         try:
             profile = get_personality(raw_id) if raw_id else get_active_personality()
         except (FileNotFoundError, ValueError) as exc:
-            return ToolExecutionResult(output=f"Error: {exc}")
+            return tool_error(tool_name, str(exc), context=safe_tool_context(args))
         payload = {
             "personality_id": profile.id,
             "name": profile.name,
@@ -201,11 +199,11 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
     if tool_name == "switch_personality":
         personality_id = str(args.get("personality_id", "")).strip()
         if not personality_id:
-            return ToolExecutionResult(output="Error: personality_id is empty")
+            return tool_error(tool_name, "personality_id is empty", context=safe_tool_context(args))
         try:
             profile = get_personality(personality_id)
         except (FileNotFoundError, ValueError) as exc:
-            return ToolExecutionResult(output=f"Error: {exc}")
+            return tool_error(tool_name, str(exc), context=safe_tool_context(args))
         return ToolExecutionResult(
             output=f"Now speaking as {profile.name}.",
             personality_switch_id=profile.id,
@@ -214,7 +212,7 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
     if tool_name == "switch_voice":
         voice_id = str(args.get("voice_id", "")).strip()
         if not voice_id:
-            return ToolExecutionResult(output="Error: voice_id is empty")
+            return tool_error(tool_name, "voice_id is empty", context=safe_tool_context(args))
         return ToolExecutionResult(
             output=f"Switching to the {voice_id} voice.",
             voice_switch_id=voice_id,
@@ -225,7 +223,11 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
         name = str(args.get("name", "")).strip()
         prompt = str(args.get("prompt", "")).strip()
         if not personality_id or not name or not prompt:
-            return ToolExecutionResult(output="Error: personality_id, name, and prompt are required")
+            return tool_error(
+                tool_name,
+                "personality_id, name, and prompt are required",
+                context=safe_tool_context(args),
+            )
         voice_id = str(args.get("voice_id", DEFAULT_VOICE_ID)).strip() or DEFAULT_VOICE_ID
         description = str(args.get("description", "")).strip()
         try:
@@ -237,36 +239,40 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
                 voice_id=voice_id,
             )
         except (FileExistsError, FileNotFoundError, ValueError) as exc:
-            return ToolExecutionResult(output=f"Error: {exc}")
+            return tool_error(tool_name, str(exc), context=safe_tool_context(args))
         return ToolExecutionResult(output=f"Created personality {profile.name}.")
 
     if tool_name == "update_personality":
         personality_id = str(args.get("personality_id", "")).strip()
         if not personality_id:
-            return ToolExecutionResult(output="Error: personality_id is required")
+            return tool_error(tool_name, "personality_id is required", context=safe_tool_context(args))
         updates = {
             key: str(args[key]).strip()
             for key in ("name", "description", "prompt", "voice_id")
             if key in args and str(args[key]).strip()
         }
         if not updates:
-            return ToolExecutionResult(output="Error: no fields to update")
+            return tool_error(tool_name, "no fields to update", context=safe_tool_context(args))
         try:
             profile = update_personality(personality_id, **updates)
         except (FileNotFoundError, ValueError) as exc:
-            return ToolExecutionResult(output=f"Error: {exc}")
+            return tool_error(tool_name, str(exc), context=safe_tool_context(args))
         return ToolExecutionResult(output=f"Updated personality {profile.name}.")
 
     if tool_name == "delete_personality":
         personality_id = str(args.get("personality_id", "")).strip()
         if not personality_id:
-            return ToolExecutionResult(output="Error: personality_id is required")
+            return tool_error(tool_name, "personality_id is required", context=safe_tool_context(args))
         if personality_id == DEFAULT_PERSONALITY_ID:
-            return ToolExecutionResult(output=f"Error: cannot delete {DEFAULT_PERSONALITY_ID!r}")
+            return tool_error(
+                tool_name,
+                f"cannot delete {DEFAULT_PERSONALITY_ID!r}",
+                context=safe_tool_context(args),
+            )
         try:
             delete_personality(personality_id)
         except (FileNotFoundError, ValueError) as exc:
-            return ToolExecutionResult(output=f"Error: {exc}")
+            return tool_error(tool_name, str(exc), context=safe_tool_context(args))
         return ToolExecutionResult(output=f"Deleted personality {personality_id}.")
 
-    return ToolExecutionResult(output=f"Error: unknown personality tool {tool_name!r}")
+    return tool_error(tool_name, f"unknown personality tool {tool_name!r}")

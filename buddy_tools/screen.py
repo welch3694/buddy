@@ -11,6 +11,7 @@ import numpy as np
 from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.tool_logging import log_tool_failure
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,12 @@ def execute_screen_tool(args: dict) -> ToolExecutionResult:
     try:
         data_uri = capture_screen(monitor=monitor)
     except Exception as exc:
-        logger.exception("Screen capture failed")
+        log_tool_failure(
+            "capture_screen",
+            f"screen capture failed: {exc}",
+            exc=exc,
+            context={"monitor": monitor},
+        )
         return ToolExecutionResult(output=f"Error: screen capture failed: {exc}")
     return ToolExecutionResult(
         output="Screen capture succeeded.",
