@@ -193,6 +193,10 @@ def process_transcription_with_listening_pause(
     else:
         logger.info("Transcription completed: %s", transcript)
 
+    from buddy_tools.timers import notify_user_speech
+
+    notify_user_speech(speech_stopped_at_s)
+
     if notifier.runtime_config is not None:
         from speech_to_speech.LLM.chat import make_user_message
 

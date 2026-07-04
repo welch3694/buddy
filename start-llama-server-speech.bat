@@ -16,7 +16,7 @@ REM --cache-type-v q8_0 ^
 D:\Llama\llama-server.exe -m %MODEL% ^
     --mmproj %MMPROJ% ^
     --n-gpu-layers 99 ^
-    --ctx-size 8192 ^
+    --ctx-size 16384 ^
     --reasoning off ^
     --temperature 0.3 ^
     --repeat-penalty 1.1 ^
