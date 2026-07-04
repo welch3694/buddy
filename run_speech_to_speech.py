@@ -12,9 +12,11 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from buddy_tools import apply_patches
+from buddy_tools.env import load_env_file
 
 
 def main() -> None:
+    load_env_file()
     apply_patches()
     from speech_to_speech.s2s_pipeline import main as s2s_main
 

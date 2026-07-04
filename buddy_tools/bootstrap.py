@@ -67,7 +67,9 @@ def insert_local_tool_executor(
     transcription_notifier_setup: dict[str, Any],
     speculative_turns: Any | None,
 ) -> list[Any]:
-    """Insert LocalToolExecutor between the LLM handler and LMOutputProcessor."""
+    """Insert LocalToolExecutor and channel reply routing before LMOutputProcessor."""
+    from buddy_tools.channels.reply_router import ChannelReplyRouter
+    from buddy_tools.channels.telegram import create_and_start_telegram_bridge
     from buddy_tools.executor import LocalToolExecutor
 
     runtime_config = transcription_notifier_setup.get("runtime_config")
@@ -75,7 +77,17 @@ def insert_local_tool_executor(
     profile = get_active_personality()
     configure_runtime_tools(runtime_config, memory_root)
 
+    telegram_bridge = create_and_start_telegram_bridge(
+        runtime_config=runtime_config,
+        text_prompt_queue=text_prompt_queue,
+        stop_event=stop_event,
+    )
+    send_telegram_reply = None
+    if telegram_bridge is not None:
+        send_telegram_reply = telegram_bridge.send_reply
+
     lm_bridge: Queue[Any] = Queue()
+    channel_bridge: Queue[Any] = Queue()
     new_handlers: list[Any] = []
 
     for handler in handlers:
@@ -91,11 +103,22 @@ def insert_local_tool_executor(
                 LocalToolExecutor(
                     stop_event,
                     queue_in=lm_bridge,
-                    queue_out=lm_response_queue,
+                    queue_out=channel_bridge,
                     setup_kwargs={
                         "text_prompt_queue": text_prompt_queue,
                         "memory_root": memory_root,
                         "persona_namespace": profile.memory_namespace,
+                        "speculative_turns": speculative_turns,
+                    },
+                )
+            )
+            new_handlers.append(
+                ChannelReplyRouter(
+                    stop_event,
+                    queue_in=channel_bridge,
+                    queue_out=lm_response_queue,
+                    setup_kwargs={
+                        "send_telegram_reply": send_telegram_reply,
                         "speculative_turns": speculative_turns,
                     },
                 )
