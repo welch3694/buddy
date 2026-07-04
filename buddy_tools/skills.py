@@ -15,6 +15,8 @@ from openai.types.realtime import RealtimeFunctionTool
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.timers import cancel_timers_for_skill
+from buddy_tools.tool_logging import safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -603,7 +605,7 @@ def execute_skill_tool(
     if tool_name == "cancel_skill":
         return _cancel_skill(memory_root, persona_namespace)
 
-    return ToolExecutionResult(output=f"Error: unknown skill tool {tool_name!r}")
+    return tool_error(tool_name, f"unknown skill tool {tool_name!r}")
 
 
 def _start_skill(
@@ -614,14 +616,14 @@ def _start_skill(
 ) -> ToolExecutionResult:
     raw_name = str(args.get("name", "")).strip()
     if not raw_name:
-        return ToolExecutionResult(output="Error: skill name is empty")
+        return tool_error("start_skill", "skill name is empty", context=safe_tool_context(args))
 
     try:
         skill = get_skill_definition(personality, raw_name)
     except ValueError as exc:
-        return ToolExecutionResult(output=f"Error: {exc}")
+        return tool_error("start_skill", str(exc), context=safe_tool_context(args))
     except FileNotFoundError:
-        return ToolExecutionResult(output=f"Error: skill {raw_name!r} not found")
+        return tool_error("start_skill", f"skill {raw_name!r} not found", context=safe_tool_context(args))
 
     existing = load_skill_state(memory_root, persona_namespace)
     if existing and existing.skill_name == skill.name and existing.status in ("in_progress", "paused"):
@@ -666,16 +668,20 @@ def _read_skill_file(
 ) -> ToolExecutionResult:
     state = load_skill_state(memory_root, persona_namespace)
     if state is None:
-        return ToolExecutionResult(output="Error: no active skill")
+        return tool_error("read_skill_file", "no active skill", context=safe_tool_context(args))
 
     try:
         skill = get_skill_definition(personality, state.skill_name)
         path = _resolve_resource_path(skill, str(args.get("path", "")))
     except (ValueError, FileNotFoundError) as exc:
-        return ToolExecutionResult(output=f"Error: {exc}")
+        return tool_error("read_skill_file", str(exc), context=safe_tool_context(args))
 
     if not path.is_file():
-        return ToolExecutionResult(output=f"Error: file not found: {path.name}")
+        return tool_error(
+            "read_skill_file",
+            f"file not found: {path.name}",
+            context=safe_tool_context(args),
+        )
     return ToolExecutionResult(output=path.read_text(encoding="utf-8"))
 
 
@@ -691,7 +697,7 @@ def _skill_status(
     try:
         skill = get_skill_definition(personality, state.skill_name)
     except (FileNotFoundError, ValueError) as exc:
-        return ToolExecutionResult(output=f"Error: {exc}")
+        return tool_error("skill_status", str(exc))
 
     payload: dict[str, Any] = {
         "active": True,
@@ -716,15 +722,15 @@ def _advance_skill(
 ) -> ToolExecutionResult:
     state = load_skill_state(memory_root, persona_namespace)
     if state is None or state.status not in ("in_progress", "paused"):
-        return ToolExecutionResult(output="Error: no active skill to advance")
+        return tool_error("advance_skill", "no active skill to advance", context=safe_tool_context(args))
 
     try:
         skill = get_skill_definition(personality, state.skill_name)
     except (FileNotFoundError, ValueError) as exc:
-        return ToolExecutionResult(output=f"Error: {exc}")
+        return tool_error("advance_skill", str(exc), context=safe_tool_context(args))
 
     if skill.skill_type != "checklist" or not skill.steps:
-        return ToolExecutionResult(output="Error: active skill is not a checklist")
+        return tool_error("advance_skill", "active skill is not a checklist", context=safe_tool_context(args))
 
     skip = bool(args.get("skip", False))
     reason = str(args.get("reason", "")).strip()
@@ -758,7 +764,7 @@ def _advance_skill(
 def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResult:
     state = load_skill_state(memory_root, persona_namespace)
     if state is None or state.status not in ("in_progress", "paused"):
-        return ToolExecutionResult(output="Error: no active skill to pause")
+        return tool_error("pause_skill", "no active skill to pause")
 
     if state.status == "paused":
         return ToolExecutionResult(output=f"Skill {state.skill_name!r} is already paused.")
@@ -779,9 +785,10 @@ def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResu
 def _cancel_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResult:
     state = load_skill_state(memory_root, persona_namespace)
     if state is None:
-        return ToolExecutionResult(output="Error: no active skill to cancel")
+        return tool_error("cancel_skill", "no active skill to cancel")
 
     clear_skill_state(memory_root, persona_namespace)
+    cancel_timers_for_skill(state.skill_name)
     return ToolExecutionResult(
         output=f"Cancelled skill {state.skill_name!r}.",
         refresh_instructions=True,

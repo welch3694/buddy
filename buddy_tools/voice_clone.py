@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from buddy_tools.tool_logging import log_tool_failure
+
 logger = logging.getLogger(__name__)
 
 # Match faster-qwen3-tts default append_silence behavior for ICL mode.
@@ -16,14 +18,29 @@ def precompute_voice_clone_prompt(handler: Any) -> Any | None:
     ref_audio = getattr(handler, "ref_audio", None)
     ref_text = getattr(handler, "ref_text", None)
     if ref_audio is None or not ref_text:
+        log_tool_failure(
+            "voice_clone",
+            "skipped: missing ref_audio or ref_text",
+            context={"ref_audio": str(ref_audio) if ref_audio else None},
+        )
         return None
 
     backend = getattr(handler, "backend", None)
     if backend != "faster_qwen3_tts":
+        log_tool_failure(
+            "voice_clone",
+            f"skipped: unsupported backend {backend!r}",
+            context={"ref_audio": str(ref_audio)},
+        )
         return None
 
     model_wrapper = getattr(handler, "model", None)
     if model_wrapper is None or not hasattr(model_wrapper, "model"):
+        log_tool_failure(
+            "voice_clone",
+            "skipped: TTS model not loaded",
+            context={"ref_audio": str(ref_audio)},
+        )
         return None
 
     xvec_only = bool(getattr(handler, "xvec_only", False))
@@ -43,8 +60,13 @@ def precompute_voice_clone_prompt(handler: Any) -> Any | None:
                 ref_audio=ref_audio_input,
                 ref_text=ref_text,
             )
-    except Exception:
-        logger.exception("Failed to precompute voice clone prompt for %r", ref_audio)
+    except Exception as exc:
+        log_tool_failure(
+            "voice_clone",
+            f"failed to precompute voice clone prompt for {ref_audio!r}",
+            exc=exc,
+            context={"ref_audio": str(ref_audio)},
+        )
         return None
 
     return prompt_items

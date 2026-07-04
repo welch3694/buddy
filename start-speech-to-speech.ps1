@@ -63,6 +63,7 @@ try {
         "--llm_backend", "chat-completions",
         "--responses_api_base_url", "http://127.0.0.1:8080/v1",
         "--responses_api_api_key", "not-needed",
+        "--chat_size", "20",
         "--responses_api_stream",
         "--responses_api_disable_thinking",
         "--init_chat_prompt", $voiceSystemPrompt,

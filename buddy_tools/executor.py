@@ -23,11 +23,20 @@ from buddy_tools.personality import get_active_personality
 from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import execute_tool, refresh_session_instructions
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.tool_logging import is_tool_error
+from buddy_tools.timers import cancel_all_timers
 from buddy_tools.voice_session import apply_voice
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
+
+
+def _log_tool_result(tool_name: str, result: ToolExecutionResult) -> None:
+    if is_tool_error(result):
+        logger.error("Tool %s failed: %s", tool_name, result.output)
+    else:
+        logger.info("Tool %s succeeded: %s", tool_name, result.output[:120])
 
 
 class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
@@ -71,7 +80,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             return False
 
         if self._tool_rounds >= MAX_TOOL_ROUNDS:
-            logger.warning("Max tool rounds (%d) reached; skipping further tool execution", MAX_TOOL_ROUNDS)
+            pending_names = [tool.name for tool in self._pending_tools]
+            logger.warning(
+                "Max tool rounds (%d) reached; skipping %d tools: %s",
+                MAX_TOOL_ROUNDS,
+                len(pending_names),
+                pending_names,
+            )
             self._pending_tools.clear()
             return False
 
@@ -85,7 +100,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 tool.arguments,
                 persona_namespace=self.persona_namespace,
             )
-            logger.info("Executed tool %s -> %s", tool.name, result.output[:120])
+            _log_tool_result(tool.name, result)
             skip_chat_record = False
 
             if result.personality_switch_id:
@@ -101,7 +116,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     # Chat was reset; the function_call is gone so tool output cannot be paired.
                     skip_chat_record = True
                 except (FileNotFoundError, ValueError, OSError) as exc:
-                    logger.exception("Personality switch failed")
+                    logger.exception("Tool %s: personality switch failed", tool.name)
                     result = ToolExecutionResult(output=f"Error: could not switch personality: {exc}")
 
             if result.voice_switch_id:
@@ -109,7 +124,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     voice_profile = apply_voice(result.voice_switch_id, runtime_config=runtime_config)
                     result = ToolExecutionResult(output=f"Now using the {voice_profile.id} voice.")
                 except (FileNotFoundError, ValueError) as exc:
-                    logger.exception("Voice switch failed")
+                    logger.exception("Tool %s: voice switch failed", tool.name)
                     result = ToolExecutionResult(output=f"Error: could not switch voice: {exc}")
 
             if result.refresh_instructions:
@@ -193,6 +208,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         yield lm_output
 
     def on_session_end(self) -> None:
+        cancel_all_timers()
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0

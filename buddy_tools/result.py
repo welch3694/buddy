@@ -1,4 +1,8 @@
-"""Shared types for local tool execution."""
+"""Shared types for local tool execution.
+
+Buddy is voice-only; tool failures must be logged via buddy_tools.tool_logging
+so operators can debug from application logs, not spoken responses.
+"""
 
 from __future__ import annotations
 
