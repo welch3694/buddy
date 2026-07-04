@@ -51,6 +51,40 @@ TTS defaults to **Pocket TTS** with voice cloning from `voices/cliff/audio.wav` 
 
 Personalities define behavior and reference a voice by id. Shipped templates live in `personalities/` in the repo; at runtime Buddy uses your **user data directory** (see below). See `personalities/README.md`. Edit model name, TTS backend, and VAD settings in `start-speech-to-speech.ps1` as needed.
 
+## Telegram (mobile chat)
+
+While Buddy is running, you can send text and photos from your phone via Telegram. Messages share the same conversation context as voice — for example, you can ask about an outfit by voice, send a photo on Telegram, then follow up by voice with the camera tool.
+
+The Telegram bot is **only active while Buddy is running**; when you stop the voice agent, the chat channel goes offline.
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the bot token.
+2. Find your Telegram chat ID (message [@userinfobot](https://t.me/userinfobot) or send a message to your bot and inspect updates).
+3. Configure credentials — easiest is a gitignored `.env` file in the repo root:
+
+   ```powershell
+   copy .env.example .env
+   # Edit .env and set TELEGRAM_BOT_TOKEN and TELEGRAM_ALLOWED_CHAT_IDS
+   .\start-speech-to-speech.ps1
+   ```
+
+   Buddy loads `.env` automatically at startup (existing shell env vars take precedence). You can also set them inline:
+
+   ```powershell
+   $env:TELEGRAM_BOT_TOKEN = "123456:ABC..."
+   $env:TELEGRAM_ALLOWED_CHAT_IDS = "123456789"
+   .\start-speech-to-speech.ps1
+   ```
+
+   Alternatively, save allowed chat IDs (not the token) in `{BUDDY_DATA_DIR}/telegram.json`:
+
+   ```json
+   { "allowed_chat_ids": [123456789] }
+   ```
+
+   When both are set, `TELEGRAM_ALLOWED_CHAT_IDS` overrides the file.
+
+Replies to Telegram messages are sent as text on Telegram; voice turns still use TTS. Only allowlisted chat IDs are accepted.
+
 ## User data directory
 
 Memory, personalities, skills, and active-persona selection are stored outside the repo in a configurable data directory:
@@ -61,16 +95,16 @@ Memory, personalities, skills, and active-persona selection are stored outside t
 | macOS | `~/Library/Application Support/Buddy/` |
 | Linux | `$XDG_DATA_HOME/buddy/` or `~/.local/share/buddy/` |
 
-Set `BUDDY_DATA_DIR` before starting Buddy to use a custom path — for example a cloud-synced folder for automatic backup:
+Set `BUDDY_DATA_DIR` to use a custom path — for example a cloud-synced folder for automatic backup. Add it to `.env` (see `.env.example`) or set it in the shell before starting:
 
 ```powershell
-# Windows PowerShell
+# Windows PowerShell — or put BUDDY_DATA_DIR=... in .env
 $env:BUDDY_DATA_DIR = "D:\Google Drive\Buddy"
 .\start-speech-to-speech.ps1
 ```
 
 ```bash
-# macOS / Linux
+# macOS / Linux — or put BUDDY_DATA_DIR=... in .env
 export BUDDY_DATA_DIR="$HOME/Dropbox/Buddy"
 python run_speech_to_speech.py ...
 ```
@@ -79,7 +113,9 @@ On first run, shipped personality templates (e.g. `buddy`) are copied into the d
 
 ## Memory and local tools
 
-Facts the assistant should remember across sessions are stored as markdown files under `{BUDDY_DATA_DIR}/memory/`. The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
+Facts the assistant should remember across sessions are stored as markdown files under `{BUDDY_DATA_DIR}/memory/`. Global notes (`memory/global/`) are shared across personas; persona notes (`memory/{persona}/`) are scoped to the active personality. The built-in **remember** skill (`skills/remember/`) guides a voice-friendly flow when the user says "remember that…" — confirm the fact, choose everyone vs between us, then save via memory tools.
+
+The `buddy_tools` package patches speech-to-speech to expose local tools the model can call during conversation:
 
 - **Memory:** `list_memory`, `read_memory`, `update_memory`, `append_memory`, `write_memory`
 - **Personalities:** `list_personalities`, `list_voices`, `switch_personality`, `switch_voice`, `create_personality`, `update_personality`, `delete_personality`

@@ -52,14 +52,15 @@ The `id` must match the folder name. `voice_id` must reference a valid voice in 
 
 ## Skills (Agent Skills layout)
 
-Skills are guided workflows the model can run step-by-step. They come from two places:
+Skills are guided workflows the model can run step-by-step. They come from three places:
 
 | Source | Location | Notes |
 |--------|----------|-------|
 | **Built-in** | Repo `skills/` | Cross-persona platform workflows; read-only at runtime |
+| **Shared** | `{data_dir}/skills/` | User-authored skills reusable across personas; optional scoping |
 | **Persona** | `{data_dir}/personalities/{id}/skills/` | Optional per-persona or agent-authored skills |
 
-Built-ins are **not** copied into the data dir — they load from the repo on every lookup. See `skills/README.md` for collision policy and mutability rules.
+Built-ins are **not** copied into the data dir — they load from the repo on every lookup. Shared and persona skills are mutable user data. See `skills/README.md` for collision policy, scoping, and mutability rules.
 
 Each personality may define optional skills under `{data_dir}/personalities/{id}/skills/{skill-name}/`:
 
@@ -79,6 +80,7 @@ personalities/coach/skills/
 | `name` | Yes | Lowercase + hyphens; must match the parent directory name |
 | `description` | Yes | What the skill does and when to use it |
 | `metadata.buddy.type` | No | Set to `checklist` for step-tracked workflows |
+| `metadata.buddy.personalities` | No | Shared skills only: `all` (default) or a list of personality ids |
 
 ### Checklist skills
 
@@ -110,7 +112,7 @@ Put on headphones to avoid feedback.
 
 Active skill progress is stored in `{BUDDY_DATA_DIR}/memory/{namespace}/skill_state.json` (not global memory). Switching away from a persona mid-checklist preserves state in that persona's namespace; switching back allows resume.
 
-Skill tools (`list_skills`, `start_skill`, `advance_skill`, etc.) are registered globally. Discovery merges **built-in** skills from repo `skills/` with the **active** personality's `skills/` folder in the data dir; persona skills override built-ins when names collide.
+Skill tools (`list_skills`, `start_skill`, `advance_skill`, etc.) are registered globally. Discovery merges **built-in** skills from repo `skills/`, **shared** skills from `{data_dir}/skills/` (filtered by scope), and the **active** personality's `skills/` folder. Precedence on name collision: personality > shared > built-in.
 
 ## Adding a personality
 

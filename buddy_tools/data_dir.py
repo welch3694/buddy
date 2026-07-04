@@ -41,6 +41,10 @@ def get_built_in_skills_dir() -> Path:
     return get_repo_root() / "skills"
 
 
+def get_user_skills_dir() -> Path:
+    return get_data_dir() / "skills"
+
+
 def default_data_dir() -> Path:
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA")
@@ -165,6 +169,7 @@ def configure_user_data() -> Path:
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "memory").mkdir(parents=True, exist_ok=True)
     (data_dir / "personalities").mkdir(parents=True, exist_ok=True)
+    (data_dir / "skills").mkdir(parents=True, exist_ok=True)
 
     migrate_legacy_user_data(repo_root, data_dir)
     seeded = seed_shipped_personalities(get_shipped_personalities_dir(), data_dir / "personalities")

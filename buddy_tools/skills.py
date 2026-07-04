@@ -24,16 +24,17 @@ _SKILL_STATE_FILENAME = "skill_state.json"
 _RESOURCE_DIRS = frozenset({"references", "scripts", "assets"})
 SkillStatus = Literal["in_progress", "paused"]
 SkillType = Literal["checklist", "generic"]
-SkillSource = Literal["builtin", "personality"]
+SkillSource = Literal["builtin", "shared", "personality"]
 
 SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
         type="function",
         name="list_skills",
         description=(
-            "List available skills: global built-in workflows plus any scoped to the active "
-            "personality (name, description, and source). Use when the user asks what guided "
-            "workflows or checklists are available."
+            "List available skills: built-in workflows, shared user skills (optionally scoped to "
+            "specific personalities), and skills for the active personality (name, description, "
+            "source, and scope when shared). Use when the user asks what guided workflows or "
+            "checklists are available."
         ),
         parameters={"type": "object", "properties": {}},
     ),
@@ -237,6 +238,51 @@ def _skill_type_from_metadata(metadata: dict[str, Any]) -> SkillType:
     return "generic"
 
 
+def _parse_personality_scope(metadata: dict[str, Any]) -> frozenset[str] | None:
+    """Return None when a shared skill applies to all personalities, else allowed ids."""
+    buddy_meta = metadata.get("buddy")
+    if not isinstance(buddy_meta, dict):
+        return None
+
+    raw_scope = buddy_meta.get("personalities")
+    if raw_scope is None:
+        return None
+    if isinstance(raw_scope, str) and raw_scope.strip().lower() == "all":
+        return None
+    if not isinstance(raw_scope, list) or not raw_scope:
+        raise ValueError("metadata.buddy.personalities must be 'all' or a non-empty list of ids")
+
+    ids: list[str] = []
+    for entry in raw_scope:
+        personality_id = str(entry).strip()
+        if not personality_id or not _SAFE_NAME.match(personality_id):
+            raise ValueError(
+                f"Invalid personality id in metadata.buddy.personalities: {entry!r}"
+            )
+        ids.append(personality_id)
+    return frozenset(ids)
+
+
+def _skill_applies_to_personality(skill: SkillDefinition, personality_id: str) -> bool:
+    try:
+        scope = _parse_personality_scope(skill.metadata)
+    except ValueError:
+        return False
+    if scope is None:
+        return True
+    return personality_id in scope
+
+
+def _shared_skill_scope_payload(skill: SkillDefinition) -> str | list[str]:
+    try:
+        scope = _parse_personality_scope(skill.metadata)
+    except ValueError:
+        return "all"
+    if scope is None:
+        return "all"
+    return sorted(scope)
+
+
 def load_skill_definition(skill_dir: Path, *, source: SkillSource = "personality") -> SkillDefinition:
     skill_path = skill_dir / _SKILL_FILENAME
     if not skill_path.is_file():
@@ -279,6 +325,12 @@ def _built_in_skills_dir() -> Path:
     return get_built_in_skills_dir()
 
 
+def _user_skills_dir() -> Path:
+    from buddy_tools.data_dir import get_user_skills_dir
+
+    return get_user_skills_dir()
+
+
 def _discover_skills_in_directory(
     skills_root: Path,
     *,
@@ -302,13 +354,36 @@ def _discover_skills_in_directory(
     return definitions
 
 
-def discover_skills(personality: PersonalityProfile) -> list[SkillDefinition]:
-    """Merge global built-in skills with the active personality's skills.
+def _discover_shared_skills(personality_id: str) -> dict[str, SkillDefinition]:
+    skills_root = _user_skills_dir()
+    if not skills_root.is_dir():
+        return {}
 
-    Persona-scoped skills override built-ins when names collide.
+    definitions: dict[str, SkillDefinition] = {}
+    for skill_dir in sorted(skills_root.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_path = skill_dir / _SKILL_FILENAME
+        if not skill_path.is_file():
+            continue
+        try:
+            skill = load_skill_definition(skill_dir, source="shared")
+            if not _skill_applies_to_personality(skill, personality_id):
+                continue
+            definitions[skill.name] = skill
+        except (ValueError, OSError) as exc:
+            logger.warning("Skipping invalid shared skill in %s: %s", skill_dir, exc)
+    return definitions
+
+
+def discover_skills(personality: PersonalityProfile) -> list[SkillDefinition]:
+    """Merge built-in, shared user, and persona skills for the active personality.
+
+    Precedence on name collision: personality > shared > built-in.
     """
     merged: dict[str, SkillDefinition] = {}
     merged.update(_discover_skills_in_directory(_built_in_skills_dir(), source="builtin"))
+    merged.update(_discover_shared_skills(personality.id))
     merged.update(
         _discover_skills_in_directory(
             personality.directory / "skills",
@@ -324,6 +399,12 @@ def get_skill_definition(personality: PersonalityProfile, skill_name: str) -> Sk
     persona_dir = personality.directory / "skills" / sanitized
     if persona_dir.is_dir() and (persona_dir / _SKILL_FILENAME).is_file():
         return load_skill_definition(persona_dir, source="personality")
+
+    shared_dir = _user_skills_dir() / sanitized
+    if shared_dir.is_dir() and (shared_dir / _SKILL_FILENAME).is_file():
+        skill = load_skill_definition(shared_dir, source="shared")
+        if _skill_applies_to_personality(skill, personality.id):
+            return skill
 
     builtin_dir = _built_in_skills_dir() / sanitized
     if builtin_dir.is_dir() and (builtin_dir / _SKILL_FILENAME).is_file():
@@ -428,8 +509,10 @@ def _format_step_message(
 
 def build_skill_instructions() -> str:
     return (
-        "You have skills — structured guided workflows from global built-ins and the active persona:\n"
-        "- list_skills: discover available skills (metadata and source: builtin or personality)\n"
+        "You have skills — structured guided workflows from built-ins, shared user skills, "
+        "and the active persona:\n"
+        "- list_skills: discover available skills (metadata, source: builtin/shared/personality, "
+        "and scope for shared skills)\n"
         "- start_skill: begin or resume a skill by name\n"
         "- skill_status: check current step and progress\n"
         "- advance_skill: move to the next checklist step after the user confirms verbally\n"
@@ -490,10 +573,16 @@ def execute_skill_tool(
 
     if tool_name == "list_skills":
         skills = discover_skills(personality)
-        payload = [
-            {"name": s.name, "description": s.description, "source": s.source}
-            for s in skills
-        ]
+        payload: list[dict[str, Any]] = []
+        for skill in skills:
+            entry: dict[str, Any] = {
+                "name": skill.name,
+                "description": skill.description,
+                "source": skill.source,
+            }
+            if skill.source == "shared":
+                entry["scope"] = _shared_skill_scope_payload(skill)
+            payload.append(entry)
         return ToolExecutionResult(output=json.dumps(payload))
 
     if tool_name == "start_skill":

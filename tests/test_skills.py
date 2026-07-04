@@ -10,7 +10,7 @@ from pathlib import Path
 from buddy_tools import personality as personality_module
 from buddy_tools import voices as voices_module
 from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.data_dir import get_built_in_skills_dir, reset_data_dir_config
+from buddy_tools.data_dir import get_built_in_skills_dir, get_user_skills_dir, reset_data_dir_config
 from buddy_tools.personality import create_personality, get_personality, set_active_personality, set_personalities_dir
 from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
@@ -456,6 +456,379 @@ Persona override step.
         self.assertGreaterEqual(len(skill.steps), 2)
         refs = skill_dir / "references" / "prompt-guidelines.md"
         self.assertTrue(refs.is_file())
+
+
+class RememberSkillTests(unittest.TestCase):
+    REMEMBER_SKILL = """\
+---
+name: remember
+description: Save a fact with global vs persona scope. Use when the user says remember that.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Remember
+
+## Steps
+
+### confirm-fact
+Restate and confirm.
+
+### choose-scope
+Share with everyone or keep it between us?
+
+### save-memory
+Use update_memory or append_memory with scope global or persona.
+
+### confirm-saved
+Confirm where it was saved.
+"""
+
+    def setUp(self) -> None:
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = None
+        from buddy_tools.bootstrap import get_memory_root
+
+        self._original_memory_root = get_memory_root()
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
+        self.personalities_root = self.root / "data" / "personalities"
+        self.voices_root = self.root / "voices"
+        self.memory_root = self.root / "data" / "memory"
+        self.builtin_skills_root = self.repo_root / "skills"
+
+        for path in (self.personalities_root, self.voices_root, self.memory_root):
+            path.mkdir(parents=True)
+        self.builtin_skills_root.mkdir(parents=True)
+
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.root / "data")
+        set_personalities_dir(self.personalities_root)
+        set_voices_dir(self.voices_root)
+        set_memory_root(self.memory_root)
+
+        self._write_voice("cliff")
+        self._write_voice("narrator")
+        create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
+        create_personality("coach", "Coach", "You are Coach.", voice_id="narrator")
+        self._write_builtin_skill("remember", self.REMEMBER_SKILL)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        set_voices_dir(self._original_voices_dir)
+        if self._original_memory_root is not None:
+            set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def _write_voice(self, voice_id: str) -> None:
+        voice_dir = self.voices_root / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(f"{voice_id} transcript", encoding="utf-8")
+
+    def _write_builtin_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.builtin_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_remember_skill_discoverable_for_all_personalities(self) -> None:
+        for personality_id in ("buddy", "coach"):
+            profile = get_personality(personality_id)
+            skills = discover_skills(profile)
+            names = {skill.name: skill.source for skill in skills}
+            self.assertIn("remember", names)
+            self.assertEqual(names["remember"], "builtin")
+
+    def test_list_skills_includes_remember_as_builtin(self) -> None:
+        set_active_personality("buddy")
+        result = execute_skill_tool(self.memory_root, "buddy", "list_skills", {})
+        payload = json.loads(result.output)
+        remember_entries = [entry for entry in payload if entry["name"] == "remember"]
+        self.assertEqual(len(remember_entries), 1)
+        self.assertEqual(remember_entries[0]["source"], "builtin")
+
+    def test_repo_remember_skill_is_valid_and_covers_scope(self) -> None:
+        project_root = Path(__file__).resolve().parent.parent
+        skill_dir = project_root / "skills" / "remember"
+        skill = load_skill_definition(skill_dir, source="builtin")
+        self.assertEqual(skill.name, "remember")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertEqual(len(skill.steps), 4)
+        self.assertEqual(skill.steps[0].step_id, "confirm-fact")
+        self.assertEqual(skill.steps[1].step_id, "choose-scope")
+
+        body_lower = skill.body.lower()
+        self.assertIn("share with everyone", body_lower)
+        self.assertIn("between us", body_lower)
+        self.assertIn("append_memory", skill.body)
+        self.assertIn("update_memory", skill.body)
+        self.assertIn("scope: global", body_lower)
+        self.assertIn("scope: persona", body_lower)
+
+        description_lower = skill.description.lower()
+        self.assertIn("remember", description_lower)
+        self.assertIn("start_skill", description_lower)
+
+
+class SharedUserSkillTests(unittest.TestCase):
+    SHARED_SKILL_ALL = """\
+---
+name: equipment-setup
+description: Shared rig setup for all personas.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Equipment setup
+
+## Steps
+
+### mic
+Check the microphone.
+
+### headphones
+Put on headphones.
+"""
+
+    SHARED_SKILL_COACH_ONLY = """\
+---
+name: coach-warmup
+description: Coach-only warmup checklist.
+metadata:
+  buddy:
+    type: checklist
+    personalities: [coach]
+---
+
+# Coach warmup
+
+## Steps
+
+### stretch
+Do a quick stretch.
+"""
+
+    SHARED_OVERRIDE_BUILTIN = """\
+---
+name: edit-personality
+description: Shared override for edit-personality.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Shared edit personality
+
+## Steps
+
+### shared-step
+Shared override step.
+"""
+
+    PERSONA_OVERRIDE_SKILL = """\
+---
+name: edit-personality
+description: Persona-specific override for edit-personality.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Persona edit personality
+
+## Steps
+
+### step-one
+Persona override step.
+"""
+
+    BUILTIN_SKILL = GlobalBuiltinSkillTests.BUILTIN_SKILL
+
+    def setUp(self) -> None:
+        self._original_personalities_dir = personality_module.get_personalities_dir()
+        self._original_voices_dir = voices_module.get_voices_dir()
+        self._original_memory_root = None
+        from buddy_tools.bootstrap import get_memory_root
+
+        self._original_memory_root = get_memory_root()
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmpdir.name)
+        self.repo_root = self.root / "repo"
+        self.data_dir = self.root / "data"
+        self.personalities_root = self.data_dir / "personalities"
+        self.shared_skills_root = self.data_dir / "skills"
+        self.voices_root = self.root / "voices"
+        self.memory_root = self.data_dir / "memory"
+        self.builtin_skills_root = self.repo_root / "skills"
+
+        for path in (
+            self.personalities_root,
+            self.shared_skills_root,
+            self.voices_root,
+            self.memory_root,
+        ):
+            path.mkdir(parents=True)
+        self.builtin_skills_root.mkdir(parents=True)
+
+        reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
+        set_personalities_dir(self.personalities_root)
+        set_voices_dir(self.voices_root)
+        set_memory_root(self.memory_root)
+
+        self._write_voice("cliff")
+        self._write_voice("narrator")
+        create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
+        create_personality("coach", "Coach", "You are Coach.", voice_id="narrator")
+        self._write_builtin_skill("edit-personality", self.BUILTIN_SKILL)
+
+    def tearDown(self) -> None:
+        reset_data_dir_config()
+        set_personalities_dir(self._original_personalities_dir)
+        set_voices_dir(self._original_voices_dir)
+        if self._original_memory_root is not None:
+            set_memory_root(self._original_memory_root)
+        self._tmpdir.cleanup()
+
+    def _write_voice(self, voice_id: str) -> None:
+        voice_dir = self.voices_root / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(f"{voice_id} transcript", encoding="utf-8")
+
+    def _write_builtin_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.builtin_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def _write_shared_skill(self, skill_name: str, content: str) -> None:
+        skill_dir = self.shared_skills_root / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def _write_persona_skill(self, personality_id: str, skill_name: str, content: str) -> None:
+        skill_dir = self.personalities_root / personality_id / "skills" / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_user_skills_dir_points_at_data_dir_skills(self) -> None:
+        self.assertEqual(get_user_skills_dir(), self.data_dir / "skills")
+
+    def test_discover_shared_skill_visible_to_all(self) -> None:
+        self._write_shared_skill("equipment-setup", self.SHARED_SKILL_ALL)
+
+        buddy_skills = discover_skills(get_personality("buddy"))
+        coach_skills = discover_skills(get_personality("coach"))
+
+        buddy_names = {skill.name: skill.source for skill in buddy_skills}
+        coach_names = {skill.name: skill.source for skill in coach_skills}
+        self.assertEqual(buddy_names["equipment-setup"], "shared")
+        self.assertEqual(coach_names["equipment-setup"], "shared")
+
+    def test_shared_skill_scoped_to_subset(self) -> None:
+        self._write_shared_skill("coach-warmup", self.SHARED_SKILL_COACH_ONLY)
+
+        buddy_skills = discover_skills(get_personality("buddy"))
+        coach_skills = discover_skills(get_personality("coach"))
+
+        buddy_names = [skill.name for skill in buddy_skills]
+        coach_names = [skill.name for skill in coach_skills]
+        self.assertNotIn("coach-warmup", buddy_names)
+        self.assertIn("coach-warmup", coach_names)
+
+    def test_shared_overrides_builtin_on_collision(self) -> None:
+        self._write_shared_skill("edit-personality", self.SHARED_OVERRIDE_BUILTIN)
+
+        profile = get_personality("buddy")
+        skills = discover_skills(profile)
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].source, "shared")
+        self.assertIn("Shared override", skills[0].description)
+
+        skill = get_skill_definition(profile, "edit-personality")
+        self.assertEqual(skill.source, "shared")
+        self.assertIn("Shared override step", skill.steps[0].prompt)
+
+    def test_persona_overrides_shared_overrides_builtin(self) -> None:
+        self._write_shared_skill("edit-personality", self.SHARED_OVERRIDE_BUILTIN)
+        self._write_persona_skill("buddy", "edit-personality", self.PERSONA_OVERRIDE_SKILL)
+
+        profile = get_personality("buddy")
+        skills = discover_skills(profile)
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].source, "personality")
+
+        skill = get_skill_definition(profile, "edit-personality")
+        self.assertEqual(skill.source, "personality")
+        self.assertIn("Persona override step", skill.steps[0].prompt)
+
+    def test_get_skill_definition_resolves_shared(self) -> None:
+        self._write_shared_skill("equipment-setup", self.SHARED_SKILL_ALL)
+
+        profile = get_personality("coach")
+        skill = get_skill_definition(profile, "equipment-setup")
+        self.assertEqual(skill.source, "shared")
+        self.assertEqual(skill.name, "equipment-setup")
+
+    def test_list_skills_tags_shared_source_and_scope(self) -> None:
+        self._write_shared_skill("equipment-setup", self.SHARED_SKILL_ALL)
+        self._write_shared_skill("coach-warmup", self.SHARED_SKILL_COACH_ONLY)
+
+        set_active_personality("coach")
+        result = execute_skill_tool(self.memory_root, "coach", "list_skills", {})
+        payload = json.loads(result.output)
+        by_name = {entry["name"]: entry for entry in payload}
+
+        self.assertEqual(by_name["equipment-setup"]["source"], "shared")
+        self.assertEqual(by_name["equipment-setup"]["scope"], "all")
+        self.assertEqual(by_name["coach-warmup"]["source"], "shared")
+        self.assertEqual(by_name["coach-warmup"]["scope"], ["coach"])
+        self.assertEqual(by_name["edit-personality"]["source"], "builtin")
+        self.assertNotIn("scope", by_name["edit-personality"])
+
+    def test_builtin_unaffected_by_shared_layer(self) -> None:
+        profile = get_personality("buddy")
+        skills = discover_skills(profile)
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].name, "edit-personality")
+        self.assertEqual(skills[0].source, "builtin")
+
+    def test_shared_skill_state_remains_per_persona(self) -> None:
+        self._write_shared_skill("equipment-setup", self.SHARED_SKILL_ALL)
+
+        set_active_personality("coach")
+        execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "start_skill",
+            {"name": "equipment-setup"},
+        )
+        execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "advance_skill",
+            {"skip": False},
+        )
+
+        set_active_personality("buddy")
+        execute_skill_tool(
+            self.memory_root,
+            "buddy",
+            "start_skill",
+            {"name": "equipment-setup"},
+        )
+
+        coach_state = load_skill_state(self.memory_root, "coach")
+        buddy_state = load_skill_state(self.memory_root, "buddy")
+        self.assertIsNotNone(coach_state)
+        self.assertIsNotNone(buddy_state)
+        self.assertEqual(coach_state.step_index, 1)
+        self.assertEqual(buddy_state.step_index, 0)
 
 
 if __name__ == "__main__":
