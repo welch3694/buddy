@@ -15,6 +15,7 @@ from openai.types.realtime import RealtimeFunctionTool
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.timers import cancel_timers_for_skill
 from buddy_tools.tool_logging import safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
@@ -787,6 +788,7 @@ def _cancel_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionRes
         return tool_error("cancel_skill", "no active skill to cancel")
 
     clear_skill_state(memory_root, persona_namespace)
+    cancel_timers_for_skill(state.skill_name)
     return ToolExecutionResult(
         output=f"Cancelled skill {state.skill_name!r}.",
         refresh_instructions=True,

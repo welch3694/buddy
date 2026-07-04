@@ -13,6 +13,7 @@ from buddy_tools.memory import migrate_legacy_memory
 from buddy_tools.personality import get_active_personality
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 from buddy_tools.startup import build_init_instructions
+from buddy_tools.timers import configure_timers
 from buddy_tools.voice_session import apply_startup_voice, register_pipeline_handlers
 
 _MEMORY_ROOT = Path(__file__).resolve().parent.parent / "memory"
@@ -66,6 +67,7 @@ def insert_local_tool_executor(
     lm_response_queue: Queue[Any],
     transcription_notifier_setup: dict[str, Any],
     speculative_turns: Any | None,
+    should_listen: Event | None = None,
 ) -> list[Any]:
     """Insert LocalToolExecutor and channel reply routing before LMOutputProcessor."""
     from buddy_tools.channels.reply_router import ChannelReplyRouter
@@ -76,6 +78,11 @@ def insert_local_tool_executor(
     memory_root = get_memory_root()
     profile = get_active_personality()
     configure_runtime_tools(runtime_config, memory_root)
+    configure_timers(
+        text_prompt_queue=text_prompt_queue,
+        runtime_config=runtime_config,
+        should_listen=should_listen,
+    )
 
     telegram_bridge = create_and_start_telegram_bridge(
         runtime_config=runtime_config,

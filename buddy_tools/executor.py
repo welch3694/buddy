@@ -24,6 +24,7 @@ from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import execute_tool, refresh_session_instructions
 from buddy_tools.result import ToolExecutionResult
 from buddy_tools.tool_logging import is_tool_error
+from buddy_tools.timers import cancel_all_timers
 from buddy_tools.voice_session import apply_voice
 
 logger = logging.getLogger(__name__)
@@ -207,6 +208,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         yield lm_output
 
     def on_session_end(self) -> None:
+        cancel_all_timers()
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0

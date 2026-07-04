@@ -185,6 +185,7 @@ def apply_patches() -> None:
             lm_response_queue=kwargs["lm_response_queue"],
             transcription_notifier_setup=kwargs["transcription_notifier_setup"],
             speculative_turns=kwargs.get("speculative_turns"),
+            should_listen=kwargs.get("should_listen"),
         )
 
     pipeline._build_pipeline_handlers = patched_build_pipeline_handlers  # type: ignore[method-assign]

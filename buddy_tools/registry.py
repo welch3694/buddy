@@ -37,6 +37,12 @@ from buddy_tools.skills import (
     execute_skill_tool,
 )
 from buddy_tools.startup import build_voice_system_prompt
+from buddy_tools.timers import (
+    TIMER_TOOL_DEFINITIONS,
+    TIMER_TOOL_NAMES,
+    build_timer_instructions,
+    execute_timer_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +50,7 @@ ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
     MEMORY_TOOL_DEFINITIONS
     + PERSONALITY_TOOL_DEFINITIONS
     + SKILL_TOOL_DEFINITIONS
+    + TIMER_TOOL_DEFINITIONS
     + CAMERA_TOOL_DEFINITIONS
     + SCREEN_TOOL_DEFINITIONS
 )
@@ -64,6 +71,7 @@ def build_tool_instructions(
         build_personality_instructions(),
         build_skill_instructions(),
         build_listening_pause_instructions(),
+        build_timer_instructions(),
         (
             "You can see through the user's webcam with capture_camera. Call it when they ask what you "
             "see, what is in front of you, to look at something, or to describe their surroundings. "
@@ -144,6 +152,9 @@ def execute_tool(
 
         if tool_name in SKILL_TOOL_NAMES:
             return execute_skill_tool(memory_root, persona_namespace, tool_name, args)
+
+        if tool_name in TIMER_TOOL_NAMES:
+            return execute_timer_tool(tool_name, args)
 
         return tool_error(tool_name, f"unknown tool {tool_name!r}")
     except ValueError as exc:
