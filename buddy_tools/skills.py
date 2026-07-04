@@ -155,7 +155,9 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 "skill_type": {
                     "type": "string",
                     "enum": ["checklist", "generic"],
-                    "description": "checklist requires ## Steps with ### step ids",
+                    "description": (
+                        "checklist requires ## Steps with ### headings and prompt text below each"
+                    ),
                 },
             },
             "required": ["name", "description", "body"],
@@ -333,6 +335,18 @@ def _normalize_skill_type(raw_type: str) -> SkillType:
     return skill_type  # type: ignore[return-value]
 
 
+def _resolve_skill_type(raw_type: str, body: str) -> SkillType:
+    if raw_type.strip():
+        return _normalize_skill_type(raw_type)
+    if re.search(r"^##\s+Steps\s*$", body, flags=re.MULTILINE) and re.search(
+        r"^###\s+",
+        body,
+        flags=re.MULTILINE,
+    ):
+        return "checklist"
+    return "generic"
+
+
 def _resolve_target_personality(personality_id: str) -> PersonalityProfile:
     cleaned = personality_id.strip()
     if cleaned:
@@ -418,7 +432,7 @@ def create_skill(
     sanitized = _sanitize_skill_name(name)
     _validate_description(description)
     normalized_scope = _normalize_scope(scope)
-    normalized_type = _normalize_skill_type(skill_type)
+    normalized_type = _resolve_skill_type(skill_type, body)
     personality = _resolve_target_personality(personality_id)
 
     shared_personalities: frozenset[str] | None = None
@@ -531,6 +545,28 @@ def delete_skill(
     logger.info("Deleted skill %r from %s", sanitized, skill_dir)
 
 
+def _slugify_step_id(heading: str) -> str:
+    """Derive a safe step id from a human-readable ### heading."""
+    cleaned = heading.strip()
+    cleaned = re.sub(r"^(?:step\s*)?\d+[.)]\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.lower().replace(" ", "-")
+    cleaned = re.sub(r"[^a-z0-9-]", "", cleaned)
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    if not cleaned or not _SAFE_NAME.match(cleaned):
+        fallback = re.sub(r"[^a-z0-9]", "", heading.lower())[:64]
+        cleaned = fallback if fallback and _SAFE_NAME.match(fallback) else "step"
+    return cleaned[:64]
+
+
+def _unique_step_id(base: str, used: set[str]) -> str:
+    if base not in used:
+        return base
+    suffix = 2
+    while f"{base}-{suffix}" in used:
+        suffix += 1
+    return f"{base}-{suffix}"
+
+
 def _parse_checklist_steps(body: str) -> tuple[SkillStep, ...]:
     steps_section = re.search(
         r"^##\s+Steps\s*$([\s\S]*?)(?=^##\s|\Z)",
@@ -541,15 +577,19 @@ def _parse_checklist_steps(body: str) -> tuple[SkillStep, ...]:
         return ()
 
     steps: list[SkillStep] = []
+    used_ids: set[str] = set()
     for match in re.finditer(
-        r"^###\s+([a-z0-9][a-z0-9_-]*)\s*\n([\s\S]*?)(?=^###\s|\Z)",
+        r"^###\s+(.+?)\s*$([\s\S]*?)(?=^###\s|\Z)",
         steps_section.group(1),
         flags=re.MULTILINE,
     ):
-        step_id = match.group(1).strip()
+        heading = match.group(1).strip()
         prompt = match.group(2).strip()
-        if prompt:
-            steps.append(SkillStep(step_id=step_id, prompt=prompt))
+        if not prompt:
+            continue
+        step_id = _unique_step_id(_slugify_step_id(heading), used_ids)
+        used_ids.add(step_id)
+        steps.append(SkillStep(step_id=step_id, prompt=prompt))
     return tuple(steps)
 
 
@@ -629,7 +669,10 @@ def load_skill_definition(skill_dir: Path, *, source: SkillSource = "personality
     skill_type = _skill_type_from_metadata(metadata)
     steps = _parse_checklist_steps(body) if skill_type == "checklist" else ()
     if skill_type == "checklist" and not steps:
-        raise ValueError(f"Checklist skill {name!r} has no steps under ## Steps")
+        raise ValueError(
+            f"Checklist skill {name!r} has no valid steps under ## Steps. "
+            "Each step needs a ### heading and non-empty prompt text on the following lines."
+        )
 
     return SkillDefinition(
         name=name,
@@ -1147,7 +1190,7 @@ def _create_skill_tool(args: dict[str, Any]) -> ToolExecutionResult:
             body,
             scope=str(args.get("scope", "persona")),
             personality_id=str(args.get("personality_id", "")),
-            skill_type=str(args.get("skill_type", "generic")),
+            skill_type=str(args.get("skill_type", "")),
         )
     except (ValueError, FileExistsError, OSError) as exc:
         return tool_error("create_skill", str(exc), context=safe_tool_context(args))

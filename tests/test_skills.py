@@ -78,6 +78,43 @@ class SkillLoaderTests(unittest.TestCase):
             load_skill_definition(bad_dir)
         self.assertIn("does not match directory", str(ctx.exception))
 
+    def test_parses_numbered_step_headings(self) -> None:
+        content = """\
+---
+name: director-flow
+description: Guide a director flow.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Director Flow
+
+## Steps
+
+### 1. Preparation & Setup
+Confirm the camera is positioned correctly and the user is ready.
+
+### 2. Introduction Phase
+Welcome the audience and set the tone.
+
+### 3. Core Phase
+Run the main segment with timer cues.
+"""
+        skill_dir = self.root / "director-flow"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+        skill = load_skill_definition(skill_dir)
+        self.assertEqual(len(skill.steps), 3)
+        self.assertEqual(skill.steps[0].step_id, "preparation-setup")
+        self.assertIn("camera", skill.steps[0].prompt.lower())
+        self.assertEqual(skill.steps[1].step_id, "introduction-phase")
+
+    def test_slug_step_headings_still_work(self) -> None:
+        skill = load_skill_definition(self.skills_dir)
+        self.assertEqual(skill.steps[0].step_id, "mic")
+        self.assertEqual(skill.steps[1].step_id, "headphones")
+
 
 class SkillToolTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -853,6 +890,18 @@ Do a quick stretch.
 Take three deep breaths.
 """
 
+    NUMBERED_CHECKLIST_BODY = """\
+# Director Flow
+
+## Steps
+
+### 1. Preparation & Setup
+Confirm the camera is positioned correctly.
+
+### 2. Introduction Phase
+Welcome the audience.
+"""
+
     BUILTIN_SKILL = GlobalBuiltinSkillTests.BUILTIN_SKILL
 
     def setUp(self) -> None:
@@ -911,6 +960,46 @@ Take three deep breaths.
         skill_dir = self.builtin_skills_root / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+    def test_create_skill_accepts_numbered_step_headings(self) -> None:
+        set_active_personality("coach")
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "director-flow",
+                "description": "Guide scene direction.",
+                "body": self.NUMBERED_CHECKLIST_BODY,
+                "skill_type": "checklist",
+            },
+        )
+        self.assertIn("Created skill", result.output)
+        self.assertNotIn("Error", result.output)
+
+        skill_path = self.personalities_root / "coach" / "skills" / "director-flow" / "SKILL.md"
+        skill = load_skill_definition(skill_path.parent, source="personality")
+        self.assertEqual(len(skill.steps), 2)
+        self.assertEqual(skill.steps[0].step_id, "preparation-setup")
+
+    def test_create_skill_infers_checklist_from_steps_section(self) -> None:
+        set_active_personality("coach")
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "inferred-checklist",
+                "description": "Checklist inferred from body.",
+                "body": self.NUMBERED_CHECKLIST_BODY,
+            },
+        )
+        self.assertIn("Created skill", result.output)
+
+        skill_path = self.personalities_root / "coach" / "skills" / "inferred-checklist" / "SKILL.md"
+        skill = load_skill_definition(skill_path.parent, source="personality")
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertEqual(len(skill.steps), 2)
 
     def test_create_skill_defaults_to_persona_path(self) -> None:
         set_active_personality("coach")

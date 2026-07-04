@@ -31,7 +31,7 @@ Ask where the skill should live unless the user already specified:
 Do not use shared scope unless the user opts in.
 
 ### draft-body
-Draft the markdown **body** (content after frontmatter): title, instructions, and for checklists a `## Steps` section with one `### step-id` block per step. Keep steps voice-friendly — short prompts the assistant can read aloud.
+Draft the markdown **body** (content after frontmatter): title, instructions, and for checklists a `## Steps` section. Each step uses a `###` heading (slug like `preparation-setup` or a title like `1. Preparation & Setup`) followed by a blank line and voice-friendly prompt text the assistant can read aloud.
 
 ### apply-create
-Call `create_skill` with `name`, `description`, `body`, and the chosen `scope` / `skill_type`. After success, call `list_skills` and confirm the new skill appears with `source: personality` or `source: shared`.
+Call `create_skill` with `name`, `description`, `body`, and the chosen `scope`. Set `skill_type: checklist` when using `## Steps`, or omit it — checklist is inferred when steps are present. After success, call `list_skills` and confirm the new skill appears with `source: personality` or `source: shared`.
