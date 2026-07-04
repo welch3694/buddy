@@ -37,6 +37,10 @@ def get_shipped_personalities_dir() -> Path:
     return get_repo_root() / "personalities"
 
 
+def get_built_in_skills_dir() -> Path:
+    return get_repo_root() / "skills"
+
+
 def default_data_dir() -> Path:
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA")

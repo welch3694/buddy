@@ -24,14 +24,16 @@ _SKILL_STATE_FILENAME = "skill_state.json"
 _RESOURCE_DIRS = frozenset({"references", "scripts", "assets"})
 SkillStatus = Literal["in_progress", "paused"]
 SkillType = Literal["checklist", "generic"]
+SkillSource = Literal["builtin", "personality"]
 
 SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
         type="function",
         name="list_skills",
         description=(
-            "List available skills for the active personality (name and description only). "
-            "Use when the user asks what guided workflows or checklists are available."
+            "List available skills: global built-in workflows plus any scoped to the active "
+            "personality (name, description, and source). Use when the user asks what guided "
+            "workflows or checklists are available."
         ),
         parameters={"type": "object", "properties": {}},
     ),
@@ -130,6 +132,7 @@ class SkillDefinition:
     steps: tuple[SkillStep, ...]
     directory: Path
     metadata: dict[str, Any]
+    source: SkillSource = "personality"
 
 
 @dataclass(frozen=True)
@@ -234,7 +237,7 @@ def _skill_type_from_metadata(metadata: dict[str, Any]) -> SkillType:
     return "generic"
 
 
-def load_skill_definition(skill_dir: Path) -> SkillDefinition:
+def load_skill_definition(skill_dir: Path, *, source: SkillSource = "personality") -> SkillDefinition:
     skill_path = skill_dir / _SKILL_FILENAME
     if not skill_path.is_file():
         raise FileNotFoundError(f"Missing {_SKILL_FILENAME} in {skill_dir}")
@@ -266,15 +269,25 @@ def load_skill_definition(skill_dir: Path) -> SkillDefinition:
         steps=steps,
         directory=skill_dir.resolve(),
         metadata=metadata,
+        source=source,
     )
 
 
-def discover_skills(personality: PersonalityProfile) -> list[SkillDefinition]:
-    skills_root = personality.directory / "skills"
-    if not skills_root.is_dir():
-        return []
+def _built_in_skills_dir() -> Path:
+    from buddy_tools.data_dir import get_built_in_skills_dir
 
-    definitions: list[SkillDefinition] = []
+    return get_built_in_skills_dir()
+
+
+def _discover_skills_in_directory(
+    skills_root: Path,
+    *,
+    source: SkillSource,
+) -> dict[str, SkillDefinition]:
+    if not skills_root.is_dir():
+        return {}
+
+    definitions: dict[str, SkillDefinition] = {}
     for skill_dir in sorted(skills_root.iterdir()):
         if not skill_dir.is_dir():
             continue
@@ -282,16 +295,41 @@ def discover_skills(personality: PersonalityProfile) -> list[SkillDefinition]:
         if not skill_path.is_file():
             continue
         try:
-            definitions.append(load_skill_definition(skill_dir))
+            skill = load_skill_definition(skill_dir, source=source)
+            definitions[skill.name] = skill
         except (ValueError, OSError) as exc:
             logger.warning("Skipping invalid skill in %s: %s", skill_dir, exc)
     return definitions
 
 
+def discover_skills(personality: PersonalityProfile) -> list[SkillDefinition]:
+    """Merge global built-in skills with the active personality's skills.
+
+    Persona-scoped skills override built-ins when names collide.
+    """
+    merged: dict[str, SkillDefinition] = {}
+    merged.update(_discover_skills_in_directory(_built_in_skills_dir(), source="builtin"))
+    merged.update(
+        _discover_skills_in_directory(
+            personality.directory / "skills",
+            source="personality",
+        )
+    )
+    return [merged[name] for name in sorted(merged)]
+
+
 def get_skill_definition(personality: PersonalityProfile, skill_name: str) -> SkillDefinition:
     sanitized = _sanitize_skill_name(skill_name)
-    skill_dir = personality.directory / "skills" / sanitized
-    return load_skill_definition(skill_dir)
+
+    persona_dir = personality.directory / "skills" / sanitized
+    if persona_dir.is_dir() and (persona_dir / _SKILL_FILENAME).is_file():
+        return load_skill_definition(persona_dir, source="personality")
+
+    builtin_dir = _built_in_skills_dir() / sanitized
+    if builtin_dir.is_dir() and (builtin_dir / _SKILL_FILENAME).is_file():
+        return load_skill_definition(builtin_dir, source="builtin")
+
+    raise FileNotFoundError(f"Skill {skill_name!r} not found")
 
 
 def _skill_state_path(memory_root: Path, persona_namespace: str) -> Path:
@@ -390,8 +428,8 @@ def _format_step_message(
 
 def build_skill_instructions() -> str:
     return (
-        "You have personality skills — structured guided workflows scoped to the active persona:\n"
-        "- list_skills: discover available skills (metadata only)\n"
+        "You have skills — structured guided workflows from global built-ins and the active persona:\n"
+        "- list_skills: discover available skills (metadata and source: builtin or personality)\n"
         "- start_skill: begin or resume a skill by name\n"
         "- skill_status: check current step and progress\n"
         "- advance_skill: move to the next checklist step after the user confirms verbally\n"
@@ -452,7 +490,10 @@ def execute_skill_tool(
 
     if tool_name == "list_skills":
         skills = discover_skills(personality)
-        payload = [{"name": s.name, "description": s.description} for s in skills]
+        payload = [
+            {"name": s.name, "description": s.description, "source": s.source}
+            for s in skills
+        ]
         return ToolExecutionResult(output=json.dumps(payload))
 
     if tool_name == "start_skill":
