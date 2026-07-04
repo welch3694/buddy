@@ -22,7 +22,7 @@ Do **not** suggest wrap-up after pure Q&A, exploration-only turns, or when the u
 
 Use a short, direct offer — one paragraph, not a lecture. Example:
 
-> This looks complete. Want me to run wrap-up? I'll review the diff, run tests, get us on a ticket branch, commit, and open a PR to develop.
+> This looks complete. Want me to run wrap-up? I'll review the diff, run tests, get us on a ticket branch, commit, and open a PR to main.
 
 If the user agrees (or says "wrap up", "finalize", etc.), read and follow `.cursor/skills/session-finalize/SKILL.md` end-to-end.
 

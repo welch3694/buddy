@@ -2,7 +2,7 @@
 name: implement-issue
 description: >-
   Implements a GitHub issue for welch3694/buddy — fetches issue details,
-  creates a branch from develop, plans, implements, runs tests, and updates the
+  creates a branch from main, plans, implements, runs tests, and updates the
   issue. Use when the user references a GitHub issue number, says implement/fix/
   work on/close issue #N, or asks to start development on a tracked issue.
 ---
@@ -16,7 +16,7 @@ For issue creation, editing, or closing without implementation, use the `issue` 
 ## Repository
 
 - **Owner/Repo**: `welch3694/buddy`
-- **Default base branch**: `develop`
+- **Default base branch**: `main`
 - **CLI**: `gh` (authenticated, repo scope)
 
 ## Preconditions
@@ -31,7 +31,7 @@ For issue creation, editing, or closing without implementation, use the `issue` 
 | Input | Required | Default |
 |-------|----------|---------|
 | `issue_number` | Yes | — |
-| `base_branch` | No | `develop` |
+| `base_branch` | No | `main` |
 
 Extract `issue_number` from the user request (`#42`, `issue 42`, URL `.../issues/42`).
 
@@ -184,7 +184,7 @@ Fix failures before updating the issue. Do not mark acceptance criteria complete
 
 If logic changed without test updates and a test suite exists, add tests or flag the gap in the issue comment.
 
-For wrap-up (ticket branch, commit, PR to develop), use the `session-finalize` skill when the user wants to close the session.
+For wrap-up (ticket branch, commit, PR to main), use the `session-finalize` skill when the user wants to close the session.
 
 ### Step 7: Update issue
 
@@ -262,7 +262,7 @@ Post a brief summary in chat:
 | Skill | When |
 |-------|------|
 | `issue` | Create, edit, close, search issues |
-| `session-finalize` | End-of-session commit and PR to develop |
+| `session-finalize` | End-of-session commit and PR to main |
 
 ## Example
 
@@ -270,7 +270,7 @@ User: "Implement issue #12"
 
 1. `gh issue view 12` → enhancement, `priority:medium`, `tools`
 2. Add `in-progress`, comment started
-3. `git checkout develop && git pull && git checkout -b issue/12-add-calendar-tool`
+3. `git checkout main && git pull && git checkout -b issue/12-add-calendar-tool`
 4. Write `.cursor/plans/issue-12-add-calendar-tool.md`, implement in `buddy_tools/`
 5. Run `python -m pytest tests/ -x` if tests exist; otherwise verify tool registration manually
 6. Comment on issue, set `needs-review`, summarize in chat

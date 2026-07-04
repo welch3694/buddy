@@ -2,7 +2,7 @@
 name: session-finalize
 description: >-
   End-of-session wrap-up for Buddy — ensure ticket branch, review the diff,
-  run tests, commit, and open a PR to develop. Use when the user agrees
+  run tests, commit, and open a PR to main. Use when the user agrees
   to wrap up, says finalize, or when session-finalize rule triggers after task completion.
 ---
 
@@ -54,22 +54,22 @@ Ticket branches follow the implement-issue convention: `issue/<NUMBER>-<short-sl
 
 **Already on a ticket branch** (`issue/<NUMBER>-*`): proceed.
 
-**Not on a ticket branch** (e.g. `develop`, `main`, or a generic branch):
+**Not on a ticket branch** (e.g. `main` or a generic branch):
 
 1. Determine the issue number from conversation context, plan files, or ask the user.
 2. Derive a short slug from the issue title or change summary (max ~40 chars).
-3. Create and switch to the branch from `develop`:
+3. Create and switch to the branch from `main`:
 
 ```bash
-git fetch origin develop
-git checkout develop
-git pull origin develop
+git fetch origin main
+git checkout main
+git pull origin main
 git checkout -b issue/<NUMBER>-<short-slug>
 ```
 
 If there are uncommitted changes on the current branch, either:
 
-- Stash, create the ticket branch from `develop`, and pop the stash, or
+- Stash, create the ticket branch from `main`, and pop the stash, or
 - Rename/move work to the new branch without losing changes (prefer `git stash` when switching bases is messy).
 
 If the issue number is unclear, ask once before creating the branch.
@@ -123,7 +123,7 @@ If there are no changes to commit, skip to Step 6 and report a clean working tre
 
 #### 5b. Push and open PR
 
-Base branch: **`develop`**.
+Base branch: **`main`**.
 
 Run in parallel to prepare the PR:
 
@@ -131,14 +131,14 @@ Run in parallel to prepare the PR:
 git status
 git diff --stat
 git branch -vv
-git log develop...HEAD --oneline
+git log main...HEAD --oneline
 ```
 
 Then push and create the PR:
 
 ```bash
 git push -u origin HEAD
-gh pr create --base develop --title "<concise title>" --body "$(cat <<'EOF'
+gh pr create --base main --title "<concise title>" --body "$(cat <<'EOF'
 ## Summary
 - <1-3 bullets describing the change>
 
@@ -175,7 +175,7 @@ Post a brief wrap-up report:
 **Review:** [pass / issues found and fixed / issues deferred]
 **Tests:** [passed / failed / manual verification — details]
 **Commit:** [committed `<hash>` / skipped — nothing to commit]
-**PR:** [#<number>](<url>) → `develop`
+**PR:** [#<number>](<url>) → `main`
 ```
 
 If review found deferred items, list them under **Follow-ups**.
@@ -209,12 +209,12 @@ If review found deferred items, list them under **Follow-ups**.
 
 ## Example
 
-User agrees to wrap-up after implementing issue #8 on `develop` with uncommitted changes.
+User agrees to wrap-up after implementing issue #8 on `main` with uncommitted changes.
 
 1. `git status` → 2 files changed under `buddy_tools/`, 1 test file added
-2. Create `issue/8-fix-memory-append` from `develop`
+2. Create `issue/8-fix-memory-append` from `main`
 3. Quick self-review of diff → no issues
 4. `python -m pytest tests/ -x` → all passed
 5. Stage, commit with message explaining the memory append fix
-6. Push and `gh pr create --base develop` with test plan noting pytest passed
+6. Push and `gh pr create --base main` with test plan noting pytest passed
 7. Post wrap-up summary with PR link and test result
