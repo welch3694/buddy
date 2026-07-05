@@ -12,10 +12,10 @@ from buddy_tools.episodic.paths import SESSION_FILENAME, turns_jsonl_path
 
 logger = logging.getLogger(__name__)
 
-SessionStatus = Literal["open", "closing", "closed"]
+SessionStatus = Literal["open", "closing", "close_pending", "closed"]
 IdleReason = Literal["idle_timeout", "max_duration", "shutdown", "personality_switch"]
 
-_VALID_STATUSES = frozenset({"open", "closing", "closed"})
+_VALID_STATUSES = frozenset({"open", "closing", "close_pending", "closed"})
 
 
 @dataclass

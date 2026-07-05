@@ -136,7 +136,7 @@ class EpisodicSessionManagerTests(unittest.TestCase):
         path = self._find_session_path(session_id)
         closed = load_session(path)
         assert closed is not None
-        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.status, "close_pending")
         self.assertEqual(closed.idle_reason, "idle_timeout")
         self.assertIsNotNone(closed.ended_at)
 
@@ -158,7 +158,7 @@ class EpisodicSessionManagerTests(unittest.TestCase):
 
         closed = load_session(self._find_session_path(session_id))
         assert closed is not None
-        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.status, "close_pending")
         self.assertEqual(closed.idle_reason, "idle_timeout")
 
     def test_agent_busy_defers_idle_close(self) -> None:
@@ -202,7 +202,7 @@ class EpisodicSessionManagerTests(unittest.TestCase):
 
         first_closed = load_session(self._find_session_path(first_id))
         assert first_closed is not None
-        self.assertEqual(first_closed.status, "closed")
+        self.assertEqual(first_closed.status, "close_pending")
         self.assertEqual(first_closed.idle_reason, "max_duration")
 
     def test_shutdown_force_close(self) -> None:
@@ -213,7 +213,7 @@ class EpisodicSessionManagerTests(unittest.TestCase):
 
         closed = load_session(self._find_session_path(session_id))
         assert closed is not None
-        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.status, "close_pending")
         self.assertEqual(closed.idle_reason, "shutdown")
 
     def test_channel_tracking(self) -> None:
@@ -249,7 +249,7 @@ class EpisodicSessionManagerTests(unittest.TestCase):
         _make_manager(self.memory_root, clock=self.clock)
         recovered = load_session(directory / SESSION_FILENAME)
         assert recovered is not None
-        self.assertEqual(recovered.status, "closed")
+        self.assertEqual(recovered.status, "close_pending")
         self.assertEqual(recovered.idle_reason, "shutdown")
 
     def _find_session_path(self, session_id: str) -> Path:

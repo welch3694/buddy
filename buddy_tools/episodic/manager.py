@@ -18,6 +18,11 @@ from buddy_tools.episodic.paths import (
     session_json_path,
 )
 from buddy_tools.episodic.rollup import register_session_in_rollups
+from buddy_tools.episodic.worker import (
+    cancel_consolidation_job,
+    enqueue_session_consolidation,
+    get_consolidation_worker,
+)
 from buddy_tools.episodic.session import (
     EpisodicSession,
     find_session_json_files,
@@ -55,6 +60,7 @@ class EpisodicSessionManager:
         self._session_dir: Path | None = None
         self._next_seq: int = 0
         self._idle_timer: threading.Timer | None = None
+        self._last_closed_session_dir: Path | None = None
         self._recover_orphan_sessions()
 
     def set_agent_busy_fn(self, fn: Callable[[], bool]) -> None:
@@ -78,6 +84,11 @@ class EpisodicSessionManager:
                 self._reset_idle_timer()
                 return self._session
 
+            session = self._try_reopen_closed_session(channel)
+            if session is not None:
+                self._reset_idle_timer()
+                return session
+
             session = self._open_new_session(channel)
             self._reset_idle_timer()
             return session
@@ -99,7 +110,7 @@ class EpisodicSessionManager:
             self._cancel_idle_timer()
             if self._session is None:
                 return False
-            if self._session.status == "closed":
+            if self._session.status in ("closed", "close_pending"):
                 return False
             return self._close_current_session(idle_reason)
 
@@ -194,29 +205,69 @@ class EpisodicSessionManager:
     def _close_current_session(self, idle_reason: str) -> bool:
         if self._session is None or self._session_dir is None:
             return False
-        if self._session.status == "closed":
+        if self._session.status in ("closed", "close_pending"):
             return False
 
         session = self._session
-        if session.status == "open":
-            session.status = "closing"
-            save_session(session_json_path(self._session_dir), session)
-
-        session.status = "closed"
+        session_dir = self._session_dir
+        session.status = "close_pending"
         session.idle_reason = idle_reason
         session.ended_at = self._utc_now_iso()
-        save_session(session_json_path(self._session_dir), session)
+        save_session(session_json_path(session_dir), session)
+        enqueue_session_consolidation(
+            session_dir,
+            self.memory_root,
+            self.persona_namespace,
+            delay_seconds=float(self.config.consolidation_delay_seconds),
+        )
         logger.info(
-            "Closed episodic session %r for persona %r (reason=%r)",
+            "Closed episodic session %r for persona %r (reason=%r, close_pending)",
             session.session_id,
             self.persona_namespace,
             idle_reason,
         )
+        self._last_closed_session_dir = session_dir
         self._session = None
         self._bucket = None
         self._session_dir = None
         self._next_seq = 0
         return True
+
+    def _try_reopen_closed_session(self, channel: str) -> EpisodicSession | None:
+        """Reopen a recently close_pending session if consolidation has not started."""
+        if self._last_closed_session_dir is None:
+            return None
+
+        session_path = session_json_path(self._last_closed_session_dir)
+        session = load_session(session_path)
+        if session is None or session.status != "close_pending":
+            self._last_closed_session_dir = None
+            return None
+
+        worker = get_consolidation_worker()
+        if not worker.is_job_pending(session.session_id):
+            self._last_closed_session_dir = None
+            return None
+
+        cancel_consolidation_job(session.session_id)
+        session.status = "open"
+        session.ended_at = None
+        session.idle_reason = None
+        if channel and channel not in session.channels:
+            session.channels.append(channel)
+        save_session(session_path, session)
+
+        self._session = session
+        self._session_dir = self._last_closed_session_dir
+        self._bucket = _parse_bucket_from_session_dir(self._session_dir)
+        self._next_seq = session.turn_count
+        self._last_closed_session_dir = None
+        logger.info(
+            "Reopened episodic session %r for persona %r",
+            session.session_id,
+            self.persona_namespace,
+        )
+        return session
 
     def _persist_session(self) -> None:
         if self._session is None or self._session_dir is None:
@@ -250,17 +301,55 @@ class EpisodicSessionManager:
             session = load_session(path)
             if session is None:
                 continue
-            if session.status not in ("open", "closing"):
-                continue
-            logger.warning(
-                "Recovering orphan episodic session %r (status=%r) — force closing",
-                session.session_id,
-                session.status,
-            )
-            session.status = "closed"
-            session.idle_reason = "shutdown"
-            session.ended_at = self._utc_now_iso()
-            save_session(path, session)
+            if session.status == "open":
+                logger.warning(
+                    "Recovering orphan episodic session %r (status=open) — marking close_pending",
+                    session.session_id,
+                )
+                session.status = "close_pending"
+                session.idle_reason = "shutdown"
+                session.ended_at = self._utc_now_iso()
+                save_session(path, session)
+                enqueue_session_consolidation(
+                    path.parent,
+                    self.memory_root,
+                    self.persona_namespace,
+                    delay_seconds=0.0,
+                )
+            elif session.status == "closing":
+                logger.warning(
+                    "Recovering orphan episodic session %r (status=closing) — marking close_pending",
+                    session.session_id,
+                )
+                session.status = "close_pending"
+                if not session.idle_reason:
+                    session.idle_reason = "shutdown"
+                if not session.ended_at:
+                    session.ended_at = self._utc_now_iso()
+                save_session(path, session)
+                enqueue_session_consolidation(
+                    path.parent,
+                    self.memory_root,
+                    self.persona_namespace,
+                    delay_seconds=0.0,
+                )
+            elif session.status == "close_pending":
+                enqueue_session_consolidation(
+                    path.parent,
+                    self.memory_root,
+                    self.persona_namespace,
+                    delay_seconds=0.0,
+                )
+
+
+def _parse_bucket_from_session_dir(session_dir: Path) -> tuple[str, str, str]:
+    sessions = session_dir.parent.name
+    if sessions != "sessions":
+        raise ValueError(f"Unexpected session path layout: {session_dir}")
+    year_month_day = session_dir.parent.parent.name
+    year_month = session_dir.parent.parent.parent.name
+    year = session_dir.parent.parent.parent.parent.name
+    return year, year_month, year_month_day
 
 
 def _parse_iso(value: str) -> datetime | None:
@@ -299,6 +388,14 @@ def configure_episodic(
         agent_busy_fn=_default_agent_busy,
     )
     _link_executor_if_ready()
+    from buddy_tools.episodic.worker import configure_consolidation_worker
+
+    configure_consolidation_worker(
+        memory_root,
+        persona_namespace,
+        agent_busy_fn=_default_agent_busy,
+        config=config or load_episodic_config(),
+    )
     return _MANAGER
 
 
@@ -342,11 +439,22 @@ def reconfigure_episodic_persona(persona_namespace: str) -> EpisodicSessionManag
         agent_busy_fn=_default_agent_busy,
     )
     _link_executor_if_ready()
+    from buddy_tools.episodic.worker import configure_consolidation_worker
+
+    configure_consolidation_worker(
+        memory_root,
+        namespace,
+        agent_busy_fn=_default_agent_busy,
+        config=config,
+    )
     return _MANAGER
 
 
 def reset_episodic_for_tests() -> None:
     global _MANAGER, _SHOULD_LISTEN, _EXECUTOR
+    from buddy_tools.episodic.worker import reset_consolidation_worker_for_tests
+
+    reset_consolidation_worker_for_tests()
     if _MANAGER is not None:
         _MANAGER._cancel_idle_timer()
     _MANAGER = None

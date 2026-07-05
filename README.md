@@ -23,14 +23,14 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 .\setup-venv.ps1
 ```
 
-Update model paths in `start-llama-server-speech.bat` if your GGUF files live somewhere other than `D:\Llama\Models`.
+Set `BUDDY_LLM_MODEL_DIR` and related paths in `.env` if your GGUF files live somewhere other than `D:\Llama\Models`.
 
 ## Usage
 
 1. Start the LLM server (terminal 1):
 
-   ```bat
-   start-llama-server-speech.bat
+   ```powershell
+   .\start-llama-server-speech.ps1
    ```
 
 2. Confirm the model name matches what the server reports:
@@ -49,7 +49,7 @@ Voice cloning uses named voices in `voices/` (default: `cliff`). Each voice fold
 
 TTS defaults to **Pocket TTS** with voice cloning from `voices/cliff/audio.wav` (requires Hugging Face login and Kyutai terms). Set `$ttsBackend = "qwen3"` in `start-speech-to-speech.ps1` to use Qwen3 instead (occasional timbre drift; see issue #12).
 
-Personalities define behavior and reference a voice by id. Shipped templates live in `personalities/` in the repo; at runtime Buddy uses your **user data directory** (see below). See `personalities/README.md`. Edit model name, TTS backend, and VAD settings in `start-speech-to-speech.ps1` as needed.
+Personalities define behavior and reference a voice by id. Shipped templates live in `personalities/` in the repo; at runtime Buddy uses your **user data directory** (see below). See `personalities/README.md`. Set `BUDDY_LLM_MODEL_NAME` in `.env` (see `.env.example`); edit TTS backend and VAD settings in `start-speech-to-speech.ps1` as needed.
 
 ## Telegram (mobile chat)
 
@@ -148,7 +148,7 @@ Launcher flags: `--chat_size 20` (soft turn cap), `--compact_history` (summariza
 buddy/
 ├── run_speech_to_speech.py   # Entry point with buddy_tools patches applied
 ├── start-speech-to-speech.ps1
-├── start-llama-server-speech.bat
+├── start-llama-server-speech.ps1
 ├── voices/                   # Named voice clone pairs (audio.wav + ref_text.txt)
 ├── personalities/            # Shipped personality templates (seeded into data dir)
 ├── skills/                   # Global built-in skills (read-only at runtime)

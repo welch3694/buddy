@@ -33,6 +33,43 @@ def _save_rollup(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def load_rollup(path: Path) -> dict[str, Any]:
+    return _load_rollup(path)
+
+
+def load_day_rollup(
+    memory_root: Path,
+    persona_namespace: str,
+    year: str,
+    year_month: str,
+    year_month_day: str,
+) -> dict[str, Any]:
+    return _load_rollup(
+        day_rollup_path(memory_root, persona_namespace, year, year_month, year_month_day)
+    )
+
+
+def load_month_rollup(
+    memory_root: Path,
+    persona_namespace: str,
+    year: str,
+    year_month: str,
+) -> dict[str, Any]:
+    return _load_rollup(month_rollup_path(memory_root, persona_namespace, year, year_month))
+
+
+def load_year_rollup(
+    memory_root: Path,
+    persona_namespace: str,
+    year: str,
+) -> dict[str, Any]:
+    return _load_rollup(year_rollup_path(memory_root, persona_namespace, year))
+
+
+def save_rollup(path: Path, payload: dict[str, Any]) -> None:
+    _save_rollup(path, payload)
+
+
 def _append_session_id(existing: dict[str, Any], session_id: str) -> list[str]:
     raw = existing.get("session_ids", [])
     ids = [str(entry) for entry in raw] if isinstance(raw, list) else []

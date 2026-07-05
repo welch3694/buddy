@@ -166,7 +166,7 @@ Component hints:
 
 For **speech / voice** changes, verify manually when appropriate:
 
-1. Start llama-server (`start-llama-server-speech.bat`)
+1. Start llama-server (`start-llama-server-speech.ps1`)
 2. Run the agent (`start-speech-to-speech.ps1`)
 3. Confirm the changed behavior in conversation or tool calls
 

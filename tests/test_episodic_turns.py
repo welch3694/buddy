@@ -450,7 +450,7 @@ class PersonalitySwitchSessionTests(unittest.TestCase):
         assert old_path is not None
         old_session = load_session(old_path)
         assert old_session is not None
-        self.assertEqual(old_session.status, "closed")
+        self.assertEqual(old_session.status, "close_pending")
         self.assertEqual(old_session.idle_reason, "personality_switch")
 
         new_manager = get_episodic_manager()
@@ -501,7 +501,7 @@ class ShutdownForceCloseTests(unittest.TestCase):
         assert session_path is not None
         closed = load_session(session_path)
         assert closed is not None
-        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.status, "close_pending")
         self.assertEqual(closed.idle_reason, "shutdown")
 
         replay = load_turns(turns_path)

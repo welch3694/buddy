@@ -1,5 +1,5 @@
 # Speech-to-speech local voice agent
-# Requires start-llama-server-speech.bat running first (port 8080).
+# Requires start-llama-server-speech.ps1 running first (port 8080).
 # That llama profile disables Gemma 4 thinking (preserve_thinking=false).
 # Verify model id after starting llama:
 #   curl http://127.0.0.1:8080/v1/models
@@ -28,12 +28,19 @@ try {
     # TTS backend: "pocket" (voice clone from voices/audio.wav) or "qwen3" (ref audio + ref text).
     $ttsBackend = "pocket"
 
-    # Model name must match what llama-server reports in /v1/models
-    # (typically the .gguf filename without extension).
-    # Must match the .gguf filename without extension (see /v1/models after starting llama).
-
-    # $llamaModelName = "gemma-4-E4B-it-Q4_K_M"
-    $llamaModelName = "gemma-4-12b-it-uncensored-Q4_K_M"
+    # LLM settings from .env (BUDDY_LLM_*) — shared by voice, consolidation, and llama-server.
+    $llmConfigJson = python -m buddy_tools.infra.llm_client config
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to resolve LLM config. Copy .env.example to .env and set BUDDY_LLM_MODEL_NAME."
+    }
+    $llmConfig = $llmConfigJson | ConvertFrom-Json
+    $llamaModelName = $llmConfig.model_name.Trim()
+    $llamaBaseUrl = $llmConfig.base_url.Trim()
+    if (-not $llamaModelName) {
+        throw "BUDDY_LLM_MODEL_NAME is not set. Copy .env.example to .env and set the model id (GGUF filename without .gguf)."
+    }
+    Write-Host "LLM model: $llamaModelName"
+    Write-Host "LLM base URL: $llamaBaseUrl"
 
     # Optional: store memory and personalities in a cloud-synced folder (Dropbox, Google Drive, etc.)
     # $env:BUDDY_DATA_DIR = "D:\Dropbox\Buddy"
@@ -56,7 +63,7 @@ try {
     $vadMinSilenceMs = 600
 
     # Working-context management (issue #45):
-    # - llama-server --ctx-size (16384 in start-llama-server-speech.bat) is the hard limit.
+    # - llama-server --ctx-size (16384 in start-llama-server-speech.ps1) is the hard limit.
     # - BUDDY_CTX_SIZE should match ctx-size; output/safety reserves leave room for replies.
     # - chat_size: soft turn cap; compact_history: LLM summarization fallback after each turn.
     # - Buddy preflight (mask old tool outputs -> evict turns) runs before each LLM call.
@@ -72,7 +79,7 @@ try {
         "--stt", "parakeet-tdt",
         "--min_silence_ms", "$vadMinSilenceMs",
         "--llm_backend", "chat-completions",
-        "--responses_api_base_url", "http://127.0.0.1:8080/v1",
+        "--responses_api_base_url", $llamaBaseUrl,
         "--responses_api_api_key", "not-needed",
         "--chat_size", "20",
         "--compact_history",

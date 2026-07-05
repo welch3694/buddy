@@ -12,10 +12,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_IDLE_TIMEOUT_MINUTES = 20
 DEFAULT_MAX_SESSION_MINUTES = 120
 DEFAULT_TIMEZONE = "America/New_York"
+DEFAULT_CONSOLIDATION_DELAY_SECONDS = 30
+DEFAULT_CONSOLIDATION_RETRY_BASE_SECONDS = 60
 
 _ENV_IDLE_TIMEOUT = "BUDDY_EPISODIC_IDLE_TIMEOUT_MINUTES"
 _ENV_MAX_SESSION = "BUDDY_EPISODIC_MAX_SESSION_MINUTES"
 _ENV_TIMEZONE = "BUDDY_EPISODIC_TIMEZONE"
+_ENV_CONSOLIDATION_DELAY = "BUDDY_EPISODIC_CONSOLIDATION_DELAY_SECONDS"
+_ENV_CONSOLIDATION_RETRY = "BUDDY_EPISODIC_CONSOLIDATION_RETRY_BASE_SECONDS"
 
 _CACHED: EpisodicConfig | None = None
 
@@ -25,6 +29,8 @@ class EpisodicConfig:
     idle_timeout_minutes: int
     max_session_minutes: int
     timezone: str
+    consolidation_delay_seconds: int = DEFAULT_CONSOLIDATION_DELAY_SECONDS
+    consolidation_retry_base_seconds: int = DEFAULT_CONSOLIDATION_RETRY_BASE_SECONDS
 
     @property
     def tzinfo(self) -> ZoneInfo:
@@ -84,6 +90,16 @@ def load_episodic_config(*, force: bool = False) -> EpisodicConfig:
             default=DEFAULT_MAX_SESSION_MINUTES,
         ),
         timezone=_parse_timezone(os.environ.get(_ENV_TIMEZONE, "")),
+        consolidation_delay_seconds=_parse_positive_int(
+            os.environ.get(_ENV_CONSOLIDATION_DELAY, ""),
+            name=_ENV_CONSOLIDATION_DELAY,
+            default=DEFAULT_CONSOLIDATION_DELAY_SECONDS,
+        ),
+        consolidation_retry_base_seconds=_parse_positive_int(
+            os.environ.get(_ENV_CONSOLIDATION_RETRY, ""),
+            name=_ENV_CONSOLIDATION_RETRY,
+            default=DEFAULT_CONSOLIDATION_RETRY_BASE_SECONDS,
+        ),
     )
     _CACHED = config
     return config
