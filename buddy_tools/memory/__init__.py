@@ -10,8 +10,8 @@ from typing import Any, Literal
 
 from openai.types.realtime import RealtimeFunctionTool
 
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import safe_tool_context, tool_error
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
 

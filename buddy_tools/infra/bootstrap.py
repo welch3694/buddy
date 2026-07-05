@@ -11,13 +11,13 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.memory import migrate_legacy_memory
 from buddy_tools.personality import get_active_personality
-from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
-from buddy_tools.startup import build_init_instructions
+from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
+from buddy_tools.infra.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
 from buddy_tools.pulse import configure_pulse
-from buddy_tools.voice_session import apply_startup_voice, register_pipeline_handlers
+from buddy_tools.voice.session import apply_startup_voice, register_pipeline_handlers
 
-_MEMORY_ROOT = Path(__file__).resolve().parent.parent / "memory"
+_MEMORY_ROOT = Path(__file__).resolve().parent.parent.parent / "memory"
 
 
 def get_memory_root() -> Path:
@@ -73,7 +73,7 @@ def insert_local_tool_executor(
     """Insert LocalToolExecutor and channel reply routing before LMOutputProcessor."""
     from buddy_tools.channels.reply_router import ChannelReplyRouter
     from buddy_tools.channels.telegram import create_and_start_telegram_bridge
-    from buddy_tools.executor import LocalToolExecutor
+    from buddy_tools.core.executor import LocalToolExecutor
 
     runtime_config = transcription_notifier_setup.get("runtime_config")
     memory_root = get_memory_root()

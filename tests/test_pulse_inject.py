@@ -12,7 +12,7 @@ from threading import Event
 import yaml
 from openai.types.realtime.realtime_response_create_params import RealtimeResponseCreateParams
 
-from buddy_tools.listening_pause import get_listening_pause_controller
+from buddy_tools.voice.listening_pause import get_listening_pause_controller
 from buddy_tools.pulse.gates import (
     conversational_pulse_gates_allow,
     directed_pulse_gates_allow,

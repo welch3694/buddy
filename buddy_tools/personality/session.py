@@ -10,9 +10,9 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.memory import load_memory_summary
 from buddy_tools.personality import PersonalityProfile, get_personality, set_active_personality
-from buddy_tools.registry import build_tool_instructions
-from buddy_tools.startup import build_voice_system_prompt
-from buddy_tools.voice_session import apply_voice
+from buddy_tools.core.registry import build_tool_instructions
+from buddy_tools.infra.startup import build_voice_system_prompt
+from buddy_tools.voice.session import apply_voice
 
 logger = logging.getLogger(__name__)
 

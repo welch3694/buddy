@@ -1,6 +1,6 @@
 """Shared types for local tool execution.
 
-Buddy is voice-only; tool failures must be logged via buddy_tools.tool_logging
+Buddy is voice-only; tool failures must be logged via buddy_tools.core.tool_logging
 so operators can debug from application logs, not spoken responses.
 """
 

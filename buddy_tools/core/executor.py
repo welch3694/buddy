@@ -25,12 +25,12 @@ from buddy_tools.pulse.inject import (
     record_assistant_speech_for_active_pulse,
 )
 from buddy_tools.personality import get_active_personality
-from buddy_tools.personality_session import apply_personality_switch
-from buddy_tools.registry import execute_tool, refresh_session_instructions
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import is_tool_error
+from buddy_tools.personality.session import apply_personality_switch
+from buddy_tools.core.registry import execute_tool, refresh_session_instructions
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import is_tool_error
 from buddy_tools.timers import cancel_all_timers
-from buddy_tools.voice_session import apply_voice
+from buddy_tools.voice.session import apply_voice
 
 logger = logging.getLogger(__name__)
 

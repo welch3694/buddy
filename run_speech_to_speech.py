@@ -12,7 +12,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from buddy_tools import apply_patches
-from buddy_tools.env import load_env_file
+from buddy_tools.infra.env import load_env_file
 
 
 def main() -> None:

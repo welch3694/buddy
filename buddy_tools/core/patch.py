@@ -6,17 +6,17 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from buddy_tools.bootstrap import insert_local_tool_executor
-from buddy_tools.context_budget import (
+from buddy_tools.infra.bootstrap import insert_local_tool_executor
+from buddy_tools.infra.context_budget import (
     ContextBudget,
     build_overflow_apology_text,
     is_context_overflow_error,
     preflight_trim,
     recover_after_overflow,
 )
-from buddy_tools.listening_pause import configure_listening_pause, process_transcription_with_listening_pause
-from buddy_tools.voice_clone import refresh_voice_clone_prompt, voice_clone_log_context
-from buddy_tools.voices import ref_text_for_audio_path
+from buddy_tools.voice.listening_pause import configure_listening_pause, process_transcription_with_listening_pause
+from buddy_tools.voice.clone import refresh_voice_clone_prompt, voice_clone_log_context
+from buddy_tools.voice.voices import ref_text_for_audio_path
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +230,7 @@ def apply_patches() -> None:
     if getattr(pipeline, "_buddy_tools_patches_applied", False):
         return
 
-    from buddy_tools.data_dir import configure_user_data
+    from buddy_tools.infra.data_dir import configure_user_data
 
     configure_user_data()
 

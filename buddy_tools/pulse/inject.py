@@ -84,7 +84,7 @@ def build_conversational_pulse_instructions(state: PulseState, base_instructions
 
 
 def _memory_root() -> Path:
-    from buddy_tools.bootstrap import get_memory_root
+    from buddy_tools.infra.bootstrap import get_memory_root
 
     return get_memory_root()
 

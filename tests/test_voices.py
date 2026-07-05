@@ -1,4 +1,4 @@
-"""Tests for buddy_tools.voices."""
+"""Tests for buddy_tools.voice.voices."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from buddy_tools import voices as voices_module
-from buddy_tools.voices import (
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.voice.voices import (
     DEFAULT_VOICE_ID,
     VoiceProfile,
     get_voice,

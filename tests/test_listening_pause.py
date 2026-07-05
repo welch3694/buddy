@@ -6,7 +6,7 @@ import unittest
 from threading import Event
 from unittest.mock import Mock
 
-from buddy_tools.listening_pause import (
+from buddy_tools.voice.listening_pause import (
     ListeningPauseController,
     build_listening_pause_instructions,
     get_listening_pause_controller,
@@ -15,7 +15,7 @@ from buddy_tools.listening_pause import (
     normalize_transcript,
     process_transcription_with_listening_pause,
 )
-from buddy_tools.patch import apply_patches
+from buddy_tools.core.patch import apply_patches
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, PartialTranscription, Transcription
@@ -166,7 +166,7 @@ class TranscriptionNotifierPatchTests(unittest.TestCase):
         notifier.runtime_config.chat.add_item.assert_not_called()
 
     def test_configure_listening_pause_from_handlers(self) -> None:
-        from buddy_tools.patch import _configure_listening_pause_from_handlers
+        from buddy_tools.core.patch import _configure_listening_pause_from_handlers
 
         cancel_scope = CancelScope()
         should_listen = Event()

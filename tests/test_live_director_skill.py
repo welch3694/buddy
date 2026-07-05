@@ -8,14 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
-from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.data_dir import get_built_in_skills_dir, reset_data_dir_config
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.infra.bootstrap import set_memory_root
+from buddy_tools.infra.data_dir import get_built_in_skills_dir, reset_data_dir_config
 from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
 from buddy_tools.pulse.schema import load_session_config
 from buddy_tools.pulse.worker import reset_pulse_workers_for_tests
 from buddy_tools.skills import discover_skills, execute_skill_tool, load_skill_state
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.voices import set_voices_dir
 
 
 class LiveDirectorRepoSkillTests(unittest.TestCase):
@@ -68,7 +68,7 @@ class LiveDirectorDiscoveryTests(unittest.TestCase):
         reset_pulse_workers_for_tests()
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
         self.project_root = Path(__file__).resolve().parent.parent
@@ -123,7 +123,7 @@ class LiveDirectorStartSkillSmokeTests(unittest.TestCase):
         reset_pulse_workers_for_tests()
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
         self.project_root = Path(__file__).resolve().parent.parent

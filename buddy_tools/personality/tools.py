@@ -16,9 +16,9 @@ from buddy_tools.personality import (
     list_personalities,
     update_personality,
 )
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import safe_tool_context, tool_error
-from buddy_tools.voices import DEFAULT_VOICE_ID, list_voices
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import safe_tool_context, tool_error
+from buddy_tools.voice.voices import DEFAULT_VOICE_ID, list_voices
 
 PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(

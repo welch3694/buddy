@@ -19,10 +19,10 @@ Buddy has no UI — application logs are the primary operator feedback channel.
 
 ## Pattern
 
-Use helpers from `buddy_tools.tool_logging`:
+Use helpers from `buddy_tools.core.tool_logging`:
 
 ```python
-from buddy_tools.tool_logging import log_tool_failure, safe_tool_context, tool_error
+from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
 
 # Expected validation / business-rule failure:
 return tool_error("my_tool", "reason here", context=safe_tool_context(args))

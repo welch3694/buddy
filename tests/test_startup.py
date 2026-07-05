@@ -1,4 +1,4 @@
-"""Tests for buddy_tools.startup."""
+"""Tests for buddy_tools.infra.startup."""
 
 from __future__ import annotations
 
@@ -7,18 +7,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from buddy_tools import bootstrap as bootstrap_module
+import buddy_tools.infra.bootstrap as bootstrap_module
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
-from buddy_tools.data_dir import configure_user_data, reset_data_dir_config
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.infra.data_dir import configure_user_data, reset_data_dir_config
 from buddy_tools.personality import create_personality, set_active_personality
-from buddy_tools.startup import (
+from buddy_tools.infra.startup import (
     FIXED_VOICE_INSTRUCTIONS,
     build_init_instructions,
     build_voice_system_prompt,
     resolve_startup_config,
 )
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.voices import set_voices_dir
 
 
 class StartupConfigTests(unittest.TestCase):

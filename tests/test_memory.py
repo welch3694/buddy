@@ -13,8 +13,8 @@ from buddy_tools.memory import (
     migrate_legacy_memory,
     persona_memory_dir,
 )
-from buddy_tools.personality_session import apply_personality_switch
-from buddy_tools.registry import execute_tool
+from buddy_tools.personality.session import apply_personality_switch
+from buddy_tools.core.registry import execute_tool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 
@@ -113,9 +113,9 @@ class MemoryNamespaceTests(unittest.TestCase):
 class MemoryPersonalitySwitchTests(unittest.TestCase):
     def setUp(self) -> None:
         from buddy_tools import personality as personality_module
-        from buddy_tools import voices as voices_module
+        import buddy_tools.voice.voices as voices_module
         from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
-        from buddy_tools.voices import set_voices_dir
+        from buddy_tools.voice.voices import set_voices_dir
 
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
@@ -153,7 +153,7 @@ class MemoryPersonalitySwitchTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         from buddy_tools.personality import set_personalities_dir
-        from buddy_tools.voices import set_voices_dir
+        from buddy_tools.voice.voices import set_voices_dir
 
         set_personalities_dir(self._original_personalities_dir)
         set_voices_dir(self._original_voices_dir)

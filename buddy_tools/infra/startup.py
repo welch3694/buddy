@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from buddy_tools.personality import get_active_personality
-from buddy_tools.voices import resolve_voice
+from buddy_tools.voice.voices import resolve_voice
 
 FIXED_VOICE_INSTRUCTIONS = """\
 Reply directly in natural spoken language only.
@@ -33,7 +33,7 @@ def build_init_instructions() -> str:
 
 def resolve_startup_config() -> dict[str, Any]:
     """Return startup settings for the active personality and its voice."""
-    from buddy_tools.data_dir import configure_user_data
+    from buddy_tools.infra.data_dir import configure_user_data
 
     data_dir = configure_user_data()
     profile = get_active_personality()

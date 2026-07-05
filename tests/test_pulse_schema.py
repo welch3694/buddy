@@ -331,11 +331,11 @@ schedule: []
 class PulseTemplateSeedingTests(unittest.TestCase):
     def setUp(self) -> None:
         from buddy_tools import personality as personality_module
-        from buddy_tools import voices as voices_module
-        from buddy_tools.bootstrap import get_memory_root, set_memory_root
-        from buddy_tools.data_dir import reset_data_dir_config
+        import buddy_tools.voice.voices as voices_module
+        from buddy_tools.infra.bootstrap import get_memory_root, set_memory_root
+        from buddy_tools.infra.data_dir import reset_data_dir_config
         from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
-        from buddy_tools.voices import set_voices_dir
+        from buddy_tools.voice.voices import set_voices_dir
 
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
@@ -366,10 +366,10 @@ class PulseTemplateSeedingTests(unittest.TestCase):
         set_active_personality("coach")
 
     def tearDown(self) -> None:
-        from buddy_tools.bootstrap import set_memory_root
-        from buddy_tools.data_dir import reset_data_dir_config
+        from buddy_tools.infra.bootstrap import set_memory_root
+        from buddy_tools.infra.data_dir import reset_data_dir_config
         from buddy_tools.personality import set_personalities_dir
-        from buddy_tools.voices import set_voices_dir
+        from buddy_tools.voice.voices import set_voices_dir
 
         reset_data_dir_config()
         set_personalities_dir(self._original_personalities_dir)

@@ -1,4 +1,4 @@
-"""Tests for buddy_tools.executor — tool output chat recording."""
+"""Tests for buddy_tools.core.executor — tool output chat recording."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from openai.types.realtime import RealtimeConversationItemFunctionCall
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 
 from buddy_tools.channels.telegram import text_only_response_params
-from buddy_tools.executor import LocalToolExecutor
-from buddy_tools.result import ToolExecutionResult
+from buddy_tools.core.executor import LocalToolExecutor
+from buddy_tools.core.result import ToolExecutionResult
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.LLM.chat import Chat
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
@@ -56,7 +56,7 @@ class ToolOutputChatRecordingTests(unittest.TestCase):
         ]
 
         with patch(
-            "buddy_tools.executor.execute_tool",
+            "buddy_tools.core.executor.execute_tool",
             return_value=ToolExecutionResult(output='[{"name":"demo"}]'),
         ):
             self.assertTrue(executor._execute_pending_tools())

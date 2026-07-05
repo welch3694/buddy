@@ -1,4 +1,4 @@
-"""Tests for buddy_tools.data_dir."""
+"""Tests for buddy_tools.infra.data_dir."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from buddy_tools import bootstrap as bootstrap_module
+import buddy_tools.infra.bootstrap as bootstrap_module
 from buddy_tools import personality as personality_module
-from buddy_tools.data_dir import (
+from buddy_tools.infra.data_dir import (
     configure_user_data,
     default_data_dir,
     migrate_legacy_user_data,
@@ -55,7 +55,7 @@ class DataDirPathTests(unittest.TestCase):
     def test_default_data_dir_linux_xdg(self) -> None:
         self.assertEqual(default_data_dir(), Path("/custom/xdg/buddy"))
 
-    @mock.patch("buddy_tools.data_dir.Path.home", return_value=Path("/home/testuser"))
+    @mock.patch("buddy_tools.infra.data_dir.Path.home", return_value=Path("/home/testuser"))
     @mock.patch.dict(os.environ, {}, clear=True)
     @mock.patch("sys.platform", "linux")
     def test_default_data_dir_linux_fallback(self, _mock_home: mock.MagicMock) -> None:

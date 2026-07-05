@@ -9,7 +9,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from buddy_tools.bootstrap import set_memory_root
+from buddy_tools.infra.bootstrap import set_memory_root
 from buddy_tools.personality import (
     ACTIVE_FILENAME,
     PROFILE_FILENAME,
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _ENV_DATA_DIR = "BUDDY_DATA_DIR"
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _DATA_DIR: Path | None = None
 _CONFIGURED = False
 _TEST_REPO_ROOT: Path | None = None
