@@ -16,6 +16,15 @@ from openai.types.realtime import RealtimeFunctionTool
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality, get_personality
 from buddy_tools.result import ToolExecutionResult
+from buddy_tools.pulse import (
+    clear_pulse_state,
+    init_pulse_state_from_skill,
+    load_pulse_state,
+    save_pulse_state,
+    start_pulse_worker,
+    stop_pulse_worker,
+)
+from buddy_tools.pulse.state import PulseState
 from buddy_tools.timers import cancel_timers_for_skill
 from buddy_tools.tool_logging import safe_tool_context, tool_error
 
@@ -26,7 +35,7 @@ _SKILL_FILENAME = "SKILL.md"
 _SKILL_STATE_FILENAME = "skill_state.json"
 _RESOURCE_DIRS = frozenset({"references", "scripts", "assets"})
 SkillStatus = Literal["in_progress", "paused"]
-SkillType = Literal["checklist", "generic"]
+SkillType = Literal["checklist", "generic", "pulse"]
 SkillSource = Literal["builtin", "shared", "personality"]
 
 SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
@@ -271,7 +280,7 @@ class SkillState:
         if status not in ("in_progress", "paused"):
             raise ValueError(f"Invalid skill status: {status!r}")
         skill_type = str(data.get("skill_type", "generic")).strip()
-        if skill_type not in ("checklist", "generic"):
+        if skill_type not in ("checklist", "generic", "pulse"):
             raise ValueError(f"Invalid skill type: {skill_type!r}")
         return cls(
             skill_name=str(data["skill_name"]).strip(),
@@ -330,7 +339,7 @@ def _normalize_scope(raw_scope: str) -> Literal["persona", "shared"]:
 
 def _normalize_skill_type(raw_type: str) -> SkillType:
     skill_type = raw_type.strip().lower() if raw_type else "generic"
-    if skill_type not in ("checklist", "generic"):
+    if skill_type not in ("checklist", "generic", "pulse"):
         raise ValueError(f"Invalid skill type: {raw_type!r}")
     return skill_type  # type: ignore[return-value]
 
@@ -379,6 +388,8 @@ def _compose_skill_md(
     buddy_lines: list[str] = []
     if skill_type == "checklist":
         buddy_lines.append("    type: checklist")
+    elif skill_type == "pulse":
+        buddy_lines.append("    type: pulse")
     if personalities is not None:
         ids = sorted(personalities)
         buddy_lines.append(f"    personalities: {json.dumps(ids)}")
@@ -599,6 +610,8 @@ def _skill_type_from_metadata(metadata: dict[str, Any]) -> SkillType:
         raw_type = str(buddy_meta.get("type", "")).strip().lower()
         if raw_type == "checklist":
             return "checklist"
+        if raw_type == "pulse":
+            return "pulse"
     return "generic"
 
 
@@ -894,6 +907,41 @@ def build_skill_instructions() -> str:
     )
 
 
+def build_pulse_context(
+    memory_root: Path,
+    persona_namespace: str,
+    personality: PersonalityProfile,
+    *,
+    include_full_skill_body: bool = False,
+) -> str:
+    pulse = load_pulse_state(memory_root, persona_namespace)
+    if pulse is None or pulse.status not in ("active", "paused"):
+        return ""
+
+    try:
+        skill = get_skill_definition(personality, pulse.skill_name)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.warning("Active pulse skill %r not loadable: %s", pulse.skill_name, exc)
+        return ""
+
+    lines = ["Active pulse session:"]
+    status_label = "paused" if pulse.status == "paused" else "running"
+    lines.append(
+        f"- Skill {skill.name!r} is {status_label} (phase: {pulse.phase}, ticks: {pulse.tick_count})."
+    )
+    if pulse.last_tick_at:
+        lines.append(f"- Last worker tick: {pulse.last_tick_at}.")
+    if pulse.session:
+        lines.append(f"- Session fields: {json.dumps(pulse.session, sort_keys=True)}")
+
+    if include_full_skill_body:
+        lines.append("")
+        lines.append(f"## Pulse skill instructions: {skill.name}")
+        lines.append(skill.body)
+
+    return "\n".join(lines)
+
+
 def build_active_skill_context(
     memory_root: Path,
     persona_namespace: str,
@@ -904,6 +952,14 @@ def build_active_skill_context(
     state = load_skill_state(memory_root, persona_namespace)
     if state is None or state.status not in ("in_progress", "paused"):
         return ""
+
+    if state.skill_type == "pulse":
+        return build_pulse_context(
+            memory_root,
+            persona_namespace,
+            personality,
+            include_full_skill_body=include_full_skill_body,
+        )
 
     try:
         skill = get_skill_definition(personality, state.skill_name)
@@ -986,6 +1042,12 @@ def execute_skill_tool(
     return tool_error(tool_name, f"unknown skill tool {tool_name!r}")
 
 
+def _teardown_pulse_session(memory_root: Path, persona_namespace: str, skill_name: str) -> None:
+    stop_pulse_worker(persona_namespace)
+    clear_pulse_state(memory_root, persona_namespace)
+    cancel_timers_for_skill(skill_name)
+
+
 def _start_skill(
     memory_root: Path,
     persona_namespace: str,
@@ -1004,6 +1066,14 @@ def _start_skill(
         return tool_error("start_skill", f"skill {raw_name!r} not found", context=safe_tool_context(args))
 
     existing = load_skill_state(memory_root, persona_namespace)
+    if existing and existing.skill_name != skill.name:
+        if existing.skill_type == "pulse":
+            _teardown_pulse_session(memory_root, persona_namespace, existing.skill_name)
+        cancel_timers_for_skill(existing.skill_name)
+
+    if skill.skill_type == "pulse":
+        return _start_pulse_skill(memory_root, persona_namespace, skill, existing)
+
     if existing and existing.skill_name == skill.name and existing.status in ("in_progress", "paused"):
         existing = SkillState(
             skill_name=existing.skill_name,
@@ -1033,6 +1103,80 @@ def _start_skill(
     message = _format_step_message(skill, 0, prefix="Started")
     return ToolExecutionResult(
         output=message,
+        refresh_instructions=True,
+        include_full_skill_body=True,
+    )
+
+
+def _start_pulse_skill(
+    memory_root: Path,
+    persona_namespace: str,
+    skill: SkillDefinition,
+    existing: SkillState | None,
+) -> ToolExecutionResult:
+    existing_pulse = load_pulse_state(memory_root, persona_namespace)
+    if (
+        existing
+        and existing.skill_name == skill.name
+        and existing.status in ("in_progress", "paused")
+        and existing_pulse is not None
+    ):
+        resumed_pulse = PulseState(
+            skill_name=existing_pulse.skill_name,
+            status="active",
+            tick_count=existing_pulse.tick_count,
+            started_at=existing_pulse.started_at,
+            last_tick_at=existing_pulse.last_tick_at,
+            phase=existing_pulse.phase,
+            tick_interval_seconds=existing_pulse.tick_interval_seconds,
+            session=existing_pulse.session,
+        )
+        save_pulse_state(memory_root, persona_namespace, resumed_pulse)
+        save_skill_state(
+            memory_root,
+            persona_namespace,
+            SkillState(
+                skill_name=skill.name,
+                status="in_progress",
+                step_index=0,
+                skill_type="pulse",
+            ),
+        )
+        start_pulse_worker(
+            memory_root,
+            persona_namespace,
+            skill.name,
+            tick_interval_seconds=resumed_pulse.tick_interval_seconds,
+        )
+        return ToolExecutionResult(
+            output=f"Resumed pulse session {skill.name!r} (phase: {resumed_pulse.phase}).",
+            refresh_instructions=True,
+            include_full_skill_body=True,
+        )
+
+    pulse_state = init_pulse_state_from_skill(skill.name, skill.directory)
+    save_pulse_state(memory_root, persona_namespace, pulse_state)
+    save_skill_state(
+        memory_root,
+        persona_namespace,
+        SkillState(
+            skill_name=skill.name,
+            status="in_progress",
+            step_index=0,
+            skill_type="pulse",
+        ),
+    )
+    start_pulse_worker(
+        memory_root,
+        persona_namespace,
+        skill.name,
+        tick_interval_seconds=pulse_state.tick_interval_seconds,
+    )
+    return ToolExecutionResult(
+        output=(
+            f"Started pulse session {skill.name!r} (phase: {pulse_state.phase}). "
+            "The runtime worker is active; narrate when directed."
+        ),
         refresh_instructions=True,
         include_full_skill_body=True,
     )
@@ -1084,6 +1228,13 @@ def _skill_status(
         "skill_type": state.skill_type,
         "step_index": state.step_index,
     }
+    if state.skill_type == "pulse":
+        pulse = load_pulse_state(memory_root, persona_namespace)
+        if pulse is not None:
+            payload["phase"] = pulse.phase
+            payload["tick_count"] = pulse.tick_count
+            payload["tick_interval_seconds"] = pulse.tick_interval_seconds
+        return ToolExecutionResult(output=json.dumps(payload))
     if skill.skill_type == "checklist":
         payload["total_steps"] = len(skill.steps)
         step_prompt = _step_prompt(skill, state.step_index)
@@ -1147,6 +1298,36 @@ def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResu
     if state.status == "paused":
         return ToolExecutionResult(output=f"Skill {state.skill_name!r} is already paused.")
 
+    if state.skill_type == "pulse":
+        pulse = load_pulse_state(memory_root, persona_namespace)
+        if pulse is not None:
+            paused_pulse = PulseState(
+                skill_name=pulse.skill_name,
+                status="paused",
+                tick_count=pulse.tick_count,
+                started_at=pulse.started_at,
+                last_tick_at=pulse.last_tick_at,
+                phase=pulse.phase,
+                tick_interval_seconds=pulse.tick_interval_seconds,
+                session=pulse.session,
+            )
+            save_pulse_state(memory_root, persona_namespace, paused_pulse)
+        stop_pulse_worker(persona_namespace)
+        save_skill_state(
+            memory_root,
+            persona_namespace,
+            SkillState(
+                skill_name=state.skill_name,
+                status="paused",
+                step_index=0,
+                skill_type="pulse",
+            ),
+        )
+        return ToolExecutionResult(
+            output=f"Paused pulse session {state.skill_name!r}.",
+            refresh_instructions=True,
+        )
+
     paused = SkillState(
         skill_name=state.skill_name,
         status="paused",
@@ -1165,8 +1346,12 @@ def _cancel_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionRes
     if state is None:
         return tool_error("cancel_skill", "no active skill to cancel")
 
+    if state.skill_type == "pulse":
+        _teardown_pulse_session(memory_root, persona_namespace, state.skill_name)
+    else:
+        cancel_timers_for_skill(state.skill_name)
+
     clear_skill_state(memory_root, persona_namespace)
-    cancel_timers_for_skill(state.skill_name)
     return ToolExecutionResult(
         output=f"Cancelled skill {state.skill_name!r}.",
         refresh_instructions=True,
