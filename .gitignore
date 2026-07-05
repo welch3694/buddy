@@ -50,6 +50,7 @@ env/
 .DS_Store
 Thumbs.db
 desktop.ini
+*.lnk
 
 # Logs and runtime
 *.log

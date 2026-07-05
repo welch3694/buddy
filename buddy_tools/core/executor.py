@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
@@ -28,9 +29,15 @@ from buddy_tools.personality import get_active_personality
 from buddy_tools.personality.session import apply_personality_switch
 from buddy_tools.core.registry import execute_tool, refresh_session_instructions
 from buddy_tools.core.result import ToolExecutionResult
-from buddy_tools.core.tool_logging import is_tool_error
+from buddy_tools.core.tool_logging import is_tool_error, safe_tool_context
 from buddy_tools.timers import cancel_all_timers
-from buddy_tools.episodic import get_episodic_manager
+from buddy_tools.episodic import (
+    EpisodicTurnRecord,
+    get_episodic_manager,
+    reconfigure_episodic_persona,
+)
+from buddy_tools.episodic.turns import truncate_tool_output
+from buddy_tools.channels.turn_context import get_turn
 from buddy_tools.voice.session import apply_voice
 
 logger = logging.getLogger(__name__)
@@ -43,6 +50,65 @@ def _log_tool_result(tool_name: str, result: ToolExecutionResult) -> None:
         logger.error("Tool %s failed: %s", tool_name, result.output)
     else:
         logger.info("Tool %s succeeded: %s", tool_name, result.output[:120])
+
+
+def _parse_tool_arguments(raw: str | None) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(parsed, dict):
+        return parsed
+    return None
+
+
+def _resolve_turn_channel(turn_id: str | None) -> str:
+    ctx = get_turn(turn_id)
+    if ctx is not None:
+        return ctx.channel
+    return "voice"
+
+
+def _log_episodic_tool_turn(
+    turn_id: str | None,
+    tool: ResponseFunctionToolCall,
+    result: ToolExecutionResult,
+) -> None:
+    if turn_id is None:
+        return
+    manager = get_episodic_manager()
+    if manager is None:
+        return
+    raw_args = tool.arguments if isinstance(tool.arguments, str) else None
+    manager.log_turn(
+        EpisodicTurnRecord(
+            role="tool",
+            channel=_resolve_turn_channel(turn_id),  # type: ignore[arg-type]
+            turn_id=turn_id,
+            tool_name=tool.name,
+            tool_args=safe_tool_context(_parse_tool_arguments(raw_args)),
+            tool_success=not is_tool_error(result),
+            tool_output_preview=truncate_tool_output(result.output),
+        )
+    )
+
+
+def _log_episodic_assistant_turn(turn_id: str | None, text: str) -> None:
+    if turn_id is None or not text:
+        return
+    manager = get_episodic_manager()
+    if manager is None:
+        return
+    manager.log_turn(
+        EpisodicTurnRecord(
+            role="assistant",
+            channel=_resolve_turn_channel(turn_id),  # type: ignore[arg-type]
+            turn_id=turn_id,
+            text=text,
+        )
+    )
 
 
 class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
@@ -108,9 +174,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 persona_namespace=self.persona_namespace,
             )
             _log_tool_result(tool.name, result)
+            _log_episodic_tool_turn(self._pending_context.turn_id, tool, result)
             skip_chat_record = False
 
             if result.personality_switch_id:
+                episodic_manager = get_episodic_manager()
+                if episodic_manager is not None:
+                    episodic_manager.close_for_personality_switch()
                 try:
                     profile = apply_personality_switch(
                         result.personality_switch_id,
@@ -119,6 +189,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                         memory_root=self.memory_root,
                     )
                     self.persona_namespace = profile.memory_namespace
+                    reconfigure_episodic_persona(profile.memory_namespace)
                     result = ToolExecutionResult(output=f"Now speaking as {profile.name}.")
                     # Chat was reset; the function_call is gone so tool output cannot be paired.
                     skip_chat_record = True
@@ -213,6 +284,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             self._turn_text_buffer.clear()
             handle_pulse_end_of_response()
             record_assistant_speech_for_active_pulse(full_text)
+            _log_episodic_assistant_turn(lm_output.turn_id, full_text)
 
             self._tool_rounds = 0
             self._pending_context = None
@@ -229,3 +301,10 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0
+
+    def cleanup(self) -> None:
+        if getattr(self, "_buddy_shutdown_done", False):
+            return
+        self._buddy_shutdown_done = True
+        logger.info("LocalToolExecutor shutting down — running session cleanup")
+        self.on_session_end()

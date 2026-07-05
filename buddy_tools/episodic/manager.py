@@ -25,6 +25,7 @@ from buddy_tools.episodic.session import (
     save_session,
     write_turns_placeholder,
 )
+from buddy_tools.episodic.turns import EpisodicTurnRecord, append_turn
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class EpisodicSessionManager:
         self._session: EpisodicSession | None = None
         self._bucket: tuple[str, str, str] | None = None
         self._session_dir: Path | None = None
+        self._next_seq: int = 0
         self._idle_timer: threading.Timer | None = None
         self._recover_orphan_sessions()
 
@@ -104,6 +106,31 @@ class EpisodicSessionManager:
     def shutdown(self) -> bool:
         return self.force_close("shutdown")
 
+    def close_for_personality_switch(self) -> bool:
+        return self.force_close("personality_switch")
+
+    def log_turn(self, record: EpisodicTurnRecord) -> None:
+        """Append a turn record to the active session (thread-safe)."""
+        with self._lock:
+            if self._session is None or self._session_dir is None:
+                logger.debug(
+                    "Skipping episodic turn log (no open session): role=%r turn_id=%r",
+                    record.role,
+                    record.turn_id,
+                )
+                return
+            if self._session.status != "open":
+                logger.debug(
+                    "Skipping episodic turn log (session not open): role=%r turn_id=%r",
+                    record.role,
+                    record.turn_id,
+                )
+                return
+
+            self._next_seq += 1
+            record.seq = self._next_seq
+            append_turn(self._session_dir, self._session, record)
+
     def _now(self) -> datetime:
         value = self._now_fn()
         if value.tzinfo is None:
@@ -145,6 +172,7 @@ class EpisodicSessionManager:
         self._session = session
         self._bucket = (year, year_month, year_month_day)
         self._session_dir = session_directory
+        self._next_seq = 0
         save_session(session_json_path(session_directory), session)
         write_turns_placeholder(session_directory)
         register_session_in_rollups(
@@ -187,6 +215,7 @@ class EpisodicSessionManager:
         self._session = None
         self._bucket = None
         self._session_dir = None
+        self._next_seq = 0
         return True
 
     def _persist_session(self) -> None:
@@ -286,6 +315,33 @@ def _link_executor_if_ready() -> None:
 
 
 def get_episodic_manager() -> EpisodicSessionManager | None:
+    return _MANAGER
+
+
+def reconfigure_episodic_persona(persona_namespace: str) -> EpisodicSessionManager | None:
+    """Rebind episodic storage to a new persona namespace (e.g. after personality switch)."""
+    global _MANAGER
+
+    if _MANAGER is None:
+        return None
+
+    namespace = persona_namespace.strip()
+    if not namespace:
+        return _MANAGER
+
+    if _MANAGER.persona_namespace == namespace:
+        return _MANAGER
+
+    memory_root = _MANAGER.memory_root
+    config = _MANAGER.config
+    _MANAGER._cancel_idle_timer()
+    _MANAGER = EpisodicSessionManager(
+        memory_root,
+        namespace,
+        config=config,
+        agent_busy_fn=_default_agent_busy,
+    )
+    _link_executor_if_ready()
     return _MANAGER
 
 

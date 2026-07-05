@@ -21,6 +21,7 @@ from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
 from buddy_tools.channels.images import bytes_to_jpeg_data_uri
 from buddy_tools.channels.turn_context import TurnReplyContext, register_turn
+from buddy_tools.episodic import EpisodicTurnRecord, get_episodic_manager
 from buddy_tools.infra.data_dir import get_data_dir
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,29 @@ def build_telegram_generate_request(
     )
 
 
+def _log_telegram_user_turn(
+    *,
+    turn_id: str,
+    text: str,
+    content_type: str = "text",
+    has_image: bool = False,
+) -> None:
+    manager = get_episodic_manager()
+    if manager is None:
+        return
+    manager.on_user_activity("telegram")
+    manager.log_turn(
+        EpisodicTurnRecord(
+            role="user",
+            channel="telegram",
+            turn_id=turn_id,
+            text=text,
+            content_type=content_type,  # type: ignore[arg-type]
+            has_image=has_image,
+        )
+    )
+
+
 def enqueue_telegram_text_turn(
     *,
     runtime_config: Any,
@@ -144,6 +168,7 @@ def enqueue_telegram_text_turn(
             telegram_message_thread_id=message_thread_id,
         ),
     )
+    _log_telegram_user_turn(turn_id=turn_id, text=text)
     runtime_config.chat.add_item(make_user_message(text))
     text_prompt_queue.put(
         build_telegram_generate_request(runtime_config=runtime_config, turn_id=turn_id)
@@ -170,6 +195,12 @@ def enqueue_telegram_photo_turn(
         ),
     )
     caption_text = (caption or "").strip() or DEFAULT_PHOTO_CAPTION
+    _log_telegram_user_turn(
+        turn_id=turn_id,
+        text=caption_text,
+        content_type="photo",
+        has_image=True,
+    )
     image_msg = RealtimeConversationItemUserMessage(
         type="message",
         role="user",

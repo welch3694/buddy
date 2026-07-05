@@ -224,6 +224,67 @@ def _configure_listening_pause_from_handlers(
     )
 
 
+def _patch_graceful_shutdown() -> None:
+    """Fix Ctrl+C on Windows and ensure pipeline threads can exit."""
+    from speech_to_speech.utils.thread_manager import ThreadManager
+
+    if getattr(ThreadManager, "_buddy_shutdown_patch_applied", False):
+        return
+
+    import speech_to_speech.s2s_pipeline as pipeline
+    from speech_to_speech.pipeline.messages import PIPELINE_END
+
+    original_build_pipeline = pipeline.build_pipeline
+    original_stop = ThreadManager.stop
+
+    def patched_build_pipeline(*args: Any, **kwargs: Any) -> ThreadManager:
+        manager = original_build_pipeline(*args, **kwargs)
+        queues = kwargs.get("queues_and_events")
+        if queues is None and args:
+            queues = args[-1]
+        if isinstance(queues, dict):
+            stop_event = queues.get("stop_event")
+            if stop_event is not None:
+                for handler in manager.handlers:
+                    if handler.__class__.__name__ == "LocalAudioStreamer":
+                        handler.stop_event = stop_event
+        return manager
+
+    def stop_with_unblock(self: ThreadManager) -> None:
+        for handler in self.handlers:
+            handler.stop_event.set()
+            queue_in = getattr(handler, "queue_in", None)
+            if queue_in is not None:
+                try:
+                    queue_in.put_nowait(PIPELINE_END)
+                except Exception:
+                    pass
+
+        for i, thread in enumerate(self.threads):
+            if thread.is_alive():
+                thread.join(timeout=5.0)
+                if thread.is_alive():
+                    logger.warning(
+                        "Thread %d (%s) did not terminate within timeout",
+                        i,
+                        thread.name,
+                    )
+
+    def wait_with_signal_processing(self: ThreadManager) -> None:
+        """Join worker threads with timeouts so SIGINT can run on the main thread."""
+        while True:
+            alive = [thread for thread in self.threads if thread.is_alive()]
+            if not alive:
+                break
+            for thread in alive:
+                thread.join(timeout=0.2)
+
+    pipeline.build_pipeline = patched_build_pipeline  # type: ignore[assignment]
+    ThreadManager.wait = wait_with_signal_processing  # type: ignore[method-assign]
+    ThreadManager.stop = stop_with_unblock  # type: ignore[method-assign]
+    ThreadManager._buddy_shutdown_patch_applied = True
+
+
 def apply_patches() -> None:
     import speech_to_speech.s2s_pipeline as pipeline
 
@@ -239,6 +300,7 @@ def apply_patches() -> None:
     _patch_pocket_tts_voice_logging()
     _patch_transcription_notifier_listening_pause()
     _patch_llm_context_budget()
+    _patch_graceful_shutdown()
 
     original_build = pipeline._build_pipeline_handlers
 
