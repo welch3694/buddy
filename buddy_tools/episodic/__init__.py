@@ -14,18 +14,24 @@ from buddy_tools.episodic.manager import (
     configure_episodic,
     get_episodic_manager,
     link_episodic_executor,
+    reconfigure_episodic_persona,
     reset_episodic_for_tests,
 )
 from buddy_tools.episodic.session import EpisodicSession
+from buddy_tools.episodic.turns import EpisodicTurnRecord, append_turn, load_turns
 
 __all__ = [
     "EpisodicConfig",
     "EpisodicSession",
     "EpisodicSessionManager",
+    "EpisodicTurnRecord",
+    "append_turn",
     "configure_episodic",
     "get_episodic_manager",
     "link_episodic_executor",
     "load_episodic_config",
+    "load_turns",
+    "reconfigure_episodic_persona",
     "reset_episodic_config_for_tests",
     "reset_episodic_for_tests",
 ]

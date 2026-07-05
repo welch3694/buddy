@@ -200,6 +200,21 @@ def process_transcription_with_listening_pause(
     if notifier.runtime_config is not None:
         from speech_to_speech.LLM.chat import make_user_message
 
+        from buddy_tools.episodic import EpisodicTurnRecord, get_episodic_manager
+
+        if turn_id is not None:
+            manager = get_episodic_manager()
+            if manager is not None:
+                manager.on_user_activity("voice")
+                manager.log_turn(
+                    EpisodicTurnRecord(
+                        role="user",
+                        channel="voice",
+                        turn_id=turn_id,
+                        text=transcript,
+                    )
+                )
+
         notifier.runtime_config.chat.add_item(make_user_message(transcript))
         return iter(
             [
