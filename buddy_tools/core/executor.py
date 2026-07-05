@@ -30,6 +30,7 @@ from buddy_tools.core.registry import execute_tool, refresh_session_instructions
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import is_tool_error
 from buddy_tools.timers import cancel_all_timers
+from buddy_tools.episodic import get_episodic_manager
 from buddy_tools.voice.session import apply_voice
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,9 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
 
     def on_session_end(self) -> None:
         cancel_all_timers()
+        manager = get_episodic_manager()
+        if manager is not None:
+            manager.force_close("shutdown")
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0

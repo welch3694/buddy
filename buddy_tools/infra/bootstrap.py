@@ -15,6 +15,7 @@ from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructi
 from buddy_tools.infra.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
 from buddy_tools.pulse import configure_pulse
+from buddy_tools.episodic import configure_episodic, link_episodic_executor
 from buddy_tools.voice.session import apply_startup_voice, register_pipeline_handlers
 
 _MEMORY_ROOT = Path(__file__).resolve().parent.parent.parent / "memory"
@@ -89,6 +90,11 @@ def insert_local_tool_executor(
         runtime_config=runtime_config,
         should_listen=should_listen,
     )
+    configure_episodic(
+        memory_root,
+        profile.memory_namespace,
+        should_listen=should_listen,
+    )
 
     telegram_bridge = create_and_start_telegram_bridge(
         runtime_config=runtime_config,
@@ -112,19 +118,19 @@ def insert_local_tool_executor(
         }:
             handler.queue_out = lm_bridge
             new_handlers.append(handler)
-            new_handlers.append(
-                LocalToolExecutor(
-                    stop_event,
-                    queue_in=lm_bridge,
-                    queue_out=channel_bridge,
-                    setup_kwargs={
-                        "text_prompt_queue": text_prompt_queue,
-                        "memory_root": memory_root,
-                        "persona_namespace": profile.memory_namespace,
-                        "speculative_turns": speculative_turns,
-                    },
-                )
+            executor = LocalToolExecutor(
+                stop_event,
+                queue_in=lm_bridge,
+                queue_out=channel_bridge,
+                setup_kwargs={
+                    "text_prompt_queue": text_prompt_queue,
+                    "memory_root": memory_root,
+                    "persona_namespace": profile.memory_namespace,
+                    "speculative_turns": speculative_turns,
+                },
             )
+            link_episodic_executor(executor)
+            new_handlers.append(executor)
             new_handlers.append(
                 ChannelReplyRouter(
                     stop_event,
