@@ -14,6 +14,7 @@ from buddy_tools.personality import get_active_personality
 from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 from buddy_tools.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
+from buddy_tools.pulse import configure_pulse
 from buddy_tools.voice_session import apply_startup_voice, register_pipeline_handlers
 
 _MEMORY_ROOT = Path(__file__).resolve().parent.parent / "memory"
@@ -79,6 +80,11 @@ def insert_local_tool_executor(
     profile = get_active_personality()
     configure_runtime_tools(runtime_config, memory_root)
     configure_timers(
+        text_prompt_queue=text_prompt_queue,
+        runtime_config=runtime_config,
+        should_listen=should_listen,
+    )
+    configure_pulse(
         text_prompt_queue=text_prompt_queue,
         runtime_config=runtime_config,
         should_listen=should_listen,
