@@ -24,7 +24,9 @@ from buddy_tools.pulse import (
     start_pulse_worker,
     stop_pulse_worker,
 )
+from buddy_tools.pulse.schema import SessionValidationError
 from buddy_tools.pulse.state import PulseState
+from buddy_tools.pulse.template import render_session_template
 from buddy_tools.timers import cancel_timers_for_skill
 from buddy_tools.tool_logging import safe_tool_context, tool_error
 
@@ -163,9 +165,9 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
                 "skill_type": {
                     "type": "string",
-                    "enum": ["checklist", "generic"],
+                    "enum": ["checklist", "generic", "pulse"],
                     "description": (
-                        "checklist requires ## Steps with ### headings and prompt text below each"
+                        "checklist requires ## Steps with ### headings; pulse uses references/session.yaml"
                     ),
                 },
             },
@@ -204,7 +206,7 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
                 "skill_type": {
                     "type": "string",
-                    "enum": ["checklist", "generic"],
+                    "enum": ["checklist", "generic", "pulse"],
                 },
             },
             "required": ["name"],
@@ -462,6 +464,13 @@ def create_skill(
         personalities=shared_personalities,
     )
     skill = _write_and_validate_skill(content, skill_dir, source, is_new=True)
+    if normalized_type == "pulse":
+        refs_dir = skill_dir / "references"
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        session_path = refs_dir / "session.yaml"
+        if not session_path.is_file():
+            session_path.write_text(render_session_template(sanitized), encoding="utf-8")
+            logger.info("Seeded pulse session.yaml for skill %r at %s", sanitized, session_path)
     logger.info(
         "Created skill %r at %s (source=%s)",
         skill.name,
@@ -931,8 +940,10 @@ def build_pulse_context(
     )
     if pulse.last_tick_at:
         lines.append(f"- Last worker tick: {pulse.last_tick_at}.")
-    if pulse.session:
-        lines.append(f"- Session fields: {json.dumps(pulse.session, sort_keys=True)}")
+    if pulse.pending_cue:
+        lines.append(f"- Pending cue ({pulse.cue_priority or 'mandatory'}): {pulse.pending_cue}")
+    if pulse.vars:
+        lines.append(f"- Runtime vars: {json.dumps(pulse.vars, sort_keys=True)}")
 
     if include_full_skill_body:
         lines.append("")
@@ -1129,7 +1140,13 @@ def _start_pulse_skill(
             last_tick_at=existing_pulse.last_tick_at,
             phase=existing_pulse.phase,
             tick_interval_seconds=existing_pulse.tick_interval_seconds,
-            session=existing_pulse.session,
+            pending_cue=existing_pulse.pending_cue,
+            cue_priority=existing_pulse.cue_priority,
+            pulse_mode=existing_pulse.pulse_mode,
+            narrator_muted=existing_pulse.narrator_muted,
+            fired_rules=list(existing_pulse.fired_rules),
+            vars=dict(existing_pulse.vars),
+            session_config=dict(existing_pulse.session_config),
         )
         save_pulse_state(memory_root, persona_namespace, resumed_pulse)
         save_skill_state(
@@ -1154,7 +1171,12 @@ def _start_pulse_skill(
             include_full_skill_body=True,
         )
 
-    pulse_state = init_pulse_state_from_skill(skill.name, skill.directory)
+    try:
+        pulse_state = init_pulse_state_from_skill(skill.name, skill.directory)
+    except SessionValidationError as exc:
+        logger.warning("Could not start pulse skill %r: %s", skill.name, exc)
+        return tool_error("start_skill", str(exc))
+
     save_pulse_state(memory_root, persona_namespace, pulse_state)
     save_skill_state(
         memory_root,
@@ -1309,7 +1331,13 @@ def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResu
                 last_tick_at=pulse.last_tick_at,
                 phase=pulse.phase,
                 tick_interval_seconds=pulse.tick_interval_seconds,
-                session=pulse.session,
+                pending_cue=pulse.pending_cue,
+                cue_priority=pulse.cue_priority,
+                pulse_mode=pulse.pulse_mode,
+                narrator_muted=pulse.narrator_muted,
+                fired_rules=list(pulse.fired_rules),
+                vars=dict(pulse.vars),
+                session_config=dict(pulse.session_config),
             )
             save_pulse_state(memory_root, persona_namespace, paused_pulse)
         stop_pulse_worker(persona_namespace)

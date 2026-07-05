@@ -12,6 +12,7 @@ from typing import Any
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
+from buddy_tools.pulse.rules import evaluate_pulse_tick
 from buddy_tools.pulse.state import PulseState, load_pulse_state, save_pulse_state
 
 logger = logging.getLogger(__name__)
@@ -163,13 +164,19 @@ class PulseWorkerManager:
         from datetime import UTC, datetime
 
         state.last_tick_at = datetime.now(UTC).replace(microsecond=0).isoformat()
+
+        session = state.get_session_config()
+        if session is not None:
+            evaluate_pulse_tick(state, session)
+
         save_pulse_state(worker.memory_root, worker.persona_namespace, state)
         logger.info(
-            "Pulse tick namespace=%r skill=%r count=%d phase=%r",
+            "Pulse tick namespace=%r skill=%r count=%d phase=%r pending_cue=%r",
             worker.persona_namespace,
             state.skill_name,
             state.tick_count,
             state.phase,
+            state.pending_cue,
         )
 
 
