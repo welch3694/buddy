@@ -301,6 +301,8 @@ def build_memory_instructions() -> str:
         "You have persistent memory stored as markdown files in two scopes:\n"
         "- global: user facts any persona should know (name, preferences, household details)\n"
         "- persona: role-specific state for the active personality only\n"
+        "The memory snapshot below is semantic only; past conversations live in episodic memory "
+        "and require episodic tools to browse.\n"
         "Use the memory tools when needed:\n"
         "- update_memory: set or correct one fact (preferred for remember / changed my mind)\n"
         "- append_memory: only for new facts that do not contradict existing memory\n"
