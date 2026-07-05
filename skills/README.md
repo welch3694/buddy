@@ -84,7 +84,7 @@ Start with `start_skill` and name `live-director` when the user says "go live" o
 
 ### Manual test plan (live-director)
 
-1. Start llama-server and speech-to-speech (`start-llama-server-speech.bat`, `start-speech-to-speech.ps1`).
+1. Start llama-server and speech-to-speech (`start-llama-server-speech.ps1`, `start-speech-to-speech.ps1`).
 2. Say **"start director"** or **"go live"** — confirm `start_skill` arms the pulse worker.
 3. Wait ~3 minutes (or temporarily lower `180` → `30` in `session.yaml` for a faster check) — verify a camera-switch cue fires **after** you stop speaking, not mid-sentence.
 4. Talk continuously through the interval — verify the cue defers until brief silence (or hits `mandatory_cue_max_defer_s`).

@@ -21,6 +21,7 @@ def finalize_buddy_session() -> None:
     cancel_all_timers()
 
     from buddy_tools.episodic import get_episodic_manager
+    from buddy_tools.episodic.worker import shutdown_consolidation_worker
 
     manager = get_episodic_manager()
     if manager is not None:
@@ -28,6 +29,8 @@ def finalize_buddy_session() -> None:
             logger.info("Closed episodic session on shutdown")
         else:
             logger.debug("No open episodic session to close on shutdown")
+
+    shutdown_consolidation_worker()
 
 
 def reset_shutdown_state_for_tests() -> None:

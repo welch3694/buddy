@@ -15,8 +15,10 @@ function Test-LlamaServer {
 
 if (-not (Test-LlamaServer)) {
     Write-Host "Starting llama-server..."
-    $llamaBat = Join-Path $root "start-llama-server-speech.bat"
-    Start-Process -FilePath "cmd.exe" -ArgumentList @("/k", "`"$llamaBat`"") -WorkingDirectory $root
+    $llamaPs1 = Join-Path $root "start-llama-server-speech.ps1"
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$llamaPs1`""
+    ) -WorkingDirectory $root
 
     Write-Host "Waiting for llama-server on http://127.0.0.1:8080 ..."
     $deadline = (Get-Date).AddMinutes(5)
@@ -39,7 +41,9 @@ if (-not (Test-LlamaServer)) {
 }
 
 Write-Host "Starting speech-to-speech..."
-$voiceBat = Join-Path $root "start-speech-to-speech.bat"
-Start-Process -FilePath "cmd.exe" -ArgumentList @("/k", "`"$voiceBat`"") -WorkingDirectory $root
+$voicePs1 = Join-Path $root "start-speech-to-speech.ps1"
+Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$voicePs1`""
+) -WorkingDirectory $root
 
 Write-Host "Done. Close the llama-server and voice windows to stop Buddy."

@@ -54,7 +54,7 @@ class ExecutorCleanupTests(unittest.TestCase):
         closed = load_session(session_path)
         assert closed is not None
         self.assertEqual(closed.session_id, session_id)
-        self.assertEqual(closed.status, "closed")
+        self.assertEqual(closed.status, "close_pending")
         self.assertEqual(closed.idle_reason, "shutdown")
 
     def test_cleanup_is_idempotent(self) -> None:

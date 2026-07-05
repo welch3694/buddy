@@ -267,6 +267,35 @@ def _upsert_fact_line(content: str, topic: str, value: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def upsert_memory_fact(
+    memory_root: Path,
+    persona_namespace: str,
+    *,
+    scope: MemoryScope,
+    name: str,
+    topic: str,
+    value: str,
+) -> None:
+    """Programmatically upsert one fact (used by episodic consolidation)."""
+    memory_root.mkdir(parents=True, exist_ok=True)
+    migrate_legacy_memory(memory_root)
+    path = _resolve_path(memory_root, persona_namespace, scope, name)
+    topic_clean = topic.strip()
+    value_clean = value.strip()
+    if not topic_clean or not value_clean:
+        raise ValueError("topic and value must be non-empty")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else "# Notes\n"
+    updated = _upsert_fact_line(existing, topic_clean, value_clean)
+    path.write_text(updated, encoding="utf-8")
+    logger.info(
+        "Memory upsert [%s]: %s topic=%r (consolidation)",
+        scope,
+        path.name,
+        topic_clean,
+    )
+
+
 def build_memory_instructions() -> str:
     return (
         "You have persistent memory stored as markdown files in two scopes:\n"
