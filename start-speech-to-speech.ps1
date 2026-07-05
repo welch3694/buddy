@@ -55,6 +55,17 @@ try {
     # Default is 64ms (very aggressive). Try 500-800 if it cuts you off mid-sentence.
     $vadMinSilenceMs = 600
 
+    # Working-context management (issue #45):
+    # - llama-server --ctx-size (16384 in start-llama-server-speech.bat) is the hard limit.
+    # - BUDDY_CTX_SIZE should match ctx-size; output/safety reserves leave room for replies.
+    # - chat_size: soft turn cap; compact_history: LLM summarization fallback after each turn.
+    # - Buddy preflight (mask old tool outputs -> evict turns) runs before each LLM call.
+    # Optional overrides:
+    #   $env:BUDDY_CTX_SIZE = "16384"
+    #   $env:BUDDY_CTX_OUTPUT_RESERVE = "1024"
+    #   $env:BUDDY_CTX_SAFETY_MARGIN = "512"
+    #   $env:BUDDY_CTX_MASK_KEEP_TURNS = "4"
+
     $pythonArgs = @(
         "run_speech_to_speech.py",
         "--mode", "local",
@@ -64,6 +75,7 @@ try {
         "--responses_api_base_url", "http://127.0.0.1:8080/v1",
         "--responses_api_api_key", "not-needed",
         "--chat_size", "20",
+        "--compact_history",
         "--responses_api_stream",
         "--responses_api_disable_thinking",
         "--init_chat_prompt", $voiceSystemPrompt,
