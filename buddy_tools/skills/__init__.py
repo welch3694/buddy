@@ -15,7 +15,7 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality, get_personality
-from buddy_tools.result import ToolExecutionResult
+from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.pulse import (
     clear_pulse_state,
     init_pulse_state_from_skill,
@@ -28,7 +28,7 @@ from buddy_tools.pulse.schema import SessionValidationError
 from buddy_tools.pulse.state import PulseState
 from buddy_tools.pulse.template import render_session_template
 from buddy_tools.timers import cancel_timers_for_skill
-from buddy_tools.tool_logging import safe_tool_context, tool_error
+from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -709,13 +709,13 @@ def load_skill_definition(skill_dir: Path, *, source: SkillSource = "personality
 
 
 def _built_in_skills_dir() -> Path:
-    from buddy_tools.data_dir import get_built_in_skills_dir
+    from buddy_tools.infra.data_dir import get_built_in_skills_dir
 
     return get_built_in_skills_dir()
 
 
 def _user_skills_dir() -> Path:
-    from buddy_tools.data_dir import get_user_skills_dir
+    from buddy_tools.infra.data_dir import get_user_skills_dir
 
     return get_user_skills_dir()
 

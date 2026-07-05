@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from buddy_tools.voices import DEFAULT_VOICE_ID, get_voice
+from buddy_tools.voice.voices import DEFAULT_VOICE_ID, get_voice
 
 DEFAULT_PERSONALITY_ID = "buddy"
 PROFILE_FILENAME = "profile.yaml"
@@ -19,7 +19,7 @@ ACTIVE_FILENAME = "active.json"
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
-_PERSONALITIES_DIR = Path(__file__).resolve().parent.parent / "personalities"
+_PERSONALITIES_DIR = Path(__file__).resolve().parent.parent.parent / "personalities"
 
 
 @dataclass(frozen=True)

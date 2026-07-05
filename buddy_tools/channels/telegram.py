@@ -21,7 +21,7 @@ from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
 from buddy_tools.channels.images import bytes_to_jpeg_data_uri
 from buddy_tools.channels.turn_context import TurnReplyContext, register_turn
-from buddy_tools.data_dir import get_data_dir
+from buddy_tools.infra.data_dir import get_data_dir
 
 logger = logging.getLogger(__name__)
 

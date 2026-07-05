@@ -27,8 +27,8 @@ from buddy_tools.channels.telegram import (
     text_only_response_params,
 )
 from buddy_tools.channels.turn_context import TurnReplyContext, get_turn, register_turn, reset_turn_contexts
-from buddy_tools.data_dir import reset_data_dir_config
-from buddy_tools.executor import LocalToolExecutor
+from buddy_tools.infra.data_dir import reset_data_dir_config
+from buddy_tools.core.executor import LocalToolExecutor
 
 
 def _make_jpeg_bytes(width: int = 1024, height: int = 768) -> bytes:

@@ -8,9 +8,9 @@ from typing import Any
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.personality import get_active_personality
-from buddy_tools.tool_logging import log_tool_failure
-from buddy_tools.voice_clone import refresh_voice_clone_prompt
-from buddy_tools.voices import VoiceProfile, get_voice
+from buddy_tools.core.tool_logging import log_tool_failure
+from buddy_tools.voice.clone import refresh_voice_clone_prompt
+from buddy_tools.voice.voices import VoiceProfile, get_voice
 
 logger = logging.getLogger(__name__)
 

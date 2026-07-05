@@ -39,7 +39,7 @@ try {
     # $env:BUDDY_DATA_DIR = "D:\Dropbox\Buddy"
 
     # Active personality prompt + voice from user data dir and voices/.
-    $startupJson = python -c "import json; from buddy_tools.startup import resolve_startup_config; print(json.dumps(resolve_startup_config()))"
+    $startupJson = python -c "import json; from buddy_tools.infra.startup import resolve_startup_config; print(json.dumps(resolve_startup_config()))"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to resolve active personality. Ensure personalities/buddy/ (template) and voices/cliff/ exist."
     }

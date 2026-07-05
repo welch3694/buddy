@@ -10,8 +10,8 @@ import mss
 import numpy as np
 from openai.types.realtime import RealtimeFunctionTool
 
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import log_tool_failure
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import log_tool_failure
 
 logger = logging.getLogger(__name__)
 

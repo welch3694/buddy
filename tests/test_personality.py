@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
+import buddy_tools.voice.voices as voices_module
 from buddy_tools.personality import (
     DEFAULT_PERSONALITY_ID,
     PersonalityProfile,
@@ -22,7 +22,7 @@ from buddy_tools.personality import (
     set_personalities_dir,
     update_personality,
 )
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.voices import set_voices_dir
 
 
 class PersonalityManagerTests(unittest.TestCase):
@@ -166,10 +166,10 @@ class ProjectPersonalitiesTests(unittest.TestCase):
         self.root = Path(self._tmpdir.name)
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_memory_root = None
-        from buddy_tools import bootstrap as bootstrap_module
+        import buddy_tools.infra.bootstrap as bootstrap_module
 
         self._original_memory_root = bootstrap_module.get_memory_root()
-        from buddy_tools.data_dir import configure_user_data, reset_data_dir_config
+        from buddy_tools.infra.data_dir import configure_user_data, reset_data_dir_config
 
         self.repo_root = Path(__file__).resolve().parent.parent
         self.data_dir = self.root / "userdata"
@@ -177,8 +177,8 @@ class ProjectPersonalitiesTests(unittest.TestCase):
         configure_user_data()
 
     def tearDown(self) -> None:
-        from buddy_tools.data_dir import reset_data_dir_config
-        from buddy_tools import bootstrap as bootstrap_module
+        from buddy_tools.infra.data_dir import reset_data_dir_config
+        import buddy_tools.infra.bootstrap as bootstrap_module
 
         reset_data_dir_config()
         set_personalities_dir(self._original_personalities_dir)

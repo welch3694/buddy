@@ -10,8 +10,8 @@ from typing import Any
 from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
-from buddy_tools.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
-from buddy_tools.listening_pause import build_listening_pause_instructions
+from buddy_tools.media.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
+from buddy_tools.voice.listening_pause import build_listening_pause_instructions
 from buddy_tools.memory import (
     MEMORY_TOOL_DEFINITIONS,
     MEMORY_TOOL_NAMES,
@@ -20,15 +20,15 @@ from buddy_tools.memory import (
     load_memory_summary,
 )
 from buddy_tools.personality import get_personality
-from buddy_tools.personality_tools import (
+from buddy_tools.personality.tools import (
     PERSONALITY_TOOL_DEFINITIONS,
     PERSONALITY_TOOL_NAMES,
     build_personality_instructions,
     execute_personality_tool,
 )
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import log_tool_failure, safe_tool_context, tool_error
-from buddy_tools.screen import SCREEN_TOOL_DEFINITIONS, execute_screen_tool
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
+from buddy_tools.media.screen import SCREEN_TOOL_DEFINITIONS, execute_screen_tool
 from buddy_tools.skills import (
     SKILL_TOOL_DEFINITIONS,
     SKILL_TOOL_NAMES,
@@ -36,7 +36,7 @@ from buddy_tools.skills import (
     build_skill_instructions,
     execute_skill_tool,
 )
-from buddy_tools.startup import build_voice_system_prompt
+from buddy_tools.infra.startup import build_voice_system_prompt
 from buddy_tools.timers import (
     TIMER_TOOL_DEFINITIONS,
     TIMER_TOOL_NAMES,

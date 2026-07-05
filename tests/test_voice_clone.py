@@ -7,14 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from buddy_tools import voices as voices_module
-from buddy_tools.voice_clone import (
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.voice.clone import (
     precompute_voice_clone_prompt,
     refresh_voice_clone_prompt,
     voice_clone_log_context,
 )
-from buddy_tools.voice_session import apply_startup_voice
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.session import apply_startup_voice
+from buddy_tools.voice.voices import set_voices_dir
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 
@@ -91,8 +91,8 @@ class ApplyStartupVoiceTests(unittest.TestCase):
         set_voices_dir(self._original_voices_dir)
         self._tmpdir.cleanup()
 
-    @patch("buddy_tools.voice_session.get_active_personality")
-    @patch("buddy_tools.voice_session.get_tts_handler")
+    @patch("buddy_tools.voice.session.get_active_personality")
+    @patch("buddy_tools.voice.session.get_tts_handler")
     def test_apply_startup_voice_wires_session_and_handler(
         self,
         mock_get_handler: Mock,

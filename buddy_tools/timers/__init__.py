@@ -18,8 +18,8 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.LLM.chat import make_user_message
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
-from buddy_tools.listening_pause import get_listening_pause_controller
-from buddy_tools.result import ToolExecutionResult
+from buddy_tools.voice.listening_pause import get_listening_pause_controller
+from buddy_tools.core.result import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
 

@@ -8,9 +8,9 @@ import unittest
 from pathlib import Path
 
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
-from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.data_dir import reset_data_dir_config
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.infra.bootstrap import set_memory_root
+from buddy_tools.infra.data_dir import reset_data_dir_config
 from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
 from buddy_tools.pulse.state import (
     PulseState,
@@ -26,14 +26,14 @@ from buddy_tools.pulse.worker import (
     start_pulse_worker,
     stop_pulse_worker,
 )
-from buddy_tools.registry import build_tool_instructions
+from buddy_tools.core.registry import build_tool_instructions
 from buddy_tools.skills import (
     build_pulse_context,
     execute_skill_tool,
     load_skill_definition,
     load_skill_state,
 )
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.voices import set_voices_dir
 
 SAMPLE_PULSE_SKILL = """\
 ---
@@ -171,7 +171,7 @@ class PulseSkillLifecycleTests(unittest.TestCase):
         reset_pulse_workers_for_tests()
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 

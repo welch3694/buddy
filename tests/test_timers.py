@@ -14,9 +14,9 @@ from unittest.mock import Mock
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
-from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.listening_pause import get_listening_pause_controller
-from buddy_tools.registry import ALL_TOOL_DEFINITIONS, execute_tool
+from buddy_tools.infra.bootstrap import set_memory_root
+from buddy_tools.voice.listening_pause import get_listening_pause_controller
+from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, execute_tool
 from buddy_tools.skills import _cancel_skill, save_skill_state, SkillState
 from buddy_tools.timers import (
     TIMER_NUDGE_PREFIX,
@@ -363,7 +363,7 @@ class TimerSessionCleanupTests(unittest.TestCase):
         reset_timer_scheduler_for_tests()
 
     def test_on_session_end_clears_timers(self) -> None:
-        from buddy_tools.executor import LocalToolExecutor
+        from buddy_tools.core.executor import LocalToolExecutor
 
         configure_timers(
             text_prompt_queue=Queue(),

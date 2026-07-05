@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from buddy_tools.tool_logging import log_tool_failure
+from buddy_tools.core.tool_logging import log_tool_failure
 
 logger = logging.getLogger(__name__)
 

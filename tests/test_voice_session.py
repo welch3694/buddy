@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from buddy_tools import voices as voices_module
-from buddy_tools.patch import apply_patches
-from buddy_tools.voice_session import apply_startup_voice, apply_voice, get_tts_handler, set_tts_handler
-from buddy_tools.voices import ref_text_for_audio_path, set_voices_dir
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.core.patch import apply_patches
+from buddy_tools.voice.session import apply_startup_voice, apply_voice, get_tts_handler, set_tts_handler
+from buddy_tools.voice.voices import ref_text_for_audio_path, set_voices_dir
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 

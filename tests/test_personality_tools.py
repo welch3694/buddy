@@ -9,13 +9,13 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
+import buddy_tools.voice.voices as voices_module
 from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
-from buddy_tools.personality_session import apply_personality_switch, reset_chat_history
-from buddy_tools.personality_tools import execute_personality_tool
-from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
-from buddy_tools.voice_session import set_tts_handler
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.personality.session import apply_personality_switch, reset_chat_history
+from buddy_tools.personality.tools import execute_personality_tool
+from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
+from buddy_tools.voice.session import set_tts_handler
+from buddy_tools.voice.voices import set_voices_dir
 from speech_to_speech.LLM.chat import Chat
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 

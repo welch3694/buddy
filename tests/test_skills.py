@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 
 from buddy_tools import personality as personality_module
-from buddy_tools import voices as voices_module
-from buddy_tools.bootstrap import set_memory_root
-from buddy_tools.data_dir import get_built_in_skills_dir, get_user_skills_dir, reset_data_dir_config
+import buddy_tools.voice.voices as voices_module
+from buddy_tools.infra.bootstrap import set_memory_root
+from buddy_tools.infra.data_dir import get_built_in_skills_dir, get_user_skills_dir, reset_data_dir_config
 from buddy_tools.personality import create_personality, get_personality, set_active_personality, set_personalities_dir
-from buddy_tools.personality_session import apply_personality_switch
-from buddy_tools.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
+from buddy_tools.personality.session import apply_personality_switch
+from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, execute_tool
 from buddy_tools.skills import (
     discover_skills,
     execute_skill_tool,
@@ -23,7 +23,7 @@ from buddy_tools.skills import (
     save_skill_state,
     SkillState,
 )
-from buddy_tools.voices import set_voices_dir
+from buddy_tools.voice.voices import set_voices_dir
 from speech_to_speech.LLM.chat import Chat
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
@@ -121,7 +121,7 @@ class SkillToolTests(unittest.TestCase):
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
         self._original_memory_root = None
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 
@@ -389,7 +389,7 @@ Persona override step.
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
         self._original_memory_root = None
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 
@@ -529,7 +529,7 @@ Confirm where it was saved.
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
         self._original_memory_root = None
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 
@@ -693,7 +693,7 @@ Persona override step.
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
         self._original_memory_root = None
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 
@@ -908,7 +908,7 @@ Welcome the audience.
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_voices_dir = voices_module.get_voices_dir()
         self._original_memory_root = None
-        from buddy_tools.bootstrap import get_memory_root
+        from buddy_tools.infra.bootstrap import get_memory_root
 
         self._original_memory_root = get_memory_root()
 

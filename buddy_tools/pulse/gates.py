@@ -7,7 +7,7 @@ import time
 from datetime import UTC, datetime
 from typing import Callable
 
-from buddy_tools.listening_pause import get_listening_pause_controller
+from buddy_tools.voice.listening_pause import get_listening_pause_controller
 from buddy_tools.pulse.schema import SessionConfig
 from buddy_tools.pulse.state import PulseState
 

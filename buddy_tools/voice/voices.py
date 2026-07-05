@@ -12,7 +12,7 @@ REF_TEXT_FILENAME = "ref_text.txt"
 
 _SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
-_VOICES_DIR = Path(__file__).resolve().parent.parent / "voices"
+_VOICES_DIR = Path(__file__).resolve().parent.parent.parent / "voices"
 
 
 @dataclass(frozen=True)

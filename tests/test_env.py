@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from buddy_tools.env import load_env_file, reset_env_file_state
+from buddy_tools.infra.env import load_env_file, reset_env_file_state
 
 
 class LoadEnvFileTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class LoadEnvFileTests(unittest.TestCase):
             )
             os.environ["TELEGRAM_BOT_TOKEN"] = "from-shell"
 
-            with mock.patch("buddy_tools.env._REPO_ROOT", Path(tmp)):
+            with mock.patch("buddy_tools.infra.env._REPO_ROOT", Path(tmp)):
                 reset_env_file_state()
                 loaded = load_env_file()
 
@@ -37,7 +37,7 @@ class LoadEnvFileTests(unittest.TestCase):
 
     def test_returns_none_when_file_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch("buddy_tools.env._REPO_ROOT", Path(tmp)):
+            with mock.patch("buddy_tools.infra.env._REPO_ROOT", Path(tmp)):
                 reset_env_file_state()
                 self.assertIsNone(load_env_file())
 

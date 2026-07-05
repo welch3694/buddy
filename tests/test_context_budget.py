@@ -1,4 +1,4 @@
-"""Tests for buddy_tools.context_budget — working-context management."""
+"""Tests for buddy_tools.infra.context_budget — working-context management."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from openai.types.realtime import RealtimeConversationItemFunctionCall
 from openai.types.realtime.conversation_item import RealtimeConversationItemFunctionCallOutput
 from openai.types.realtime.realtime_conversation_item_user_message import Content as UserContent
 
-from buddy_tools.context_budget import (
+from buddy_tools.infra.context_budget import (
     ContextBudget,
     build_overflow_apology_text,
     estimate_chat_tokens,
@@ -22,7 +22,7 @@ from buddy_tools.context_budget import (
     preflight_trim,
     recover_after_overflow,
 )
-from buddy_tools.patch import _iter_llm_outputs_with_context_budget
+from buddy_tools.core.patch import _iter_llm_outputs_with_context_budget
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.LLM.chat import Chat, make_user_message
 from speech_to_speech.pipeline.messages import EndOfResponse, LLMResponseChunk
@@ -184,7 +184,7 @@ class GracefulDegradationTests(unittest.TestCase):
     def test_preflight_swallows_internal_errors(self) -> None:
         chat = Chat(5)
         with patch(
-            "buddy_tools.context_budget.estimate_chat_tokens",
+            "buddy_tools.infra.context_budget.estimate_chat_tokens",
             side_effect=RuntimeError("boom"),
         ):
             report = preflight_trim(chat, "x", [], ContextBudget())

@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from buddy_tools.executor import LocalToolExecutor, _log_tool_result
-from buddy_tools.personality_tools import execute_personality_tool
-from buddy_tools.registry import execute_tool
-from buddy_tools.result import ToolExecutionResult
-from buddy_tools.tool_logging import (
+from buddy_tools.core.executor import LocalToolExecutor, _log_tool_result
+from buddy_tools.personality.tools import execute_personality_tool
+from buddy_tools.core.registry import execute_tool
+from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.core.tool_logging import (
     is_tool_error,
     is_tool_error_output,
     log_tool_failure,
@@ -39,7 +39,7 @@ class ToolLoggingHelperTests(unittest.TestCase):
         self.assertEqual(context["content"], "<13 chars>")
 
     def test_tool_error_logs_warning_and_returns_result(self) -> None:
-        with self.assertLogs("buddy_tools.tool_logging", level="WARNING") as captured:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured:
             result = tool_error("switch_personality", "personality_id is empty")
         self.assertEqual(result.output, "Error: personality_id is empty")
         self.assertIn("switch_personality", captured.output[0])
@@ -47,7 +47,7 @@ class ToolLoggingHelperTests(unittest.TestCase):
 
     def test_log_tool_failure_with_exc_uses_exception_level(self) -> None:
         exc = RuntimeError("boom")
-        with self.assertLogs("buddy_tools.tool_logging", level="ERROR") as captured:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="ERROR") as captured:
             log_tool_failure("capture_camera", "camera capture failed: boom", exc=exc)
         self.assertIn("capture_camera", captured.output[0])
         self.assertIn("boom", captured.output[0])
@@ -62,7 +62,7 @@ class RegistryToolLoggingTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_execute_tool_invalid_json_logs_failure(self) -> None:
-        with self.assertLogs("buddy_tools.tool_logging", level="WARNING") as captured:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured:
             result = execute_tool(
                 self.memory_root,
                 "read_memory",
@@ -74,7 +74,7 @@ class RegistryToolLoggingTests(unittest.TestCase):
         self.assertIn("invalid tool arguments JSON", captured.output[0])
 
     def test_execute_tool_unknown_tool_logs_failure(self) -> None:
-        with self.assertLogs("buddy_tools.tool_logging", level="WARNING") as captured:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured:
             result = execute_tool(
                 self.memory_root,
                 "nonexistent_tool",
@@ -87,7 +87,7 @@ class RegistryToolLoggingTests(unittest.TestCase):
 
 class PersonalityToolLoggingTests(unittest.TestCase):
     def test_empty_personality_id_logs_tool_name(self) -> None:
-        with self.assertLogs("buddy_tools.tool_logging", level="WARNING") as captured:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured:
             result = execute_personality_tool("switch_personality", {"personality_id": ""})
         self.assertEqual(result.output, "Error: personality_id is empty")
         self.assertIn("switch_personality", captured.output[0])
@@ -97,7 +97,7 @@ class ExecutorToolLoggingTests(unittest.TestCase):
     def test_log_tool_result_failure_not_truncated(self) -> None:
         long_message = "Error: " + ("x" * 300)
         result = ToolExecutionResult(output=long_message)
-        with self.assertLogs("buddy_tools.executor", level="ERROR") as captured:
+        with self.assertLogs("buddy_tools.core.executor", level="ERROR") as captured:
             _log_tool_result("test_tool", result)
         self.assertIn(long_message, captured.output[0])
         self.assertNotIn(long_message[:120] + "...", captured.output[0])
@@ -105,7 +105,7 @@ class ExecutorToolLoggingTests(unittest.TestCase):
     def test_log_tool_result_success_truncated(self) -> None:
         long_message = "ok " + ("y" * 300)
         result = ToolExecutionResult(output=long_message)
-        with self.assertLogs("buddy_tools.executor", level="INFO") as captured:
+        with self.assertLogs("buddy_tools.core.executor", level="INFO") as captured:
             _log_tool_result("test_tool", result)
         self.assertNotIn(long_message, captured.output[0])
         self.assertIn("ok ", captured.output[0])
@@ -123,7 +123,7 @@ class ExecutorToolLoggingTests(unittest.TestCase):
         tool_b.name = "append_memory"
         executor._pending_tools = [tool_a, tool_b]
 
-        with self.assertLogs("buddy_tools.executor", level="WARNING") as captured:
+        with self.assertLogs("buddy_tools.core.executor", level="WARNING") as captured:
             ran = executor._execute_pending_tools()
         self.assertFalse(ran)
         log_line = captured.output[0]
