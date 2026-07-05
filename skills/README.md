@@ -62,8 +62,34 @@ User-authored skills belong under `{BUDDY_DATA_DIR}/skills/` (shared, with optio
 |-------|---------|
 | `edit-personality` | Safe guided edit of a persona's `prompt.md` |
 | `remember` | Save a user fact with explicit global vs persona scope ("share with everyone" / "keep it between us") |
+| `live-director` | Pulse session: timed camera-switch cues (~3 min) with optional conversational fill between cues |
 
 The **remember** skill auto-starts when the user says "remember that", "don't forget", or similar — the model calls `start_skill` with name `remember` rather than saving memory directly. It uses existing `append_memory` / `update_memory` tools with `scope: global` or `scope: persona`; no separate persistence layer.
+
+## Pulse sessions vs checklist skills
+
+| | Checklist (`type: checklist`) | Pulse (`type: pulse`) |
+|---|------------------------------|------------------------|
+| **Examples** | `remember`, `edit-personality` | `live-director` |
+| **Who advances** | LLM calls `advance_skill` after user confirms each step | Python worker owns timing, rules, and cues |
+| **State** | `skill_state.json` (step index) | `pulse_state.json` (vars, pending cues, fired rules) |
+| **Config** | Steps in `SKILL.md` | Rules in `references/session.yaml` |
+| **LLM role** | Guide interactive steps | Narrate directed cues; optional `[NO_OUTPUT]` on conversational pulses |
+
+**`live-director`** is the reference pulse skill. See `skills/live-director/references/session.yaml` for a working config.
+
+**Full `session.yaml` reference** (conditions, mutations, schedule, limits): [`buddy_tools/pulse/SESSION_YAML.md`](../buddy_tools/pulse/SESSION_YAML.md)
+
+Start with `start_skill` and name `live-director` when the user says "go live" or "start director".
+
+### Manual test plan (live-director)
+
+1. Start llama-server and speech-to-speech (`start-llama-server-speech.bat`, `start-speech-to-speech.ps1`).
+2. Say **"start director"** or **"go live"** — confirm `start_skill` arms the pulse worker.
+3. Wait ~3 minutes (or temporarily lower `180` → `30` in `session.yaml` for a faster check) — verify a camera-switch cue fires **after** you stop speaking, not mid-sentence.
+4. Talk continuously through the interval — verify the cue defers until brief silence (or hits `mandatory_cue_max_defer_s`).
+5. Between cues, stay quiet — verify optional conversational pulses may speak briefly or stay silent (`[NO_OUTPUT]`).
+6. Say **"cancel skill"** — worker stops and `pulse_state.json` clears.
 
 ## Adding a built-in skill
 
@@ -71,4 +97,4 @@ The **remember** skill auto-starts when the user says "remember that", "don't fo
 2. Add tests in `tests/test_skills.py` if discovery or collision behavior is affected
 3. Built-ins are available immediately after restart — no seeding step required
 
-See `personalities/README.md` for checklist skill format and step syntax.
+See `personalities/README.md` for checklist skill format and step syntax. Pulse skills use `metadata.buddy.type: pulse` and `references/session.yaml` instead of `## Steps`.

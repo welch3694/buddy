@@ -1,0 +1,51 @@
+# Live director pulse session
+# Full reference: buddy_tools/pulse/SESSION_YAML.md
+name: live-director
+
+pulse:
+  tick_interval_s: 10
+  conversation_check_s: 60
+  min_speak_interval_s: 45
+  mandatory_cue_max_defer_s: 30
+
+init:
+  set:
+    phase: live
+    current_camera: 1
+    switch_interval_s: 180
+    min_switch_interval_s: 60
+    tighten_step_s: 5
+    narrator_muted: false
+    # last_camera_switch_at is auto-seeded to session start if omitted (first cue ~180s later)
+
+# Camera list used by $rotate(cameras) in the camera-switch rule below.
+# Add or rename entries; keep id + label for cue interpolation ({current_camera}, {label}).
+cameras:
+  - { id: 1, label: "wide shot" }
+  - { id: 2, label: "close-up" }
+  - { id: 3, label: "overhead" }
+
+rules:
+  # Optional: tighten cadence after 30 minutes (uncomment to enable).
+  # - id: tighten-pace
+  #   when: session_elapsed >= 1800
+  #   once: true
+  #   set:
+  #     switch_interval_s: 120
+  #     last_camera_switch_at: "$now"
+
+  # Optional: tighten by 5s after each switch until min_switch_interval_s (uncomment set line).
+  - id: camera-switch
+    when: elapsed_since(last_camera_switch_at) >= switch_interval_s
+    once: false
+    set:
+      current_camera: "$rotate(cameras)"
+      last_camera_switch_at: "$now"
+      # switch_interval_s: "$clamp($sub(switch_interval_s, tighten_step_s), min_switch_interval_s)"
+    cue: "Switch to camera {current_camera} — {label}."
+    priority: mandatory
+
+# Conversational fill between cues is gate-driven (pulse.conversation_check_s above),
+# not a YAML rule — the worker injects a conversational LLM turn when quiet long enough.
+
+schedule: []

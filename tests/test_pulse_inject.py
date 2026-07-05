@@ -31,6 +31,7 @@ from buddy_tools.pulse.inject import (
     is_no_output_text,
     reset_pulse_inject_for_tests,
 )
+from buddy_tools.pulse.rules import evaluate_pulse_tick
 from buddy_tools.pulse.schema import parse_session_config
 from buddy_tools.pulse.state import PulseState, build_pulse_state_from_session, load_pulse_state, save_pulse_state
 from speech_to_speech.LLM.chat import Chat
@@ -116,6 +117,43 @@ class PulseGateTests(unittest.TestCase):
         self.assertEqual(
             select_pulse_mode(self.state, self.session, should_listen=self.should_listen),
             "directed",
+        )
+
+    def test_conversational_allowed_after_interval_when_no_pending_cue(self) -> None:
+        anchor = (datetime.now(UTC) - timedelta(seconds=61)).replace(microsecond=0).isoformat()
+        self.state.vars["last_conversation_pulse_at"] = anchor
+        self.state.last_assistant_speech_at = anchor
+        self.assertEqual(
+            select_pulse_mode(self.state, self.session, should_listen=self.should_listen),
+            "conversational",
+        )
+
+    def test_conversation_check_rule_blocks_same_tick_inject(self) -> None:
+        """A rule that resets last_conversation_pulse_at prevents gate-based inject."""
+        session = parse_session_config(
+            yaml.safe_load(
+                SESSION_YAML.replace("rules: []", "")
+                + """
+rules:
+  - id: conversation-check
+    when: elapsed_since(last_conversation_pulse_at) >= 10
+    once: false
+    set:
+      last_conversation_pulse_at: "$now"
+    cue: ""
+    priority: conversational
+"""
+            ),
+            skill_name="live-director",
+        )
+        anchor = (datetime.now(UTC) - timedelta(seconds=11)).replace(microsecond=0).isoformat()
+        state = build_pulse_state_from_session("live-director", session)
+        state.vars["last_conversation_pulse_at"] = anchor
+        state.last_assistant_speech_at = anchor
+
+        evaluate_pulse_tick(state, session)
+        self.assertIsNone(
+            select_pulse_mode(state, session, should_listen=self.should_listen),
         )
 
 
