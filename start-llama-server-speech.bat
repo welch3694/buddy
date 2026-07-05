@@ -13,6 +13,7 @@ REM D:\Llama\llama-server.exe -m %MODEL_DIR%\gemma-4-E4B-it-Q4_K_M.gguf --mmproj
 REM --cache-type-k q8_0 ^
 REM --cache-type-v q8_0 ^
 
+REM Keep --ctx-size in sync with BUDDY_CTX_SIZE (default 16384) in start-speech-to-speech.ps1
 D:\Llama\llama-server.exe -m %MODEL% ^
     --mmproj %MMPROJ% ^
     --n-gpu-layers 99 ^

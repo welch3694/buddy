@@ -121,6 +121,27 @@ The `buddy_tools` package patches speech-to-speech to expose local tools the mod
 - **Personalities:** `list_personalities`, `list_voices`, `switch_personality`, `switch_voice`, `create_personality`, `update_personality`, `delete_personality`
 - **Vision:** `capture_camera` (webcam), `capture_screen` (display screenshot)
 
+## Working-context management
+
+Buddy keeps the live LLM chat buffer within a token budget so long sessions, tool round-trips, and vision captures do not exceed llama-server context and crash generation. This is separate from long-term markdown memory on disk.
+
+Compaction order:
+
+1. **Observation masking** — old tool outputs replaced with compact placeholders (no extra LLM call)
+2. **Turn eviction** — oldest user turns dropped when still over budget
+3. **LLM summarization** — `--compact_history` in `start-speech-to-speech.ps1` summarizes older turns in the background after each successful generation
+
+If llama-server still rejects a request for context length, Buddy trims aggressively and speaks a brief apology instead of failing silently.
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `BUDDY_CTX_SIZE` | `16384` | Must match llama-server `--ctx-size` |
+| `BUDDY_CTX_OUTPUT_RESERVE` | `1024` | Tokens reserved for the model reply |
+| `BUDDY_CTX_SAFETY_MARGIN` | `512` | Extra headroom for tool schemas and estimation error |
+| `BUDDY_CTX_MASK_KEEP_TURNS` | `4` | Recent turns whose tool outputs stay at full detail |
+
+Launcher flags: `--chat_size 20` (soft turn cap), `--compact_history` (summarization fallback). See comments in `start-speech-to-speech.ps1`.
+
 ## Project layout
 
 ```

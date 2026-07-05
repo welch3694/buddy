@@ -7,6 +7,13 @@ from collections.abc import Iterator
 from typing import Any
 
 from buddy_tools.bootstrap import insert_local_tool_executor
+from buddy_tools.context_budget import (
+    ContextBudget,
+    build_overflow_apology_text,
+    is_context_overflow_error,
+    preflight_trim,
+    recover_after_overflow,
+)
 from buddy_tools.listening_pause import configure_listening_pause, process_transcription_with_listening_pause
 from buddy_tools.voice_clone import refresh_voice_clone_prompt, voice_clone_log_context
 from buddy_tools.voices import ref_text_for_audio_path
@@ -137,6 +144,68 @@ def _patch_transcription_notifier_listening_pause() -> None:
     TranscriptionNotifier._buddy_listening_pause_patch_applied = True
 
 
+def _iter_llm_outputs_with_context_budget(
+    original_process: Any,
+    handler: Any,
+    request: Any,
+) -> Iterator[Any]:
+    """Run preflight trim and intercept context-overflow failures (testable helper)."""
+    from speech_to_speech.pipeline.messages import EndOfResponse, LLMResponseChunk
+
+    runtime_config = request.runtime_config
+    response = request.response
+    instructions = (
+        response.instructions if response and response.instructions else runtime_config.session.instructions
+    ) or ""
+    tools = response.tools if response and response.tools else runtime_config.session.tools
+    budget = ContextBudget.from_env()
+
+    try:
+        preflight_trim(runtime_config.chat, instructions, tools, budget)
+    except Exception:
+        logger.exception("Context preflight wrapper failed; continuing with generation")
+
+    for item in original_process(handler, request):
+        if isinstance(item, EndOfResponse) and item.error and is_context_overflow_error(item.error):
+            try:
+                recover_after_overflow(runtime_config.chat, instructions, tools, budget)
+            except Exception:
+                logger.exception("Context overflow recovery wrapper failed")
+            if handler._turn_output_allowed(item.turn_id, item.turn_revision):
+                yield LLMResponseChunk(
+                    text=build_overflow_apology_text(),
+                    language_code=request.language_code,
+                    runtime_config=runtime_config,
+                    response=response,
+                    turn_id=item.turn_id,
+                    turn_revision=item.turn_revision,
+                    speech_stopped_at_s=request.speech_stopped_at_s,
+                    cancel_generation=item.cancel_generation,
+                )
+            yield EndOfResponse(
+                turn_id=item.turn_id,
+                turn_revision=item.turn_revision,
+                cancel_generation=item.cancel_generation,
+            )
+            continue
+        yield item
+
+
+def _patch_llm_context_budget() -> None:
+    from speech_to_speech.LLM.base_openai_compatible_language_model import BaseOpenAICompatibleHandler
+
+    if getattr(BaseOpenAICompatibleHandler, "_buddy_context_budget_patch_applied", False):
+        return
+
+    original_process = BaseOpenAICompatibleHandler.process
+
+    def process_with_context_budget(self: Any, request: Any) -> Iterator[Any]:
+        yield from _iter_llm_outputs_with_context_budget(original_process, self, request)
+
+    BaseOpenAICompatibleHandler.process = process_with_context_budget  # type: ignore[method-assign]
+    BaseOpenAICompatibleHandler._buddy_context_budget_patch_applied = True
+
+
 def _configure_listening_pause_from_handlers(
     handlers: list[Any],
     *,
@@ -169,6 +238,7 @@ def apply_patches() -> None:
     _patch_qwen3_voice_clone_stability()
     _patch_pocket_tts_voice_logging()
     _patch_transcription_notifier_listening_pause()
+    _patch_llm_context_budget()
 
     original_build = pipeline._build_pipeline_handlers
 
