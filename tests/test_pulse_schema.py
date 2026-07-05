@@ -12,6 +12,7 @@ from buddy_tools.pulse.rules import (
     apply_rule,
     evaluate_condition,
     evaluate_pulse_tick,
+    resolve_mutation,
 )
 from buddy_tools.pulse.schema import (
     SessionValidationError,
@@ -111,6 +112,195 @@ class PulseRuleEngineTests(unittest.TestCase):
         state = self._state()
         self.assertTrue(evaluate_condition(state, "phase == live"))
         self.assertFalse(evaluate_condition(state, "phase == warmup"))
+
+    def test_session_elapsed_condition(self) -> None:
+        state = self._state()
+        state.started_at = (
+            datetime.now(UTC) - timedelta(seconds=2000)
+        ).replace(microsecond=0).isoformat()
+        self.assertTrue(evaluate_condition(state, "session_elapsed >= 1800"))
+        self.assertFalse(evaluate_condition(state, "session_elapsed >= 3600"))
+
+    def test_elapsed_since_var_threshold(self) -> None:
+        state = self._state()
+        state.vars["switch_interval_s"] = 120
+        state.vars["last_camera_switch_at"] = (
+            datetime.now(UTC) - timedelta(seconds=130)
+        ).replace(microsecond=0).isoformat()
+        self.assertTrue(
+            evaluate_condition(state, "elapsed_since(last_camera_switch_at) >= switch_interval_s")
+        )
+        state.vars["switch_interval_s"] = 180
+        self.assertFalse(
+            evaluate_condition(state, "elapsed_since(last_camera_switch_at) >= switch_interval_s")
+        )
+
+    def test_compound_and_condition(self) -> None:
+        state = self._state()
+        state.phase = "late"
+        state.vars["switch_interval_s"] = 120
+        self.assertTrue(
+            evaluate_condition(
+                state,
+                "phase == late && elapsed_since(last_camera_switch_at) >= switch_interval_s",
+            )
+        )
+        state.phase = "early"
+        self.assertFalse(
+            evaluate_condition(
+                state,
+                "phase == late && elapsed_since(last_camera_switch_at) >= switch_interval_s",
+            )
+        )
+
+    def test_adaptive_pace_tightens_after_session_elapsed(self) -> None:
+        import yaml
+
+        session_yaml = yaml.safe_load(
+            """
+name: live-director
+pulse:
+  tick_interval_s: 5
+init:
+  set:
+    phase: live
+    current_camera: 1
+    switch_interval_s: 180
+cameras:
+  - { id: 1, label: "wide shot" }
+  - { id: 2, label: "close-up" }
+rules:
+  - id: tighten-pace
+    when: session_elapsed >= 1800
+    once: true
+    set:
+      switch_interval_s: 120
+      last_camera_switch_at: "$now"
+  - id: camera-switch
+    when: elapsed_since(last_camera_switch_at) >= switch_interval_s
+    set:
+      current_camera: "$rotate(cameras)"
+      last_camera_switch_at: "$now"
+    cue: "Switch to camera {current_camera} — {label}."
+    priority: mandatory
+  - id: tighten-pace
+    when: session_elapsed >= 1800
+    once: true
+    set:
+      switch_interval_s: 120
+      last_camera_switch_at: "$now"
+schedule: []
+"""
+        )
+        session = parse_session_config(session_yaml, skill_name="live-director")
+        state = build_pulse_state_from_session("live-director", session)
+        past = (datetime.now(UTC) - timedelta(seconds=2000)).replace(microsecond=0).isoformat()
+        state.started_at = past
+        state.vars["last_camera_switch_at"] = past
+
+        evaluate_pulse_tick(state, session)
+        self.assertEqual(state.vars["switch_interval_s"], 120)
+        self.assertIsNone(state.pending_cue)
+
+        state.vars["last_camera_switch_at"] = (
+            datetime.now(UTC) - timedelta(seconds=130)
+        ).replace(microsecond=0).isoformat()
+        evaluate_pulse_tick(state, session)
+        self.assertIsNotNone(state.pending_cue)
+        self.assertIn("camera", (state.pending_cue or "").lower())
+
+    def test_numeric_mutations(self) -> None:
+        state = self._state()
+        session = self._session()
+        state.vars["switch_interval_s"] = 180
+        self.assertEqual(resolve_mutation("$add(switch_interval_s, 10)", state, session), 190)
+        self.assertEqual(resolve_mutation("$sub(switch_interval_s, 5)", state, session), 175)
+        self.assertEqual(resolve_mutation("$min(switch_interval_s, 60)", state, session), 60)
+        self.assertEqual(resolve_mutation("$max(switch_interval_s, 200)", state, session), 200)
+        self.assertEqual(resolve_mutation("$clamp(50, 60)", state, session), 60)
+        self.assertEqual(resolve_mutation("$clamp(150, 60, 120)", state, session), 120)
+
+    def test_nested_clamp_sub_mutation(self) -> None:
+        state = self._state()
+        session = self._session()
+        state.vars["switch_interval_s"] = 180
+        state.vars["min_switch_interval_s"] = 60
+        resolved = resolve_mutation(
+            "$clamp($sub(switch_interval_s, 5), min_switch_interval_s)",
+            state,
+            session,
+        )
+        self.assertEqual(resolved, 175)
+
+    def test_progressive_tighten_on_repeated_camera_switch(self) -> None:
+        import yaml
+
+        session = parse_session_config(
+            yaml.safe_load(
+                """
+name: live-director
+pulse:
+  tick_interval_s: 5
+init:
+  set:
+    phase: live
+    current_camera: 1
+    switch_interval_s: 180
+    min_switch_interval_s: 60
+    tighten_step_s: 5
+cameras:
+  - { id: 1, label: "wide shot" }
+  - { id: 2, label: "close-up" }
+rules:
+  - id: camera-switch
+    when: elapsed_since(last_camera_switch_at) >= switch_interval_s
+    set:
+      current_camera: "$rotate(cameras)"
+      last_camera_switch_at: "$now"
+      switch_interval_s: "$clamp($sub(switch_interval_s, tighten_step_s), min_switch_interval_s)"
+    cue: "Switch to camera {current_camera} — {label}."
+    priority: mandatory
+schedule: []
+"""
+            ),
+            skill_name="live-director",
+        )
+        state = build_pulse_state_from_session("live-director", session)
+        past = (datetime.now(UTC) - timedelta(seconds=200)).replace(microsecond=0).isoformat()
+        state.vars["last_camera_switch_at"] = past
+        rule = session.rules[0]
+
+        apply_rule(state, rule, session)
+        self.assertEqual(state.vars["switch_interval_s"], 175)
+
+        state.vars["last_camera_switch_at"] = past
+        apply_rule(state, rule, session)
+        self.assertEqual(state.vars["switch_interval_s"], 170)
+
+        state.vars["switch_interval_s"] = 62
+        state.vars["last_camera_switch_at"] = past
+        apply_rule(state, rule, session)
+        self.assertEqual(state.vars["switch_interval_s"], 60)
+
+        state.vars["last_camera_switch_at"] = past
+        apply_rule(state, rule, session)
+        self.assertEqual(state.vars["switch_interval_s"], 60)
+
+    def test_camera_switch_rule_fires_from_session_start(self) -> None:
+        from datetime import timedelta
+
+        from buddy_tools.pulse.rules import evaluate_pulse_tick
+
+        session = self._session()
+        state = build_pulse_state_from_session("live-director", session)
+        self.assertIn("last_camera_switch_at", state.vars)
+
+        past = (datetime.now(UTC) - timedelta(seconds=200)).replace(microsecond=0).isoformat()
+        state.started_at = past
+        state.vars["last_camera_switch_at"] = past
+        evaluate_pulse_tick(state, session)
+        self.assertIsNotNone(state.pending_cue)
+        self.assertIn("camera", state.pending_cue.lower())
 
     def test_rotate_and_cue_interpolation(self) -> None:
         session = self._session()
