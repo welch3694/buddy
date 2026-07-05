@@ -1,6 +1,21 @@
 """Pulse session runtime — worker tick loop and per-persona state."""
 
-from buddy_tools.pulse.rules import evaluate_pulse_tick, evaluate_condition
+from buddy_tools.pulse.gates import reset_pulse_gates_for_tests
+from buddy_tools.pulse.inject import (
+    NO_OUTPUT_MARKER,
+    PULSE_NUDGE_PREFIX,
+    build_conversational_pulse_instructions,
+    build_directed_pulse_instructions,
+    evaluate_and_maybe_inject_pulse,
+    handle_pulse_end_of_response,
+    handle_pulse_response_chunk,
+    inject_pulse_turn,
+    is_no_output_text,
+    record_assistant_speech_for_active_pulse,
+    record_user_speech,
+    reset_pulse_inject_for_tests,
+)
+from buddy_tools.pulse.rules import evaluate_condition, evaluate_pulse_tick
 from buddy_tools.pulse.schema import (
     SessionConfig,
     SessionValidationError,
@@ -27,20 +42,33 @@ from buddy_tools.pulse.worker import (
 )
 
 __all__ = [
+    "NO_OUTPUT_MARKER",
+    "PULSE_NUDGE_PREFIX",
     "PulseState",
     "SessionConfig",
     "SessionValidationError",
+    "build_conversational_pulse_instructions",
+    "build_directed_pulse_instructions",
     "build_pulse_state_from_session",
     "clear_pulse_state",
     "configure_pulse",
+    "evaluate_and_maybe_inject_pulse",
     "evaluate_condition",
     "evaluate_pulse_tick",
+    "handle_pulse_end_of_response",
+    "handle_pulse_response_chunk",
     "init_pulse_state_from_skill",
+    "inject_pulse_turn",
+    "is_no_output_text",
     "load_pulse_state",
     "load_session_config",
     "parse_session_config",
     "pulse_state_path",
+    "record_assistant_speech_for_active_pulse",
+    "record_user_speech",
     "render_session_template",
+    "reset_pulse_gates_for_tests",
+    "reset_pulse_inject_for_tests",
     "reset_pulse_workers_for_tests",
     "save_pulse_state",
     "session_config_from_dict",

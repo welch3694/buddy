@@ -12,6 +12,7 @@ from typing import Any
 
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
+from buddy_tools.pulse.inject import evaluate_and_maybe_inject_pulse
 from buddy_tools.pulse.rules import evaluate_pulse_tick
 from buddy_tools.pulse.state import PulseState, load_pulse_state, save_pulse_state
 
@@ -168,6 +169,15 @@ class PulseWorkerManager:
         session = state.get_session_config()
         if session is not None:
             evaluate_pulse_tick(state, session)
+            evaluate_and_maybe_inject_pulse(
+                memory_root=worker.memory_root,
+                persona_namespace=worker.persona_namespace,
+                state=state,
+                session=session,
+                text_prompt_queue=self.text_prompt_queue,
+                runtime_config=self.runtime_config,
+                should_listen=self.should_listen,
+            )
 
         save_pulse_state(worker.memory_root, worker.persona_namespace, state)
         logger.info(
