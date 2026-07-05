@@ -24,6 +24,7 @@ from buddy_tools.episodic.rollup import (
 )
 from buddy_tools.episodic.session import EpisodicSession, load_session, save_session
 from buddy_tools.episodic.turns import EpisodicTurnRecord, load_turns
+from buddy_tools.episodic.index import EmbedFn, index_consolidated_session
 from buddy_tools.infra.llm_client import LlmFn, complete_chat
 from buddy_tools.memory import MemoryScope, upsert_memory_fact
 
@@ -381,6 +382,7 @@ def consolidate_session(
     persona_namespace: str,
     *,
     llm_fn: LlmFn | None = None,
+    embed_fn: EmbedFn | None = None,
 ) -> bool:
     """Run full consolidation pipeline for one session. Returns True on success."""
     session_path = session_json_path(session_dir)
@@ -417,6 +419,12 @@ def consolidate_session(
                 memory_root,
                 persona_namespace,
                 llm_fn=llm_fn,
+            )
+            index_consolidated_session(
+                session_dir,
+                memory_root,
+                persona_namespace,
+                embed_fn=embed_fn,
             )
             if session.status != "closed":
                 session.status = "closed"

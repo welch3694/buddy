@@ -119,7 +119,22 @@ The `buddy_tools` package patches speech-to-speech to expose local tools the mod
 
 - **Memory:** `list_memory`, `read_memory`, `update_memory`, `append_memory`, `write_memory`
 - **Personalities:** `list_personalities`, `list_voices`, `switch_personality`, `switch_voice`, `create_personality`, `update_personality`, `delete_personality`
+- **Episodic:** `list_episodic_periods`, `read_episodic_summary`, `read_episodic_turns`, `search_episodic_memory`, `find_episodes_by_topic`
 - **Vision:** `capture_camera` (webcam), `capture_screen` (display screenshot)
+
+### Episodic semantic search
+
+Past conversations are stored per persona under `{BUDDY_DATA_DIR}/memory/{persona}/episodic/` as a year/month/day/session tree. After each session closes and consolidates, summaries are embedded into a local semantic index at `memory/{persona}/episodic/.index/` (fastembed, no cloud API required).
+
+- **Auto-update:** the index is refreshed when session consolidation completes.
+- **Search:** use `search_episodic_memory` for fuzzy recall; use `find_episodes_by_topic` for exact tag or keyword matches.
+- **Rebuild:** if the index is missing or stale, run:
+
+```powershell
+python -m buddy_tools.episodic.regenerate --rebuild-index --memory-root $env:BUDDY_DATA_DIR\memory --persona buddy
+```
+
+Optional env overrides: `BUDDY_EPISODIC_EMBED_MODEL` (default `BAAI/bge-small-en-v1.5`), `BUDDY_EPISODIC_SEARCH_DEFAULT_LIMIT`.
 
 ## Working-context management
 

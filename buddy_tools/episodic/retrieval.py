@@ -11,12 +11,10 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
-from buddy_tools.episodic.paths import (
-    SESSIONS_DIRNAME,
-    episodic_root,
-    session_json_path,
-    turns_jsonl_path,
-)
+from buddy_tools.episodic.paths import SESSIONS_DIRNAME, episodic_root, session_json_path, turns_jsonl_path
+from buddy_tools.episodic.index import get_search_default_limit, search_index
+from buddy_tools.episodic.planner import plan_episodic_recall
+from buddy_tools.episodic.provenance import episodic_provenance, parse_session_location
 from buddy_tools.episodic.regenerate import find_session_directory
 from buddy_tools.episodic.rollup import load_day_rollup, load_month_rollup, load_year_rollup
 from buddy_tools.episodic.session import EpisodicSession, find_session_json_files, load_session
@@ -27,6 +25,8 @@ _TURNS_DEFAULT_LIMIT = 20
 _TURNS_MAX_LIMIT = 50
 _TOPIC_DEFAULT_LIMIT = 10
 _TOPIC_MAX_LIMIT = 25
+_SEARCH_DEFAULT_LIMIT = get_search_default_limit()
+_SEARCH_MAX_LIMIT = 25
 
 _YEAR_RE = re.compile(r"^\d{4}$")
 _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -117,6 +117,31 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     ),
     RealtimeFunctionTool(
         type="function",
+        name="search_episodic_memory",
+        description=(
+            "Semantic search over episodic session and period summaries for the active persona. "
+            "Use for fuzzy recall when topic tags or exact keywords are insufficient. "
+            "Results include scores, provenance, and a recall_plan for drill-down."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural-language question or topic to search for",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        f"Max results (default {_SEARCH_DEFAULT_LIMIT}, max {_SEARCH_MAX_LIMIT})"
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    RealtimeFunctionTool(
+        type="function",
         name="find_episodes_by_topic",
         description=(
             "Search episodic session and day summaries by topic tag or keyword substring "
@@ -149,33 +174,11 @@ def build_episodic_instructions() -> str:
         "- list_episodic_periods: browse the index top-down before loading detail\n"
         "- read_episodic_summary: load a day/month/year/session summary\n"
         "- read_episodic_turns: read raw turns for one session (paginated)\n"
-        "- find_episodes_by_topic: search by topic tag or keyword in summaries\n"
+        "- search_episodic_memory: semantic search over summaries for fuzzy recall; follow recall_plan to drill down\n"
+        "- find_episodes_by_topic: exact topic tag or keyword substring match in summaries\n"
         "Use semantic memory tools (read_memory / snapshot) for durable facts; "
         "use episodic tools for conversation history and 'when did we talk about X' questions."
     )
-
-
-def _relative_episodic_path(memory_root: Path, persona_namespace: str, path: Path) -> str:
-    root = episodic_root(memory_root, persona_namespace).resolve()
-    try:
-        return str(path.resolve().relative_to(root)).replace("\\", "/")
-    except ValueError:
-        return str(path)
-
-
-def _provenance(
-    memory_root: Path,
-    persona_namespace: str,
-    path: Path,
-    *,
-    session_id: str | None = None,
-) -> dict[str, str]:
-    payload: dict[str, str] = {
-        "path": _relative_episodic_path(memory_root, persona_namespace, path),
-    }
-    if session_id:
-        payload["session_id"] = session_id
-    return payload
 
 
 def _session_blurb(session: EpisodicSession) -> str:
@@ -194,28 +197,6 @@ def _sorted_dir_names(directory: Path, pattern: re.Pattern[str]) -> list[str]:
         return []
     names = [entry.name for entry in directory.iterdir() if entry.is_dir() and pattern.match(entry.name)]
     return sorted(names)
-
-
-def _parse_session_location(session_directory: Path) -> tuple[str, str, str] | None:
-    """Return (year, year_month, year_month_day) from a session directory path."""
-    try:
-        session_id_dir = session_directory.name
-        sessions_dir = session_directory.parent
-        if sessions_dir.name != SESSIONS_DIRNAME:
-            return None
-        day_dir = sessions_dir.parent
-        month_dir = day_dir.parent
-        year_dir = month_dir.parent
-        year = year_dir.name
-        year_month = month_dir.name
-        year_month_day = day_dir.name
-        if not (_YEAR_RE.match(year) and _MONTH_RE.match(year_month) and _DAY_RE.match(year_month_day)):
-            return None
-        if session_id_dir:
-            return year, year_month, year_month_day
-    except (AttributeError, IndexError):
-        return None
-    return None
 
 
 def list_episodic_periods(
@@ -272,7 +253,7 @@ def list_episodic_periods(
                     "label": session.session_id,
                     "blurb": _session_blurb(session),
                     "status": session.status,
-                    "provenance": _provenance(
+                    "provenance": episodic_provenance(
                         memory_root,
                         persona_namespace,
                         session_directory,
@@ -309,7 +290,7 @@ def read_episodic_summary(
         payload = load_year_rollup(memory_root, persona_namespace, year)
         if not payload:
             raise ValueError(f"no year summary found for {year!r}")
-        return {"level": level, "summary": payload, "provenance": _provenance(memory_root, persona_namespace, path)}
+        return {"level": level, "summary": payload, "provenance": episodic_provenance(memory_root, persona_namespace, path)}
 
     if level == "month":
         if not year or not _YEAR_RE.match(year):
@@ -320,7 +301,7 @@ def read_episodic_summary(
         payload = load_month_rollup(memory_root, persona_namespace, year, month)
         if not payload:
             raise ValueError(f"no month summary found for {month!r}")
-        return {"level": level, "summary": payload, "provenance": _provenance(memory_root, persona_namespace, path)}
+        return {"level": level, "summary": payload, "provenance": episodic_provenance(memory_root, persona_namespace, path)}
 
     if level == "day":
         if not year or not _YEAR_RE.match(year):
@@ -333,7 +314,7 @@ def read_episodic_summary(
         payload = load_day_rollup(memory_root, persona_namespace, year, month, date)
         if not payload:
             raise ValueError(f"no day summary found for {date!r}")
-        return {"level": level, "summary": payload, "provenance": _provenance(memory_root, persona_namespace, path)}
+        return {"level": level, "summary": payload, "provenance": episodic_provenance(memory_root, persona_namespace, path)}
 
     if level == "session":
         if not session_id or not session_id.strip():
@@ -347,7 +328,7 @@ def read_episodic_summary(
         return {
             "level": level,
             "summary": session.to_dict(),
-            "provenance": _provenance(
+            "provenance": episodic_provenance(
                 memory_root,
                 persona_namespace,
                 session_directory,
@@ -392,7 +373,7 @@ def read_episodic_turns(
         "offset": offset,
         "limit": limit,
         "has_more": offset + len(page) < total_count,
-        "provenance": _provenance(
+        "provenance": episodic_provenance(
             memory_root,
             persona_namespace,
             turns_path,
@@ -465,7 +446,7 @@ def find_episodes_by_topic(
             continue
 
         session_directory = session_path.parent
-        location = _parse_session_location(session_directory)
+        location = parse_session_location(session_directory)
         date = location[2] if location else None
 
         if session.session_id in seen_session_ids:
@@ -479,7 +460,7 @@ def find_episodes_by_topic(
                 "date": date,
                 "topics": list(session.topics),
                 "snippet": snippet,
-                "provenance": _provenance(
+                "provenance": episodic_provenance(
                     memory_root,
                     persona_namespace,
                     session_directory,
@@ -522,13 +503,36 @@ def find_episodes_by_topic(
                     "match_type": "day",
                     "date": year_month_day,
                     "snippet": snippet,
-                    "provenance": _provenance(memory_root, persona_namespace, day_path),
+                    "provenance": episodic_provenance(memory_root, persona_namespace, day_path),
                 }
             )
             if len(hits) >= limit:
                 break
 
     return {"query": query_clean, "results": hits}
+
+
+def search_episodic_memory(
+    memory_root: Path,
+    persona_namespace: str,
+    *,
+    query: str,
+    limit: int = _SEARCH_DEFAULT_LIMIT,
+) -> dict[str, Any]:
+    query_clean = query.strip()
+    if not query_clean:
+        raise ValueError("query is required")
+
+    if limit < 1:
+        raise ValueError("limit must be >= 1")
+    limit = min(limit, _SEARCH_MAX_LIMIT)
+
+    results = search_index(memory_root, persona_namespace, query_clean, limit=limit)
+    return {
+        "query": query_clean,
+        "recall_plan": plan_episodic_recall(query_clean),
+        "results": results,
+    }
 
 
 def execute_episodic_tool(
@@ -570,6 +574,16 @@ def execute_episodic_tool(
                 session_id=str(args.get("session_id", "")),
                 offset=int(offset_raw) if offset_raw is not None else 0,
                 limit=int(limit_raw) if limit_raw is not None else _TURNS_DEFAULT_LIMIT,
+            )
+            return ToolExecutionResult(output=json.dumps(payload))
+
+        if tool_name == "search_episodic_memory":
+            limit_raw = args.get("limit", _SEARCH_DEFAULT_LIMIT)
+            payload = search_episodic_memory(
+                memory_root,
+                persona_namespace,
+                query=str(args.get("query", "")),
+                limit=int(limit_raw) if limit_raw is not None else _SEARCH_DEFAULT_LIMIT,
             )
             return ToolExecutionResult(output=json.dumps(payload))
 

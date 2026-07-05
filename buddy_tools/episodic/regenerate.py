@@ -27,6 +27,7 @@ from buddy_tools.episodic.consolidation import (
     rollup_year,
     summarize_session,
 )
+from buddy_tools.episodic.index import rebuild_episodic_index
 from buddy_tools.episodic.paths import (
     day_dir,
     episodic_root,
@@ -139,6 +140,11 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--day", help="Day key YYYY-MM-DD to regenerate rollup")
     group.add_argument("--month", help="Month key YYYY-MM to regenerate rollup")
     group.add_argument("--year", help="Year YYYY to regenerate rollup")
+    group.add_argument(
+        "--rebuild-index",
+        action="store_true",
+        help="Rebuild semantic search index from all consolidated summaries",
+    )
     parser.add_argument(
         "--resummarize-sessions",
         action="store_true",
@@ -148,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
 
     memory_root = args.memory_root.resolve()
     persona = args.persona.strip()
+
+    if args.rebuild_index:
+        count = rebuild_episodic_index(memory_root, persona)
+        print(f"Rebuilt episodic index: {count} documents")
+        return 0
 
     if args.session_id:
         session_directory = find_session_directory(memory_root, persona, args.session_id)
