@@ -344,6 +344,9 @@ def notify_user_speech(speech_stopped_at_s: float | None) -> None:
     if speech_stopped_at_s is not None:
         _last_user_speech_stopped_at_s = speech_stopped_at_s
     get_timer_scheduler().cancel_on_user_speech()
+    from buddy_tools.pulse.inject import record_user_speech
+
+    record_user_speech(speech_stopped_at_s)
 
 
 def _choose_interval_seconds(config: TimerConfig, *, for_repeat: bool) -> float:

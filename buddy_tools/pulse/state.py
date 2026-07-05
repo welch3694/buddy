@@ -46,6 +46,10 @@ class PulseState:
     fired_rules: list[str] = field(default_factory=list)
     vars: dict[str, Any] = field(default_factory=dict)
     session_config: dict[str, Any] = field(default_factory=dict)
+    last_user_speech_at: str | None = None
+    last_assistant_speech_at: str | None = None
+    pending_cue_since: str | None = None
+    pulse_in_flight: bool = False
 
     def __post_init__(self) -> None:
         if not self.started_at:
@@ -73,6 +77,7 @@ class PulseState:
             "fired_rules": list(self.fired_rules),
             "vars": dict(self.vars),
             "session_config": dict(self.session_config),
+            "pulse_in_flight": self.pulse_in_flight,
         }
         if self.last_tick_at is not None:
             payload["last_tick_at"] = self.last_tick_at
@@ -80,6 +85,12 @@ class PulseState:
             payload["pending_cue"] = self.pending_cue
         if self.cue_priority is not None:
             payload["cue_priority"] = self.cue_priority
+        if self.last_user_speech_at is not None:
+            payload["last_user_speech_at"] = self.last_user_speech_at
+        if self.last_assistant_speech_at is not None:
+            payload["last_assistant_speech_at"] = self.last_assistant_speech_at
+        if self.pending_cue_since is not None:
+            payload["pending_cue_since"] = self.pending_cue_since
         return payload
 
     @classmethod
@@ -120,6 +131,9 @@ class PulseState:
 
         last_tick_at = data.get("last_tick_at")
         pending_cue = data.get("pending_cue")
+        last_user = data.get("last_user_speech_at")
+        last_assistant = data.get("last_assistant_speech_at")
+        pending_since = data.get("pending_cue_since")
 
         return cls(
             skill_name=str(data["skill_name"]).strip(),
@@ -136,6 +150,10 @@ class PulseState:
             fired_rules=[str(entry) for entry in fired_rules_raw],
             vars=dict(vars_data),
             session_config=dict(session_config),
+            last_user_speech_at=str(last_user).strip() if last_user else None,
+            last_assistant_speech_at=str(last_assistant).strip() if last_assistant else None,
+            pending_cue_since=str(pending_since).strip() if pending_since else None,
+            pulse_in_flight=bool(data.get("pulse_in_flight", False)),
         )
 
 

@@ -19,6 +19,11 @@ from speech_to_speech.pipeline.handler_types import LLMIn, LLMOut, TTSIn
 from speech_to_speech.pipeline.messages import EndOfResponse, GenerateResponseRequest, LLMResponseChunk
 from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
 
+from buddy_tools.pulse.inject import (
+    handle_pulse_end_of_response,
+    handle_pulse_response_chunk,
+    record_assistant_speech_for_active_pulse,
+)
 from buddy_tools.personality import get_active_personality
 from buddy_tools.personality_session import apply_personality_switch
 from buddy_tools.registry import execute_tool, refresh_session_instructions
@@ -59,6 +64,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools: list[ResponseFunctionToolCall] = []
         self._pending_context: GenerateResponseRequest | None = None
         self._tool_rounds = 0
+        self._turn_text_buffer: list[str] = []
 
     def _turn_output_allowed(self, turn_id: str | None, turn_revision: int | None) -> bool:
         if self.speculative_turns is None:
@@ -186,7 +192,12 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             self._remember_context(lm_output)
             if lm_output.tools:
                 self._pending_tools.extend(lm_output.tools)
-            yield lm_output
+            if lm_output.text:
+                self._turn_text_buffer.append(lm_output.text)
+            pulse_chunk = handle_pulse_response_chunk(lm_output)
+            if pulse_chunk is None:
+                return
+            yield pulse_chunk
             return
 
         if isinstance(lm_output, EndOfResponse):
@@ -194,7 +205,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 return
 
             if self._pending_tools and self._execute_pending_tools():
+                self._turn_text_buffer.clear()
                 return
+
+            full_text = "".join(self._turn_text_buffer).strip()
+            self._turn_text_buffer.clear()
+            handle_pulse_end_of_response()
+            record_assistant_speech_for_active_pulse(full_text)
 
             self._tool_rounds = 0
             self._pending_context = None

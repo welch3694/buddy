@@ -1147,6 +1147,10 @@ def _start_pulse_skill(
             fired_rules=list(existing_pulse.fired_rules),
             vars=dict(existing_pulse.vars),
             session_config=dict(existing_pulse.session_config),
+            last_user_speech_at=existing_pulse.last_user_speech_at,
+            last_assistant_speech_at=existing_pulse.last_assistant_speech_at,
+            pending_cue_since=existing_pulse.pending_cue_since,
+            pulse_in_flight=False,
         )
         save_pulse_state(memory_root, persona_namespace, resumed_pulse)
         save_skill_state(
@@ -1338,6 +1342,10 @@ def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResu
                 fired_rules=list(pulse.fired_rules),
                 vars=dict(pulse.vars),
                 session_config=dict(pulse.session_config),
+                last_user_speech_at=pulse.last_user_speech_at,
+                last_assistant_speech_at=pulse.last_assistant_speech_at,
+                pending_cue_since=pulse.pending_cue_since,
+                pulse_in_flight=False,
             )
             save_pulse_state(memory_root, persona_namespace, paused_pulse)
         stop_pulse_worker(persona_namespace)

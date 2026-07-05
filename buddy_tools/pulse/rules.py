@@ -217,6 +217,8 @@ def apply_rule(
     if rule.cue:
         cue_text = interpolate_template(rule.cue, state, session)
         if cue_text.strip():
+            if state.pending_cue != cue_text:
+                state.pending_cue_since = utc_now_iso()
             state.pending_cue = cue_text
             state.cue_priority = rule.priority
             state.pulse_mode = "directed" if rule.priority == "mandatory" else "conversational"
@@ -249,6 +251,7 @@ def apply_schedule_entry(
     state.pending_cue = interpolate_template(entry.cue, state, session)
     state.cue_priority = entry.priority
     state.pulse_mode = "directed" if entry.priority == "mandatory" else "conversational"
+    state.pending_cue_since = utc_now_iso()
     state.fired_rules.append(fired_key)
     logger.info(
         "Pulse schedule fired: id=%r skill=%r at_s=%.2f",
