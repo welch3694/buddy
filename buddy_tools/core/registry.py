@@ -12,6 +12,12 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.media.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
 from buddy_tools.voice.listening_pause import build_listening_pause_instructions
+from buddy_tools.episodic.retrieval import (
+    EPISODIC_TOOL_DEFINITIONS,
+    EPISODIC_TOOL_NAMES,
+    build_episodic_instructions,
+    execute_episodic_tool,
+)
 from buddy_tools.memory import (
     MEMORY_TOOL_DEFINITIONS,
     MEMORY_TOOL_NAMES,
@@ -48,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
     MEMORY_TOOL_DEFINITIONS
+    + EPISODIC_TOOL_DEFINITIONS
     + PERSONALITY_TOOL_DEFINITIONS
     + SKILL_TOOL_DEFINITIONS
     + TIMER_TOOL_DEFINITIONS
@@ -68,6 +75,7 @@ def build_tool_instructions(
     parts = [
         base_prompt.strip(),
         build_memory_instructions(),
+        build_episodic_instructions(),
         build_personality_instructions(),
         build_skill_instructions(),
         build_listening_pause_instructions(),
@@ -146,6 +154,9 @@ def execute_tool(
 
         if tool_name in MEMORY_TOOL_NAMES:
             return execute_memory_tool(memory_root, persona_namespace, tool_name, args)
+
+        if tool_name in EPISODIC_TOOL_NAMES:
+            return execute_episodic_tool(memory_root, persona_namespace, tool_name, args)
 
         if tool_name in PERSONALITY_TOOL_NAMES:
             return execute_personality_tool(tool_name, args)
