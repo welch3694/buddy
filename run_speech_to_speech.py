@@ -13,6 +13,7 @@ if str(_ROOT) not in sys.path:
 
 from buddy_tools import apply_patches
 from buddy_tools.infra.env import load_env_file
+from buddy_tools.infra.shutdown import finalize_buddy_session
 
 
 def main() -> None:
@@ -20,7 +21,10 @@ def main() -> None:
     apply_patches()
     from speech_to_speech.s2s_pipeline import main as s2s_main
 
-    s2s_main()
+    try:
+        s2s_main()
+    finally:
+        finalize_buddy_session()
 
 
 if __name__ == "__main__":

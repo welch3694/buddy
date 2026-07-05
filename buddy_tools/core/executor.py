@@ -301,3 +301,10 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0
+
+    def cleanup(self) -> None:
+        if getattr(self, "_buddy_shutdown_done", False):
+            return
+        self._buddy_shutdown_done = True
+        logger.info("LocalToolExecutor shutting down — running session cleanup")
+        self.on_session_end()
