@@ -81,7 +81,17 @@ class PulseStateTests(unittest.TestCase):
         refs.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(SAMPLE_PULSE_SKILL, encoding="utf-8")
         (refs / "session.yaml").write_text(
-            "tick_interval_seconds: 2\nphase: warmup\ncameras:\n  - cam-a\n  - cam-b\n",
+            "name: live-director\n"
+            "pulse:\n"
+            "  tick_interval_s: 2\n"
+            "init:\n"
+            "  set:\n"
+            "    phase: warmup\n"
+            "cameras:\n"
+            "  - cam-a\n"
+            "  - cam-b\n"
+            "rules: []\n"
+            "schedule: []\n",
             encoding="utf-8",
         )
 
@@ -89,7 +99,9 @@ class PulseStateTests(unittest.TestCase):
         self.assertEqual(state.skill_name, "live-director")
         self.assertEqual(state.phase, "warmup")
         self.assertEqual(state.tick_interval_seconds, 2.0)
-        self.assertEqual(state.session.get("cameras"), ["cam-a", "cam-b"])
+        session = state.get_session_config()
+        assert session is not None
+        self.assertEqual(list(session.cameras), ["cam-a", "cam-b"])
 
 
 class PulseWorkerTests(unittest.TestCase):
@@ -207,7 +219,14 @@ class PulseSkillLifecycleTests(unittest.TestCase):
         refs = skill_dir / "references"
         refs.mkdir()
         (refs / "session.yaml").write_text(
-            "tick_interval_seconds: 0.15\nphase: intro\n",
+            "name: live-director\n"
+            "pulse:\n"
+            "  tick_interval_s: 0.15\n"
+            "init:\n"
+            "  set:\n"
+            "    phase: intro\n"
+            "rules: []\n"
+            "schedule: []\n",
             encoding="utf-8",
         )
 
@@ -300,7 +319,15 @@ class PulseSkillLifecycleTests(unittest.TestCase):
             encoding="utf-8",
         )
         (skill_dir / "references").mkdir()
-        (skill_dir / "references" / "session.yaml").write_text("phase: core\n", encoding="utf-8")
+        (skill_dir / "references" / "session.yaml").write_text(
+            "name: interval-coach\n"
+            "init:\n"
+            "  set:\n"
+            "    phase: core\n"
+            "rules: []\n"
+            "schedule: []\n",
+            encoding="utf-8",
+        )
 
         execute_skill_tool(self.memory_root, "coach", "start_skill", {"name": "interval-coach"})
 
