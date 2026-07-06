@@ -14,6 +14,7 @@ from buddy_tools.episodic.manager import (
     reconfigure_episodic_persona,
     reset_episodic_for_tests,
 )
+from buddy_tools.episodic.index import rebuild_episodic_index
 from buddy_tools.episodic.regenerate import (
     find_session_directory,
     regenerate_day,
@@ -46,6 +47,7 @@ __all__ = [
     "load_episodic_config",
     "load_turns",
     "reconfigure_episodic_persona",
+    "rebuild_episodic_index",
     "regenerate_day",
     "regenerate_month",
     "regenerate_session",

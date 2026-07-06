@@ -27,6 +27,7 @@ try {
 
     # TTS backend: "pocket" (voice clone from voices/audio.wav) or "qwen3" (ref audio + ref text).
     $ttsBackend = "pocket"
+    # $ttsBackend = "qwen3"
 
     # LLM settings from .env (BUDDY_LLM_*) — shared by voice, consolidation, and llama-server.
     $llmConfigJson = python -m buddy_tools.infra.llm_client config
