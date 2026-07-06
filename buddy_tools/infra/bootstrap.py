@@ -14,6 +14,7 @@ from buddy_tools.personality import get_active_personality
 from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
 from buddy_tools.infra.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
+from buddy_tools.voice.endpointing import configure_endpointing
 from buddy_tools.pulse import configure_pulse
 from buddy_tools.episodic import configure_episodic, link_episodic_executor
 from buddy_tools.voice.session import apply_startup_voice, register_pipeline_handlers
@@ -83,6 +84,12 @@ def insert_local_tool_executor(
     configure_timers(
         text_prompt_queue=text_prompt_queue,
         runtime_config=runtime_config,
+        should_listen=should_listen,
+    )
+    configure_endpointing(
+        text_prompt_queue=text_prompt_queue,
+        runtime_config=runtime_config,
+        speculative_turns=speculative_turns,
         should_listen=should_listen,
     )
     configure_pulse(
