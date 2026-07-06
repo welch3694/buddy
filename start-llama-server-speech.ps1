@@ -51,7 +51,7 @@ try {
         --min-p 0.1 `
         --host 0.0.0.0 --port 8080 `
         --flash-attn on `
-        --chat-template-kwargs "{\"preserve_thinking\":false}" `
+        --chat-template-kwargs '{"preserve_thinking":false}' `
         --log-colors on
 } catch {
     Write-Host ""
