@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 from buddy_tools.personality import get_active_personality
@@ -29,6 +30,30 @@ def build_init_instructions() -> str:
     """Build init chat prompt from the active personality plus fixed voice rules."""
     profile = get_active_personality()
     return build_voice_system_prompt(profile.prompt)
+
+
+def inject_s2s_init_chat_prompt(argv: list[str] | None = None) -> list[str]:
+    """Return argv with ``--init_chat_prompt`` set from the active personality.
+
+    Strips any existing ``--init_chat_prompt`` so prompts with embedded quotes
+    (e.g. ``"call him out"``) are not broken by Windows command-line parsing.
+    """
+    source = sys.argv if argv is None else argv
+    script = source[:1]
+    rest = source[1:]
+    filtered: list[str] = []
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg == "--init_chat_prompt":
+            i += 2
+            continue
+        if arg.startswith("--init_chat_prompt="):
+            i += 1
+            continue
+        filtered.append(arg)
+        i += 1
+    return [*script, *filtered, "--init_chat_prompt", build_init_instructions()]
 
 
 def resolve_startup_config() -> dict[str, Any]:

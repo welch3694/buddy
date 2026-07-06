@@ -16,6 +16,7 @@ from buddy_tools.infra.startup import (
     FIXED_VOICE_INSTRUCTIONS,
     build_init_instructions,
     build_voice_system_prompt,
+    inject_s2s_init_chat_prompt,
     resolve_startup_config,
 )
 from buddy_tools.voice.voices import set_voices_dir
@@ -90,6 +91,37 @@ class StartupConfigTests(unittest.TestCase):
         payload = json.dumps(resolve_startup_config())
         data = json.loads(payload)
         self.assertEqual(data["personality_id"], "buddy")
+
+    def test_inject_s2s_init_chat_prompt_replaces_cli_value(self) -> None:
+        create_personality(
+            "coach",
+            "Coach",
+            'Use disagreements as an opportunity to "call him out" with authority.',
+            voice_id="narrator",
+        )
+        set_active_personality("coach")
+
+        argv = inject_s2s_init_chat_prompt(
+            [
+                "run_speech_to_speech.py",
+                "--mode",
+                "local",
+                "--init_chat_prompt",
+                "broken shell fragment",
+                "--model_name",
+                "test-model",
+            ]
+        )
+
+        self.assertEqual(argv[0], "run_speech_to_speech.py")
+        self.assertIn("--mode", argv)
+        self.assertIn("local", argv)
+        self.assertIn("--model_name", argv)
+        self.assertIn("test-model", argv)
+        self.assertNotIn("broken shell fragment", argv)
+        prompt_index = argv.index("--init_chat_prompt")
+        self.assertEqual(argv[prompt_index + 1], build_init_instructions())
+        self.assertIn('"call him out"', argv[prompt_index + 1])
 
 
 class ProjectStartupTests(unittest.TestCase):

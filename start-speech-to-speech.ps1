@@ -52,7 +52,7 @@ try {
         throw "Failed to resolve active personality. Ensure personalities/buddy/ (template) and voices/cliff/ exist."
     }
     $startup = $startupJson | ConvertFrom-Json
-    $voiceSystemPrompt = $startup.init_chat_prompt
+    # init_chat_prompt is injected in run_speech_to_speech.py (avoids Windows CLI quoting bugs).
     $voiceRefAudio = $startup.audio
     $voiceRefText = $startup.ref_text
     Write-Host "Buddy data dir: $($startup.data_dir)"
@@ -86,7 +86,6 @@ try {
         "--compact_history",
         "--responses_api_stream",
         "--responses_api_disable_thinking",
-        "--init_chat_prompt", $voiceSystemPrompt,
         "--model_name", $llamaModelName,
         "--enable_live_transcription"
     )
