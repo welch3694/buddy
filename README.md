@@ -45,7 +45,7 @@ Set `BUDDY_LLM_MODEL_DIR` and related paths in `.env` if your GGUF files live so
    .\start-speech-to-speech.ps1
    ```
 
-Voice cloning uses named voices in `voices/` (default: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. See `voices/README.md` to add voices manually.
+Voice cloning uses named voices under `{BUDDY_DATA_DIR}/voices/` (default voice: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. Shipped defaults are copied from `voices/` in the repo on first run. See `voices/README.md` to add voices manually.
 
 TTS defaults to **Pocket TTS** with voice cloning from `voices/cliff/audio.wav` (requires Hugging Face login and Kyutai terms). Set `$ttsBackend = "qwen3"` in `start-speech-to-speech.ps1` to use Qwen3 instead (occasional timbre drift; see issue #12).
 
@@ -87,7 +87,7 @@ Replies to Telegram messages are sent as text on Telegram; voice turns still use
 
 ## User data directory
 
-Memory, personalities, skills, and active-persona selection are stored outside the repo in a configurable data directory:
+Memory, personalities, voices, skills, and active-persona selection are stored outside the repo in a configurable data directory:
 
 | Platform | Default location |
 |----------|------------------|
@@ -109,7 +109,7 @@ export BUDDY_DATA_DIR="$HOME/Dropbox/Buddy"
 python run_speech_to_speech.py ...
 ```
 
-On first run, shipped personality templates (e.g. `buddy`) are copied into the data dir. Edit Buddy like any persona; delete `{BUDDY_DATA_DIR}/personalities/buddy/` and restart to reset from the factory template.
+On first run, shipped personality templates (e.g. `buddy`) and voice clones (e.g. `cliff`) are copied into the data dir. Edit Buddy like any persona; delete `{BUDDY_DATA_DIR}/personalities/buddy/` and restart to reset from the factory template. Add new voices anytime under `{BUDDY_DATA_DIR}/voices/{id}/` — Buddy discovers them on the next `list_voices` or voice switch without restart.
 
 ## Memory and local tools
 
@@ -164,10 +164,10 @@ buddy/
 ├── run_speech_to_speech.py   # Entry point with buddy_tools patches applied
 ├── start-speech-to-speech.ps1
 ├── start-llama-server-speech.ps1
-├── voices/                   # Named voice clone pairs (audio.wav + ref_text.txt)
+├── voices/                   # Shipped voice clone defaults (seeded into data dir)
 ├── personalities/            # Shipped personality templates (seeded into data dir)
 ├── skills/                   # Global built-in skills (read-only at runtime)
 └── buddy_tools/              # Local tool integration (memory, camera, screen, …)
 ```
 
-User data (memory, runtime personalities, `active.json`) lives in `BUDDY_DATA_DIR`, not in the repo.
+User data (memory, runtime personalities, voices, `active.json`) lives in `BUDDY_DATA_DIR`, not in the repo.

@@ -12,6 +12,7 @@ from unittest import mock
 
 import buddy_tools.infra.bootstrap as bootstrap_module
 from buddy_tools import personality as personality_module
+import buddy_tools.voice.voices as voices_module
 from buddy_tools.infra.data_dir import (
     configure_user_data,
     default_data_dir,
@@ -19,6 +20,7 @@ from buddy_tools.infra.data_dir import (
     reset_data_dir_config,
     resolve_data_dir,
     seed_shipped_personalities,
+    seed_shipped_voices,
 )
 from buddy_tools.personality import (
     delete_personality,
@@ -27,6 +29,7 @@ from buddy_tools.personality import (
     list_personalities,
     update_personality,
 )
+from buddy_tools.voice.voices import get_voices_dir, list_voices
 
 
 class DataDirPathTests(unittest.TestCase):
@@ -71,14 +74,24 @@ class SeedAndMigrateTests(unittest.TestCase):
         self.data_dir = self.root / "data"
         self.shipped = self.repo_root / "personalities"
         self.user_personalities = self.data_dir / "personalities"
+        self.shipped_voices = self.repo_root / "voices"
+        self.user_voices = self.data_dir / "voices"
         self._original_personalities_dir = personality_module.get_personalities_dir()
         self._original_memory_root = bootstrap_module.get_memory_root()
+        self._original_voices_dir = voices_module.get_voices_dir()
 
     def tearDown(self) -> None:
         reset_data_dir_config()
         personality_module.set_personalities_dir(self._original_personalities_dir)
         bootstrap_module.set_memory_root(self._original_memory_root)
+        voices_module.set_voices_dir(self._original_voices_dir)
         self._tmpdir.cleanup()
+
+    def _write_shipped_voice(self, voice_id: str, ref_text: str = "Reference transcript.") -> None:
+        voice_dir = self.shipped_voices / voice_id
+        voice_dir.mkdir(parents=True, exist_ok=True)
+        (voice_dir / "audio.wav").write_bytes(b"RIFF")
+        (voice_dir / "ref_text.txt").write_text(ref_text, encoding="utf-8")
 
     def _write_shipped_personality(self, personality_id: str, *, name: str | None = None) -> None:
         directory = self.shipped / personality_id
@@ -125,6 +138,31 @@ class SeedAndMigrateTests(unittest.TestCase):
         self.assertEqual(seeded, ["buddy"])
         self.assertTrue((broken / "prompt.md").is_file())
 
+    def test_seed_copies_missing_voices(self) -> None:
+        self._write_shipped_voice("cliff")
+        self._write_shipped_voice("narrator")
+
+        seeded = seed_shipped_voices(self.shipped_voices, self.user_voices)
+
+        self.assertEqual(seeded, ["cliff", "narrator"])
+        self.assertTrue((self.user_voices / "cliff" / "audio.wav").is_file())
+        self.assertTrue((self.user_voices / "narrator" / "ref_text.txt").is_file())
+
+    def test_seed_skips_existing_complete_voice(self) -> None:
+        self._write_shipped_voice("cliff", "Shipped transcript.")
+        self.user_voices.mkdir(parents=True)
+        existing = self.user_voices / "cliff"
+        shutil.copytree(self.shipped_voices / "cliff", existing)
+        (existing / "ref_text.txt").write_text("Custom transcript.", encoding="utf-8")
+
+        seeded = seed_shipped_voices(self.shipped_voices, self.user_voices)
+
+        self.assertEqual(seeded, [])
+        self.assertIn(
+            "Custom transcript",
+            (existing / "ref_text.txt").read_text(encoding="utf-8"),
+        )
+
     def test_migrate_legacy_memory_and_active_json(self) -> None:
         repo_memory = self.repo_root / "memory" / "global"
         repo_memory.mkdir(parents=True)
@@ -140,8 +178,19 @@ class SeedAndMigrateTests(unittest.TestCase):
         self.assertIn("color: blue", (self.data_dir / "memory" / "global" / "notes.md").read_text(encoding="utf-8"))
         self.assertTrue((self.user_personalities / "active.json").is_file())
 
+    def test_migrate_legacy_voices(self) -> None:
+        self._write_shipped_voice("jack", "Legacy voice.")
+        actions = migrate_legacy_user_data(self.repo_root, self.data_dir)
+
+        self.assertTrue(any("voices" in action for action in actions))
+        self.assertIn(
+            "Legacy voice",
+            (self.user_voices / "jack" / "ref_text.txt").read_text(encoding="utf-8"),
+        )
+
     def test_configure_user_data_wires_runtime_paths(self) -> None:
         self._write_shipped_personality("buddy")
+        self._write_shipped_voice("cliff")
         reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
 
         returned = configure_user_data()
@@ -149,10 +198,13 @@ class SeedAndMigrateTests(unittest.TestCase):
         self.assertEqual(returned, self.data_dir.resolve())
         self.assertEqual(bootstrap_module.get_memory_root(), self.data_dir / "memory")
         self.assertEqual(get_personalities_dir(), self.data_dir / "personalities")
+        self.assertEqual(get_voices_dir(), self.data_dir / "voices")
         self.assertEqual(list_personalities(), ["buddy"])
+        self.assertEqual(list_voices(), ["cliff"])
 
     def test_delete_buddy_and_reconfigure_reseeds(self) -> None:
         self._write_shipped_personality("buddy", name="Buddy")
+        self._write_shipped_voice("cliff")
         reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
         configure_user_data()
 
@@ -166,6 +218,7 @@ class SeedAndMigrateTests(unittest.TestCase):
 
     def test_update_buddy_writes_to_data_dir(self) -> None:
         self._write_shipped_personality("buddy", name="Buddy")
+        self._write_shipped_voice("cliff")
         reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
         configure_user_data()
 

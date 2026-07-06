@@ -193,6 +193,7 @@ class ProjectPersonalitiesTests(unittest.TestCase):
         self.assertIn("Buddy", profile.name)
         self.assertEqual(profile.voice_id, "cliff")
         self.assertTrue((self.data_dir / "personalities" / "buddy" / "profile.yaml").is_file())
+        self.assertTrue((self.data_dir / "voices" / "cliff" / "audio.wav").is_file())
 
 
 if __name__ == "__main__":

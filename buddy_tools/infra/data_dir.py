@@ -16,6 +16,11 @@ from buddy_tools.personality import (
     PROMPT_FILENAME,
     set_personalities_dir,
 )
+from buddy_tools.voice.voices import (
+    AUDIO_FILENAME,
+    REF_TEXT_FILENAME,
+    set_voices_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +42,20 @@ def get_shipped_personalities_dir() -> Path:
     return get_repo_root() / "personalities"
 
 
+def get_shipped_voices_dir() -> Path:
+    return get_repo_root() / "voices"
+
+
 def get_built_in_skills_dir() -> Path:
     return get_repo_root() / "skills"
 
 
 def get_user_skills_dir() -> Path:
     return get_data_dir() / "skills"
+
+
+def get_user_voices_dir() -> Path:
+    return get_data_dir() / "voices"
 
 
 def default_data_dir() -> Path:
@@ -80,10 +93,20 @@ def _is_valid_personality_dir(path: Path) -> bool:
     return (path / PROFILE_FILENAME).is_file() and (path / PROMPT_FILENAME).is_file()
 
 
+def _is_valid_voice_dir(path: Path) -> bool:
+    return (path / AUDIO_FILENAME).is_file() and (path / REF_TEXT_FILENAME).is_file()
+
+
 def _memory_dir_has_content(memory_dir: Path) -> bool:
     if not memory_dir.is_dir():
         return False
     return any(memory_dir.rglob("*"))
+
+
+def _voices_dir_has_content(voices_dir: Path) -> bool:
+    if not voices_dir.is_dir():
+        return False
+    return any(entry.is_dir() and _is_valid_voice_dir(entry) for entry in voices_dir.iterdir())
 
 
 def _copy_tree_contents(source: Path, dest: Path) -> None:
@@ -136,6 +159,34 @@ def seed_shipped_personalities(shipped_dir: Path, user_dir: Path) -> list[str]:
     return seeded
 
 
+def seed_shipped_voices(shipped_dir: Path, user_dir: Path) -> list[str]:
+    """Copy shipped voice clones into user_dir when missing or incomplete."""
+    if not shipped_dir.is_dir():
+        return []
+
+    user_dir.mkdir(parents=True, exist_ok=True)
+    seeded: list[str] = []
+
+    for entry in sorted(shipped_dir.iterdir()):
+        if not entry.is_dir() or not _SAFE_NAME.match(entry.name):
+            continue
+        if not _is_valid_voice_dir(entry):
+            continue
+
+        target = user_dir / entry.name
+        if _is_valid_voice_dir(target):
+            continue
+
+        if target.exists():
+            _remove_tree(target)
+
+        shutil.copytree(entry, target)
+        seeded.append(entry.name)
+        logger.info("Seeded voice %r from %s", entry.name, entry)
+
+    return seeded
+
+
 def migrate_legacy_user_data(repo_root: Path, data_dir: Path) -> list[str]:
     """Copy legacy repo memory and active.json into the user data dir when appropriate."""
     actions: list[str] = []
@@ -154,6 +205,12 @@ def migrate_legacy_user_data(repo_root: Path, data_dir: Path) -> list[str]:
         shutil.copy2(legacy_active, user_active)
         actions.append(f"active.json from {legacy_active} to {user_active}")
 
+    repo_voices = repo_root / "voices"
+    user_voices = data_dir / "voices"
+    if _voices_dir_has_content(repo_voices) and not _voices_dir_has_content(user_voices):
+        _copy_tree_contents(repo_voices, user_voices)
+        actions.append(f"voices from {repo_voices} to {user_voices}")
+
     for action in actions:
         logger.info("Migrated legacy user data: %s", action)
 
@@ -170,19 +227,26 @@ def configure_user_data() -> Path:
     (data_dir / "memory").mkdir(parents=True, exist_ok=True)
     (data_dir / "personalities").mkdir(parents=True, exist_ok=True)
     (data_dir / "skills").mkdir(parents=True, exist_ok=True)
+    (data_dir / "voices").mkdir(parents=True, exist_ok=True)
 
     migrate_legacy_user_data(repo_root, data_dir)
-    seeded = seed_shipped_personalities(get_shipped_personalities_dir(), data_dir / "personalities")
+    seeded_personalities = seed_shipped_personalities(
+        get_shipped_personalities_dir(), data_dir / "personalities"
+    )
+    seeded_voices = seed_shipped_voices(get_shipped_voices_dir(), data_dir / "voices")
 
     set_memory_root(data_dir / "memory")
     set_personalities_dir(data_dir / "personalities")
+    set_voices_dir(data_dir / "voices")
 
     _DATA_DIR = data_dir
     _CONFIGURED = True
 
     logger.info("Buddy data dir: %s", data_dir)
-    if seeded:
-        logger.info("Seeded personalities: %s", ", ".join(seeded))
+    if seeded_personalities:
+        logger.info("Seeded personalities: %s", ", ".join(seeded_personalities))
+    if seeded_voices:
+        logger.info("Seeded voices: %s", ", ".join(seeded_voices))
 
     return data_dir
 

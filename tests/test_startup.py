@@ -19,7 +19,7 @@ from buddy_tools.infra.startup import (
     inject_s2s_init_chat_prompt,
     resolve_startup_config,
 )
-from buddy_tools.voice.voices import set_voices_dir
+from buddy_tools.voice.voices import get_voices_dir, list_voices
 
 
 class StartupConfigTests(unittest.TestCase):
@@ -32,23 +32,21 @@ class StartupConfigTests(unittest.TestCase):
         self.repo_root = self.root / "repo"
         self.data_dir = self.root / "data"
         (self.repo_root / "personalities").mkdir(parents=True)
-        self.voices_root = self.root / "voices"
-        self.voices_root.mkdir()
-        set_voices_dir(self.voices_root)
-        self._write_voice("cliff")
-        self._write_voice("narrator")
+        self.shipped_voices = self.repo_root / "voices"
+        self._write_voice(self.shipped_voices, "cliff")
+        self._write_voice(self.shipped_voices, "narrator")
         reset_data_dir_config(repo_root=self.repo_root, data_dir=self.data_dir)
         configure_user_data()
 
     def tearDown(self) -> None:
         reset_data_dir_config()
         personality_module.set_personalities_dir(self._original_personalities_dir)
-        set_voices_dir(self._original_voices_dir)
+        voices_module.set_voices_dir(self._original_voices_dir)
         bootstrap_module.set_memory_root(self._original_memory_root)
         self._tmpdir.cleanup()
 
-    def _write_voice(self, voice_id: str, ref_text: str = "Reference transcript.") -> None:
-        voice_dir = self.voices_root / voice_id
+    def _write_voice(self, voices_root: Path, voice_id: str, ref_text: str = "Reference transcript.") -> None:
+        voice_dir = voices_root / voice_id
         voice_dir.mkdir(parents=True, exist_ok=True)
         (voice_dir / "audio.wav").write_bytes(b"RIFF")
         (voice_dir / "ref_text.txt").write_text(ref_text, encoding="utf-8")
@@ -85,6 +83,14 @@ class StartupConfigTests(unittest.TestCase):
         )
         self.assertEqual(config["ref_text"], "Reference transcript.")
         self.assertEqual(config["data_dir"], str(self.data_dir.resolve()))
+        self.assertEqual(get_voices_dir(), self.data_dir / "voices")
+
+    def test_list_voices_discovers_new_voice_after_configure(self) -> None:
+        create_personality("buddy", "Buddy", "Buddy prompt.", voice_id="cliff")
+        self.assertEqual(list_voices(), ["cliff", "narrator"])
+
+        self._write_voice(self.data_dir / "voices", "custom", "Custom voice.")
+        self.assertEqual(list_voices(), ["cliff", "custom", "narrator"])
 
     def test_resolve_startup_config_is_json_serializable(self) -> None:
         create_personality("buddy", "Buddy", "Buddy prompt.", voice_id="cliff")
@@ -147,6 +153,7 @@ class ProjectStartupTests(unittest.TestCase):
         self.assertIn("Buddy", config["personality_name"])
         self.assertTrue(Path(config["audio"]).is_file())
         self.assertEqual(config["data_dir"], str(self.data_dir.resolve()))
+        self.assertTrue((self.data_dir / "voices" / "cliff" / "audio.wav").is_file())
 
 
 if __name__ == "__main__":
