@@ -21,6 +21,28 @@ from buddy_tools.voice.voices import ref_text_for_audio_path
 logger = logging.getLogger(__name__)
 
 
+def _ensure_speculative_turns(kwargs: dict[str, Any]) -> Any:
+    """Local pipeline mode omits speculative_turns; create and inject one for endpointing."""
+    from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
+
+    speculative_turns = kwargs.get("speculative_turns")
+    if speculative_turns is None:
+        speculative_turns = SpeculativeTurnTracker()
+        kwargs["speculative_turns"] = speculative_turns
+        logger.info("Created SpeculativeTurnTracker for local pipeline (speech-to-speech local mode omits it)")
+
+    vad_handler_kwargs = kwargs.get("vad_handler_kwargs")
+    if vad_handler_kwargs is not None:
+        vars(vad_handler_kwargs)["speculative_turns"] = speculative_turns
+
+    for kw_name in ("language_model_handler_kwargs", "responses_api_language_model_handler_kwargs"):
+        lm_kwargs = kwargs.get(kw_name)
+        if lm_kwargs is not None:
+            vars(lm_kwargs)["speculative_turns"] = speculative_turns
+
+    return speculative_turns
+
+
 def _patch_qwen3_ref_text_sync() -> None:
     from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
 
@@ -305,6 +327,7 @@ def apply_patches() -> None:
     original_build = pipeline._build_pipeline_handlers
 
     def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
+        speculative_turns = _ensure_speculative_turns(kwargs)
         handlers = original_build(*args, **kwargs)
         _configure_listening_pause_from_handlers(
             handlers,
@@ -316,7 +339,7 @@ def apply_patches() -> None:
             text_prompt_queue=kwargs["text_prompt_queue"],
             lm_response_queue=kwargs["lm_response_queue"],
             transcription_notifier_setup=kwargs["transcription_notifier_setup"],
-            speculative_turns=kwargs.get("speculative_turns"),
+            speculative_turns=speculative_turns,
             should_listen=kwargs.get("should_listen"),
         )
 

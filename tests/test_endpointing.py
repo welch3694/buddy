@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import unittest
 from queue import Queue
-from threading import Event
+from threading import Event, Timer
 from unittest.mock import Mock, patch
 
+from buddy_tools.core.patch import _ensure_speculative_turns
 from buddy_tools.voice.endpointing import (
     configure_endpointing,
     get_endpointing_gate,
@@ -20,6 +21,26 @@ from buddy_tools.voice.listening_pause import (
 )
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, Transcription
+
+
+class EnsureSpeculativeTurnsTests(unittest.TestCase):
+    def test_creates_tracker_when_local_pipeline_omits_it(self) -> None:
+        from speech_to_speech.arguments_classes.vad_arguments import VADHandlerArguments
+        from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
+
+        vad_kwargs = VADHandlerArguments()
+        kwargs: dict = {"vad_handler_kwargs": vad_kwargs}
+        tracker = _ensure_speculative_turns(kwargs)
+        self.assertIsInstance(tracker, SpeculativeTurnTracker)
+        self.assertIs(kwargs["speculative_turns"], tracker)
+        self.assertIs(vars(vad_kwargs)["speculative_turns"], tracker)
+
+    def test_reuses_existing_tracker(self) -> None:
+        from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
+
+        existing = SpeculativeTurnTracker()
+        kwargs = {"speculative_turns": existing}
+        self.assertIs(_ensure_speculative_turns(kwargs), existing)
 
 
 class MergeTranscriptsTests(unittest.TestCase):
@@ -70,7 +91,7 @@ class EndpointingGateTests(unittest.TestCase):
         return list(result)
 
     def test_hold_does_not_commit(self) -> None:
-        self.tracker.try_commit_if_latest_after_reopen_grace.return_value = None
+        self.tracker.try_is_latest_after_reopen_grace.return_value = None
         self.tracker.has_pending_reopen_or_grace.return_value = True
         self.tracker.is_committed.return_value = False
 
@@ -82,14 +103,15 @@ class EndpointingGateTests(unittest.TestCase):
 
     def test_hold_resume_merge_single_commit(self) -> None:
         self.tracker.is_committed.return_value = False
-        self.tracker.try_commit_if_latest_after_reopen_grace.side_effect = [None, True]
+        self.tracker.try_is_latest_after_reopen_grace.side_effect = [None, True]
         self.tracker.has_pending_reopen_or_grace.return_value = True
 
-        first = self._observe("I was thinking")
-        self.assertEqual(first, [])
-        self.runtime_config.chat.add_item.assert_not_called()
+        with patch.object(Timer, "start", lambda self: None):
+            first = self._observe("I was thinking")
+            self.assertEqual(first, [])
+            self.runtime_config.chat.add_item.assert_not_called()
 
-        second = self._observe("I was thinking about lunch", revision=1)
+            second = self._observe("I was thinking about lunch", revision=1)
         self.assertEqual(len(second), 1)
         self.assertIsInstance(second[0], GenerateResponseRequest)
         self.runtime_config.chat.add_item.assert_called_once()
@@ -98,23 +120,21 @@ class EndpointingGateTests(unittest.TestCase):
 
     def test_hold_release_commit_via_timer(self) -> None:
         self.tracker.is_committed.return_value = False
-        self.tracker.try_commit_if_latest_after_reopen_grace.side_effect = [None, True]
+        self.tracker.try_is_latest_after_reopen_grace.side_effect = [None, True]
         self.tracker.has_pending_reopen_or_grace.return_value = False
+        self.tracker.commit = Mock()
 
-        with patch("buddy_tools.voice.endpointing._RELEASE_POLL_S", 0.01):
+        with patch.object(Timer, "start", lambda self: None):
             outputs = self._observe("finish this thought")
             self.assertEqual(outputs, [])
 
-            import time
-
-            deadline = time.monotonic() + 1.0
-            while self.queue.empty() and time.monotonic() < deadline:
-                time.sleep(0.01)
+        get_endpointing_gate()._on_release_timer()
 
         self.assertFalse(self.queue.empty())
         request = self.queue.get_nowait()
         self.assertIsInstance(request, GenerateResponseRequest)
         self.runtime_config.chat.add_item.assert_called_once()
+        self.tracker.commit.assert_called_once_with("t1", 0)
 
     def test_no_tracker_passthrough(self) -> None:
         reset_endpointing_for_tests()

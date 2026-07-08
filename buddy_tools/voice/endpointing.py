@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 
 _RELEASE_POLL_S = 0.05
 _DEFAULT_RELEASE_DELAY_S = 1.0
+_CONFIGURED_TRACKER_LOGGED = False
+
+
+def _tracker_gate_snapshot(
+    tracker: SpeculativeTurnTracker | None,
+    turn_id: str | None,
+    turn_revision: int | None,
+) -> str:
+    if tracker is None or turn_id is None or turn_revision is None:
+        return "tracker=none"
+    pending_reopen = tracker.has_pending_reopen(turn_id, turn_revision)
+    pending_reopen_or_grace = tracker.has_pending_reopen_or_grace(turn_id, turn_revision)
+    committed = tracker.is_committed(turn_id, turn_revision)
+    return (
+        f"pending_reopen={pending_reopen} pending_reopen_or_grace={pending_reopen_or_grace} "
+        f"committed={committed}"
+    )
 
 
 def merge_transcripts(existing: str, new: str) -> str:
@@ -80,6 +97,15 @@ class EndpointingGate:
                 self.speculative_turns = speculative_turns
             if should_listen is not None:
                 self.should_listen = should_listen
+        if speculative_turns is not None:
+            global _CONFIGURED_TRACKER_LOGGED
+            if not _CONFIGURED_TRACKER_LOGGED:
+                logger.info("Endpointing gate configured with SpeculativeTurnTracker")
+                _CONFIGURED_TRACKER_LOGGED = True
+        elif text_prompt_queue is not None or runtime_config is not None:
+            logger.warning(
+                "Endpointing gate configured without SpeculativeTurnTracker; voice turns commit immediately"
+            )
         return self
 
     def observe_final(
@@ -93,15 +119,36 @@ class EndpointingGate:
     ) -> tuple[_ObserveResult, PendingUtterance | None]:
         tracker = self.speculative_turns
         if tracker is None or turn_id is None or turn_revision is None:
+            reason = "no_tracker" if tracker is None else "missing_turn_metadata"
+            logger.info(
+                "Endpointing passthrough (%s) turn=%s rev=%s chars=%d",
+                reason,
+                turn_id,
+                turn_revision,
+                len(transcript),
+            )
             return _ObserveResult.PASSTHROUGH, None
 
         with self._lock:
             if self._pending is not None and self._pending.turn_id != turn_id:
+                logger.info(
+                    "Endpointing flushing prior pending turn=%s before turn=%s",
+                    self._pending.turn_id,
+                    turn_id,
+                )
                 self._flush_or_discard_pending_locked()
 
             if self._pending is not None and self._pending.turn_id == turn_id:
                 if turn_revision > self._pending.turn_revision:
                     merged = merge_transcripts(self._pending.transcript, transcript)
+                    logger.info(
+                        "Endpointing merged turn=%s rev=%s->%s (%d -> %d chars)",
+                        turn_id,
+                        self._pending.turn_revision,
+                        turn_revision,
+                        len(self._pending.transcript),
+                        len(merged),
+                    )
                     self._pending = PendingUtterance(
                         turn_id=turn_id,
                         turn_revision=turn_revision,
@@ -128,6 +175,14 @@ class EndpointingGate:
 
             return self._evaluate_pending_locked()
 
+    def _release_readiness_locked(
+        self,
+        pending: PendingUtterance,
+    ) -> bool | None:
+        tracker = self.speculative_turns
+        assert tracker is not None
+        return tracker.try_is_latest_after_reopen_grace(pending.turn_id, pending.turn_revision)
+
     def _evaluate_pending_locked(self) -> tuple[_ObserveResult, PendingUtterance | None]:
         pending = self._pending
         if pending is None:
@@ -137,24 +192,49 @@ class EndpointingGate:
         assert tracker is not None
 
         if tracker.is_committed(pending.turn_id, pending.turn_revision):
+            logger.info(
+                "Endpointing hold (already committed) turn=%s rev=%s [%s]",
+                pending.turn_id,
+                pending.turn_revision,
+                _tracker_gate_snapshot(tracker, pending.turn_id, pending.turn_revision),
+            )
             self._pending = None
             self._cancel_release_locked()
             return _ObserveResult.HELD, None
 
-        commit_result = tracker.try_commit_if_latest_after_reopen_grace(
-            pending.turn_id,
-            pending.turn_revision,
-        )
-        if commit_result is True:
+        ready = self._release_readiness_locked(pending)
+        gate_state = _tracker_gate_snapshot(tracker, pending.turn_id, pending.turn_revision)
+        if ready is True:
+            logger.info(
+                "Endpointing commit sync turn=%s rev=%s chars=%d [%s]",
+                pending.turn_id,
+                pending.turn_revision,
+                len(pending.transcript),
+                gate_state,
+            )
             utterance = pending
             self._pending = None
             self._cancel_release_locked()
             return _ObserveResult.COMMIT, utterance
-        if commit_result is False:
+        if ready is False:
+            logger.info(
+                "Endpointing discard superseded turn=%s rev=%s [%s]",
+                pending.turn_id,
+                pending.turn_revision,
+                gate_state,
+            )
             self._pending = None
             self._cancel_release_locked()
             return _ObserveResult.HELD, None
 
+        logger.info(
+            "Endpointing hold turn=%s rev=%s chars=%d scheduling release in %.0fms [%s]",
+            pending.turn_id,
+            pending.turn_revision,
+            len(pending.transcript),
+            _RELEASE_POLL_S * 1000,
+            gate_state,
+        )
         self._schedule_release_locked(_RELEASE_POLL_S)
         return _ObserveResult.HELD, None
 
@@ -166,7 +246,10 @@ class EndpointingGate:
         if tracker is None:
             self._pending = None
             return
-        if tracker.try_commit_if_latest_after_reopen_grace(pending.turn_id, pending.turn_revision) is True:
+        if (
+            self._release_readiness_locked(pending) is True
+            and not tracker.is_committed(pending.turn_id, pending.turn_revision)
+        ):
             self._inject_commit_locked(pending)
         self._pending = None
         self._cancel_release_locked()
@@ -208,35 +291,50 @@ class EndpointingGate:
                 self._cancel_release_locked()
                 return
 
-            commit_result = tracker.try_commit_if_latest_after_reopen_grace(
-                pending.turn_id,
-                pending.turn_revision,
-            )
-            if commit_result is True:
+            ready = self._release_readiness_locked(pending)
+            gate_state = _tracker_gate_snapshot(tracker, pending.turn_id, pending.turn_revision)
+            if ready is True:
                 utterance = pending
                 self._pending = None
                 self._cancel_release_locked()
+                logger.info(
+                    "Endpointing commit timer turn=%s rev=%s [%s]",
+                    utterance.turn_id,
+                    utterance.turn_revision,
+                    gate_state,
+                )
                 self._inject_commit_locked(utterance)
                 return
-            if commit_result is False:
+            if ready is False:
+                logger.info(
+                    "Endpointing timer discard superseded turn=%s rev=%s [%s]",
+                    pending.turn_id,
+                    pending.turn_revision,
+                    gate_state,
+                )
                 self._pending = None
                 self._cancel_release_locked()
                 return
 
-            if tracker.has_pending_reopen_or_grace(pending.turn_id, pending.turn_revision):
-                self._schedule_release_locked(_DEFAULT_RELEASE_DELAY_S)
-            else:
-                self._schedule_release_locked(_RELEASE_POLL_S)
+            delay_s = _DEFAULT_RELEASE_DELAY_S if tracker.has_pending_reopen_or_grace(
+                pending.turn_id,
+                pending.turn_revision,
+            ) else _RELEASE_POLL_S
+            logger.info(
+                "Endpointing timer still waiting turn=%s rev=%s reschedule in %.0fms [%s]",
+                pending.turn_id,
+                pending.turn_revision,
+                delay_s * 1000,
+                gate_state,
+            )
+            self._schedule_release_locked(delay_s)
 
     def _inject_commit_locked(self, utterance: PendingUtterance) -> None:
         runtime_config = self.runtime_config
         text_prompt_queue = self.text_prompt_queue
+        tracker = self.speculative_turns
         if runtime_config is None or text_prompt_queue is None:
             logger.warning("Endpointing release dropped: scheduler not configured with runtime_config/queue")
-            return
-
-        tracker = self.speculative_turns
-        if tracker is not None and tracker.is_committed(utterance.turn_id, utterance.turn_revision):
             return
 
         request = build_commit_request(runtime_config, utterance)
@@ -246,6 +344,8 @@ class EndpointingGate:
         try:
             perform_commit_side_effects(utterance)
             text_prompt_queue.put(request)
+            if tracker is not None:
+                tracker.commit(utterance.turn_id, utterance.turn_revision)
             logger.info(
                 "Endpointing gate released turn=%s rev=%s: %s",
                 utterance.turn_id,
@@ -284,12 +384,14 @@ def configure_endpointing(
 
 
 def reset_endpointing_for_tests() -> None:
+    global _CONFIGURED_TRACKER_LOGGED
     gate = get_endpointing_gate()
     gate.reset_for_tests()
     gate.speculative_turns = None
     gate.text_prompt_queue = None
     gate.runtime_config = None
     gate.should_listen = None
+    _CONFIGURED_TRACKER_LOGGED = False
 
 
 def perform_commit_side_effects(utterance: PendingUtterance) -> None:
@@ -366,8 +468,13 @@ def process_with_endpointing_gate(
     )
     if result is _ObserveResult.PASSTHROUGH:
         return None
+    if result is _ObserveResult.COMMIT and utterance is not None:
+        iterator = commit_voice_turn(notifier, utterance)
+        tracker = get_endpointing_gate().speculative_turns
+        if tracker is not None and utterance.turn_id is not None and utterance.turn_revision is not None:
+            tracker.commit(utterance.turn_id, utterance.turn_revision)
+        return iterator
     if result is _ObserveResult.HELD:
         return iter(())
-    if result is _ObserveResult.COMMIT and utterance is not None:
-        return commit_voice_turn(notifier, utterance)
+    logger.debug("Endpointing observe returned unexpected result=%s", result)
     return iter(())

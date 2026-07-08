@@ -61,7 +61,7 @@ try {
 
     # VAD: wait for this much silence (ms) before treating your turn as finished.
     # Default is 64ms (very aggressive). Try 500-800 if it cuts you off mid-sentence.
-    $vadMinSilenceMs = 600
+    $vadMinSilenceMs = 1000
 
     # Working-context management (issue #45):
     # - llama-server --ctx-size (16384 in start-llama-server-speech.ps1) is the hard limit.
@@ -82,6 +82,7 @@ try {
         "--llm_backend", "chat-completions",
         "--responses_api_base_url", $llamaBaseUrl,
         "--responses_api_api_key", "not-needed",
+        "--speculative_reopen_ms", "500",
         "--chat_size", "20",
         "--compact_history",
         "--responses_api_stream",
