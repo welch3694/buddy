@@ -82,6 +82,7 @@ try {
         "--llm_backend", "chat-completions",
         "--responses_api_base_url", $llamaBaseUrl,
         "--responses_api_api_key", "not-needed",
+        # Tier-1 heuristics extend reopen grace when transcript ends with disfluency (um/uh) or dangling clauses.
         "--speculative_reopen_ms", "500",
         "--chat_size", "20",
         "--compact_history",
