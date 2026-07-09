@@ -1024,6 +1024,73 @@ Welcome the audience.
         self.assertEqual(skill.name, "director-flow")
         self.assertEqual(skill.source, "personality")
 
+    def test_create_skill_merges_name_when_body_includes_frontmatter(self) -> None:
+        set_active_personality("coach")
+        full_skill_body = """\
+---
+description: Legacy description in body frontmatter.
+metadata:
+  buddy:
+    type: checklist
+---
+
+# Popper Director
+
+## Steps
+
+### prep
+Confirm the user is ready.
+"""
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "popper-director",
+                "description": "Direct a popper session.",
+                "body": full_skill_body,
+                "skill_type": "checklist",
+            },
+        )
+        self.assertIn("Created skill", result.output)
+        self.assertNotIn("Error", result.output)
+
+        skill_path = self.personalities_root / "coach" / "skills" / "popper-director" / "SKILL.md"
+        skill = load_skill_definition(skill_path.parent, source="personality")
+        self.assertEqual(skill.name, "popper-director")
+        self.assertIn("Direct a popper session", skill.description)
+        self.assertEqual(skill.skill_type, "checklist")
+        self.assertEqual(len(skill.steps), 1)
+
+    def test_create_skill_overrides_mismatched_frontmatter_name(self) -> None:
+        set_active_personality("coach")
+        full_skill_body = """\
+---
+name: wrong-name
+description: Old description.
+---
+
+# Workflow
+
+Do the thing.
+"""
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "create_skill",
+            {
+                "name": "correct-name",
+                "description": "Authoritative description.",
+                "body": full_skill_body,
+            },
+        )
+        self.assertIn("Created skill", result.output)
+
+        skill_path = self.personalities_root / "coach" / "skills" / "correct-name" / "SKILL.md"
+        skill = load_skill_definition(skill_path.parent, source="personality")
+        self.assertEqual(skill.name, "correct-name")
+        self.assertIn("Authoritative description", skill.description)
+
     def test_create_skill_shared_scope(self) -> None:
         set_active_personality("coach")
         result = execute_skill_tool(
