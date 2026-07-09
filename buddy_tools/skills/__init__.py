@@ -24,7 +24,8 @@ from buddy_tools.pulse import (
     start_pulse_worker,
     stop_pulse_worker,
 )
-from buddy_tools.pulse.schema import SessionValidationError
+from buddy_tools.pulse.config_merge import apply_pulse_config
+from buddy_tools.pulse.schema import SessionValidationError, parse_session_config
 from buddy_tools.pulse.state import PulseState
 from buddy_tools.pulse.template import render_session_template
 from buddy_tools.timers import cancel_timers_for_skill
@@ -74,8 +75,9 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         type="function",
         name="read_skill_file",
         description=(
-            "Read a file from the active skill's references/, scripts/, or assets/ folder. "
-            "Use only when the skill instructions call for detailed reference material."
+            "Read a file from a skill's references/, scripts/, or assets/ folder. "
+            "Use skill_name to read from any discoverable skill (including built-ins); "
+            "omit skill_name to read from the active skill only."
         ),
         parameters={
             "type": "object",
@@ -83,9 +85,39 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 "path": {
                     "type": "string",
                     "description": "Relative path under references/, scripts/, or assets/, e.g. references/checklist.md",
-                }
+                },
+                "skill_name": {
+                    "type": "string",
+                    "description": "Optional skill name; when set, reads from that skill instead of the active skill",
+                },
             },
             "required": ["path"],
+        },
+    ),
+    RealtimeFunctionTool(
+        type="function",
+        name="write_skill_file",
+        description=(
+            "Write a file under references/, scripts/, or assets/ for a persona or shared skill. "
+            "Cannot modify built-in skills. session.yaml writes are validated against the pulse schema."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "skill_name": {
+                    "type": "string",
+                    "description": "Skill name to write to",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Relative path, e.g. references/session.yaml or references/notes.md",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full file content to write",
+                },
+            },
+            "required": ["skill_name", "path", "content"],
         },
     ),
     RealtimeFunctionTool(
@@ -210,6 +242,32 @@ SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
             },
             "required": ["name"],
+        },
+    ),
+    RealtimeFunctionTool(
+        type="function",
+        name="update_pulse_config",
+        description=(
+            "Merge structured tuning params into a pulse skill's references/session.yaml. "
+            "Preserves hand-edited rules and schedule; only updates known timing/camera keys. "
+            "Changes apply on the next start_skill (not mid-session)."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "skill_name": {
+                    "type": "string",
+                    "description": "Pulse skill name to update",
+                },
+                "params": {
+                    "type": "object",
+                    "description": (
+                        "Keys: camera_switch_interval_s, cameras, conversation_min_silence_s, "
+                        "min_speak_interval_s, tick_interval_s, mandatory_cue_max_defer_s"
+                    ),
+                },
+            },
+            "required": ["skill_name", "params"],
         },
     ),
     RealtimeFunctionTool(
@@ -908,7 +966,11 @@ def build_skill_instructions() -> str:
         "- start_skill: begin or resume a skill by name\n"
         "- skill_status: check current step and progress\n"
         "- advance_skill: move to the next checklist step after the user confirms verbally\n"
-        "- read_skill_file: load reference material from the active skill when instructions require it\n"
+        "- read_skill_file: load reference material from the active skill or a named skill "
+        "(references/, scripts/, assets/)\n"
+        "- write_skill_file: write resource files for a persona or shared skill (not built-ins)\n"
+        "- update_pulse_config: tune pulse timing and cameras in references/session.yaml "
+        "(re-start skill to apply)\n"
         "- pause_skill / cancel_skill: suspend or abandon the active skill\n"
         "For checklist skills, walk one step at a time. Wait for verbal confirmation before "
         "calling advance_skill. The tool returns the authoritative next step — do not invent step order. "
@@ -1028,6 +1090,12 @@ def execute_skill_tool(
 
     if tool_name == "read_skill_file":
         return _read_skill_file(memory_root, persona_namespace, personality, args)
+
+    if tool_name == "write_skill_file":
+        return _write_skill_file(personality, args)
+
+    if tool_name == "update_pulse_config":
+        return _update_pulse_config(personality, args)
 
     if tool_name == "skill_status":
         return _skill_status(memory_root, persona_namespace, personality)
@@ -1214,12 +1282,19 @@ def _read_skill_file(
     personality: PersonalityProfile,
     args: dict[str, Any],
 ) -> ToolExecutionResult:
-    state = load_skill_state(memory_root, persona_namespace)
-    if state is None:
-        return tool_error("read_skill_file", "no active skill", context=safe_tool_context(args))
-
+    raw_skill_name = str(args.get("skill_name", "")).strip()
     try:
-        skill = get_skill_definition(personality, state.skill_name)
+        if raw_skill_name:
+            skill = get_skill_definition(personality, raw_skill_name)
+        else:
+            state = load_skill_state(memory_root, persona_namespace)
+            if state is None:
+                return tool_error(
+                    "read_skill_file",
+                    "no active skill (provide skill_name to read from a named skill)",
+                    context=safe_tool_context(args),
+                )
+            skill = get_skill_definition(personality, state.skill_name)
         path = _resolve_resource_path(skill, str(args.get("path", "")))
     except (ValueError, FileNotFoundError) as exc:
         return tool_error("read_skill_file", str(exc), context=safe_tool_context(args))
@@ -1231,6 +1306,93 @@ def _read_skill_file(
             context=safe_tool_context(args),
         )
     return ToolExecutionResult(output=path.read_text(encoding="utf-8"))
+
+
+def _write_skill_file(
+    personality: PersonalityProfile,
+    args: dict[str, Any],
+) -> ToolExecutionResult:
+    skill_name = str(args.get("skill_name", "")).strip()
+    relative_path = str(args.get("path", "")).strip()
+    content = args.get("content")
+    if not skill_name:
+        return tool_error("write_skill_file", "skill_name is required", context=safe_tool_context(args))
+    if content is None:
+        return tool_error("write_skill_file", "content is required", context=safe_tool_context(args))
+    if not isinstance(content, str):
+        return tool_error("write_skill_file", "content must be a string", context=safe_tool_context(args))
+
+    try:
+        skill_dir, source = _find_writable_skill_dir(personality, skill_name)
+        skill = load_skill_definition(skill_dir, source=source)
+        path = _resolve_resource_path(skill, relative_path)
+    except (ValueError, FileNotFoundError) as exc:
+        return tool_error("write_skill_file", str(exc), context=safe_tool_context(args))
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        if path.name == "session.yaml" and path.parent.name == "references":
+            raw = yaml.safe_load(content)
+            if raw is None:
+                raw = {}
+            if not isinstance(raw, dict):
+                raise ValueError("session.yaml root must be a mapping")
+            parse_session_config(raw, skill_name=skill.name)
+    except (yaml.YAMLError, SessionValidationError, ValueError) as exc:
+        return tool_error(
+            "write_skill_file",
+            f"invalid session.yaml: {exc}",
+            context=safe_tool_context(args),
+        )
+    except OSError as exc:
+        return tool_error("write_skill_file", f"could not write file: {exc}", context=safe_tool_context(args))
+
+    logger.info("Wrote skill file %s for skill %r", path, skill.name)
+    return ToolExecutionResult(
+        output=f"Wrote {relative_path} for skill {skill.name!r}.",
+    )
+
+
+def _update_pulse_config(
+    personality: PersonalityProfile,
+    args: dict[str, Any],
+) -> ToolExecutionResult:
+    skill_name = str(args.get("skill_name", "")).strip()
+    params = args.get("params")
+    if not skill_name:
+        return tool_error("update_pulse_config", "skill_name is required", context=safe_tool_context(args))
+    if not isinstance(params, dict):
+        return tool_error("update_pulse_config", "params must be a JSON object", context=safe_tool_context(args))
+
+    try:
+        skill_dir, source = _find_writable_skill_dir(personality, skill_name)
+        skill = load_skill_definition(skill_dir, source=source)
+    except (ValueError, FileNotFoundError) as exc:
+        return tool_error("update_pulse_config", str(exc), context=safe_tool_context(args))
+
+    if skill.skill_type != "pulse":
+        return tool_error(
+            "update_pulse_config",
+            f"skill {skill.name!r} is not a pulse skill",
+            context=safe_tool_context(args),
+        )
+
+    try:
+        apply_pulse_config(skill_dir, params, skill_name=skill.name)
+    except SessionValidationError as exc:
+        return tool_error("update_pulse_config", str(exc), context=safe_tool_context(args))
+    except OSError as exc:
+        return tool_error("update_pulse_config", f"could not write session.yaml: {exc}", context=safe_tool_context(args))
+
+    changed = ", ".join(sorted(params))
+    logger.info("Updated pulse config for skill %r: %s", skill.name, changed)
+    return ToolExecutionResult(
+        output=(
+            f"Updated pulse config for {skill.name!r} ({changed}). "
+            "Cancel and re-start the skill to apply changes to a running session."
+        ),
+    )
 
 
 def _skill_status(

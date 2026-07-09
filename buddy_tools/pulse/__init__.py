@@ -1,5 +1,6 @@
 """Pulse session runtime — worker tick loop and per-persona state."""
 
+from buddy_tools.pulse.config_merge import apply_pulse_config, merge_pulse_params
 from buddy_tools.pulse.gates import reset_pulse_gates_for_tests
 from buddy_tools.pulse.inject import (
     NO_OUTPUT_MARKER,
@@ -47,6 +48,7 @@ __all__ = [
     "PulseState",
     "SessionConfig",
     "SessionValidationError",
+    "apply_pulse_config",
     "build_conversational_pulse_instructions",
     "build_directed_pulse_instructions",
     "build_pulse_state_from_session",
@@ -62,6 +64,7 @@ __all__ = [
     "is_no_output_text",
     "load_pulse_state",
     "load_session_config",
+    "merge_pulse_params",
     "parse_session_config",
     "pulse_state_path",
     "record_assistant_speech_for_active_pulse",
