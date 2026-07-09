@@ -1,4 +1,4 @@
-"""Tests for endpointing gate (#79)."""
+"""Tests for endpointing gate (#79, #80)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from threading import Event, Timer
 from unittest.mock import Mock, patch
 
 from buddy_tools.core.patch import _ensure_speculative_turns
+from buddy_tools.voice.turn_completion_heuristic import HeuristicConfig, reset_heuristic_config_for_tests
 from buddy_tools.voice.endpointing import (
     configure_endpointing,
     get_endpointing_gate,
@@ -60,6 +61,7 @@ class MergeTranscriptsTests(unittest.TestCase):
 class EndpointingGateTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_endpointing_for_tests()
+        reset_heuristic_config_for_tests()
         self.queue: Queue = Queue()
         self.runtime_config = RuntimeConfig()
         self.runtime_config.chat.add_item = Mock()
@@ -76,6 +78,7 @@ class EndpointingGateTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         reset_endpointing_for_tests()
+        reset_heuristic_config_for_tests()
 
     def _observe(self, text: str, *, turn_id: str = "t1", revision: int = 0) -> list[GenerateResponseRequest]:
         result = process_with_endpointing_gate(
@@ -171,6 +174,90 @@ class EndpointingGateTests(unittest.TestCase):
         self.assertEqual(outputs, [])
         self.runtime_config.chat.add_item.assert_not_called()
         self.assertIsNone(get_endpointing_gate()._pending)
+
+    def test_heuristic_continue_extends_hold(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.start_reopen_grace = Mock()
+
+        with patch.object(Timer, "start", lambda self: None):
+            outputs = self._observe("I was thinking um")
+
+        self.assertEqual(outputs, [])
+        self.runtime_config.chat.add_item.assert_not_called()
+        self.tracker.start_reopen_grace.assert_called_once()
+        self.assertIsNotNone(get_endpointing_gate()._pending)
+
+    def test_heuristic_unknown_commits_when_ready(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.commit = Mock()
+
+        outputs = self._observe("Hello there")
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], GenerateResponseRequest)
+        self.runtime_config.chat.add_item.assert_called_once()
+        self.tracker.start_reopen_grace.assert_not_called()
+
+    def test_heuristic_disabled_commits_immediately(self) -> None:
+        from buddy_tools.voice import turn_completion_heuristic
+
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.commit = Mock()
+        disabled = HeuristicConfig(enabled=False)
+
+        with patch.object(turn_completion_heuristic, "get_heuristic_config", return_value=disabled):
+            outputs = self._observe("I was thinking um")
+
+        self.assertEqual(len(outputs), 1)
+        self.runtime_config.chat.add_item.assert_called_once()
+        self.tracker.start_reopen_grace.assert_not_called()
+
+
+    def test_continue_hold_caps_at_two_then_commits(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.start_reopen_grace = Mock()
+        self.tracker.commit = Mock()
+
+        with patch.object(Timer, "start", lambda self: None):
+            outputs = self._observe("I was thinking um")
+
+        self.assertEqual(outputs, [])
+        self.assertEqual(self.tracker.start_reopen_grace.call_count, 1)
+
+        gate = get_endpointing_gate()
+        gate._on_release_timer()
+        self.assertEqual(self.tracker.start_reopen_grace.call_count, 2)
+        self.runtime_config.chat.add_item.assert_not_called()
+
+        gate._on_release_timer()
+        self.runtime_config.chat.add_item.assert_called_once()
+
+    def test_continue_hold_resets_when_user_resumes(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.start_reopen_grace = Mock()
+        self.tracker.commit = Mock()
+
+        with patch.object(Timer, "start", lambda self: None):
+            self._observe("I was thinking um", revision=0)
+            gate = get_endpointing_gate()
+            gate._on_release_timer()
+            self.assertEqual(gate._continue_hold_count, 2)
+            self.assertEqual(self.tracker.start_reopen_grace.call_count, 2)
+
+            second = self._observe("I was thinking um and like", revision=1)
+            self.assertEqual(second, [])
+            # Reset on merge, then one CONTINUE for the new trailing "like".
+            self.assertEqual(gate._continue_hold_count, 1)
+
+            gate._on_release_timer()
+            self.assertEqual(gate._continue_hold_count, 2)
+            gate._on_release_timer()
+            self.runtime_config.chat.add_item.assert_called_once()
 
 
 if __name__ == "__main__":
