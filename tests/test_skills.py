@@ -179,6 +179,8 @@ class SkillToolTests(unittest.TestCase):
         self.assertIn("create_skill", names)
         self.assertIn("update_skill", names)
         self.assertIn("delete_skill", names)
+        self.assertIn("write_skill_file", names)
+        self.assertIn("update_pulse_config", names)
 
     def test_list_skills_returns_metadata_only(self) -> None:
         from buddy_tools.personality import set_active_personality

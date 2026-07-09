@@ -6,9 +6,37 @@ Pulse skills (`metadata.buddy.type: pulse`) store timing and cue logic in:
 skills/{skill-name}/references/session.yaml
 ```
 
-At `start_skill`, the file is validated and snapshotted into `pulse_state.json` under `session_config`. **Edits to `session.yaml` do not affect a running session** — cancel and re-start the skill (or use a future runtime update tool) to pick up changes.
+At `start_skill`, the file is validated and snapshotted into `pulse_state.json` under `session_config`. **Edits to `session.yaml` do not affect a running session** — cancel and re-start the skill, or use `update_pulse_config` / `write_skill_file` and then re-start to pick up changes.
 
 Reference implementation: `skills/live-director/references/session.yaml`.
+
+---
+
+## Voice tuning via `update_pulse_config`
+
+Use the `update_pulse_config` tool to merge structured params without LLM-generated YAML. Hand-edited `rules`, `schedule`, and other `init.set` vars are preserved; only the keys below are updated.
+
+| Param key | YAML path | Purpose |
+|-----------|-----------|---------|
+| `camera_switch_interval_s` | `init.set.switch_interval_s` | Seconds between camera-switch rule firings |
+| `cameras` | `cameras` | List of `{ id, label }` for `$rotate(cameras)` |
+| `conversation_min_silence_s` | `pulse.conversation_check_s` | Quiet time before conversational fill |
+| `min_speak_interval_s` | `pulse.min_speak_interval_s` | Minimum gap between narrator speaks |
+| `tick_interval_s` | `pulse.tick_interval_s` | Worker tick period |
+| `mandatory_cue_max_defer_s` | `pulse.mandatory_cue_max_defer_s` | Max defer for mandatory cues |
+
+**Note:** Re-serializing `session.yaml` after a param merge may drop YAML comments. Rule bodies and custom vars remain intact.
+
+Example:
+
+```json
+{
+  "camera_switch_interval_s": 300,
+  "cameras": [{"id": 1, "label": "wide"}, {"id": 2, "label": "close"}],
+  "conversation_min_silence_s": 30,
+  "min_speak_interval_s": 45
+}
+```
 
 ---
 
@@ -260,7 +288,7 @@ schedule:
 | Arithmetic in `when` | Store computed value in `set:` |
 | `$mul`, `$div` | Use `$add` / `$sub` chains (or extend engine) |
 | Rule triggered by another rule firing | Share state via vars set in `set:` |
-| Live reload of `session.yaml` | Cancel + re-start skill |
+| Live reload of `session.yaml` | Cancel + re-start skill (or `update_pulse_config` then re-start) |
 | Empty `cue` rule to trigger conversational speech | Use gate-driven conversational pulses |
 
 ---
