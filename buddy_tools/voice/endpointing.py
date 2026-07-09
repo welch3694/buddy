@@ -404,6 +404,25 @@ class EndpointingGate:
             logger.warning("Endpointing release dropped: scheduler not configured with runtime_config/queue")
             return
 
+        from buddy_tools.pulse.state import is_silence_gated_only_active
+
+        if is_silence_gated_only_active():
+            try:
+                perform_commit_side_effects(utterance)
+                if tracker is not None:
+                    tracker.commit(utterance.turn_id, utterance.turn_revision)
+                logger.info(
+                    "Voice commit suppressed: silence_gated_only active (turn=%s rev=%s)",
+                    utterance.turn_id,
+                    utterance.turn_revision,
+                )
+            except Exception:
+                logger.exception(
+                    "Endpointing gate failed suppressed commit side effects for turn=%s",
+                    utterance.turn_id,
+                )
+            return
+
         request = build_commit_request(runtime_config, utterance)
         if request is None:
             return
@@ -510,7 +529,17 @@ def commit_voice_turn(
     if runtime_config is None:
         return iter(())
 
+    from buddy_tools.pulse.state import is_silence_gated_only_active
+
     perform_commit_side_effects(utterance)
+    if is_silence_gated_only_active():
+        logger.info(
+            "Voice commit suppressed: silence_gated_only active (turn=%s rev=%s)",
+            utterance.turn_id,
+            utterance.turn_revision,
+        )
+        return iter(())
+
     request = build_commit_request(runtime_config, utterance)
     if request is None:
         return iter(())

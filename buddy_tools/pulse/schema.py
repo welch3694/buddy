@@ -21,6 +21,7 @@ class PulseTimingConfig:
     conversation_check_s: float | None = None
     min_speak_interval_s: float | None = None
     mandatory_cue_max_defer_s: float | None = None
+    silence_gated_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,12 @@ def _optional_positive_float(value: Any, field_name: str) -> float | None:
     return _positive_float(value, field_name)
 
 
+def _bool_field(value: Any, field_name: str) -> bool:
+    if not isinstance(value, bool):
+        raise SessionValidationError(f"{field_name} must be a boolean")
+    return value
+
+
 def _normalize_raw_session(raw: dict[str, Any]) -> dict[str, Any]:
     """Accept legacy flat keys from early pulse prototypes."""
     normalized = dict(raw)
@@ -108,6 +115,7 @@ def _parse_pulse_config(raw: dict[str, Any]) -> PulseTimingConfig:
         raise SessionValidationError("pulse must be a mapping")
 
     tick_interval = pulse_raw.get("tick_interval_s", 5.0)
+    silence_gated_raw = pulse_raw.get("silence_gated_only", False)
     return PulseTimingConfig(
         tick_interval_s=_positive_float(tick_interval, "pulse.tick_interval_s"),
         conversation_check_s=_optional_positive_float(
@@ -121,6 +129,10 @@ def _parse_pulse_config(raw: dict[str, Any]) -> PulseTimingConfig:
         mandatory_cue_max_defer_s=_optional_positive_float(
             pulse_raw.get("mandatory_cue_max_defer_s"),
             "pulse.mandatory_cue_max_defer_s",
+        ),
+        silence_gated_only=_bool_field(
+            silence_gated_raw,
+            "pulse.silence_gated_only",
         ),
     )
 
@@ -249,8 +261,9 @@ def session_config_to_dict(config: SessionConfig) -> dict[str, Any]:
                     ("conversation_check_s", config.pulse.conversation_check_s),
                     ("min_speak_interval_s", config.pulse.min_speak_interval_s),
                     ("mandatory_cue_max_defer_s", config.pulse.mandatory_cue_max_defer_s),
+                    ("silence_gated_only", config.pulse.silence_gated_only),
                 )
-                if value is not None
+                if value is not None and value is not False
             },
         },
         "init": {"set": dict(config.init_set)},

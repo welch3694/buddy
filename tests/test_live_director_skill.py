@@ -59,6 +59,8 @@ class LiveDirectorRepoSkillTests(unittest.TestCase):
             "elapsed_since",
             "&&",
             "Limitations",
+            "silence_gated_only",
+            "keep_them_talking",
         ):
             self.assertIn(needle, content, f"SESSION_YAML.md should document {needle!r}")
 

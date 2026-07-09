@@ -15,6 +15,7 @@ pulse:
   conversation_check_s: 60
   min_speak_interval_s: 45
   mandatory_cue_max_defer_s: 30
+  # silence_gated_only: true  # "keep them talking" — suppress reactive speech; pulses only
 
 init:
   set:

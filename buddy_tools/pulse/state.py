@@ -242,3 +242,22 @@ def init_pulse_state_from_skill(skill_name: str, skill_directory: Path) -> Pulse
     """Initialize pulse runtime state from validated references/session.yaml."""
     session = load_session_config(skill_directory, skill_name=skill_name)
     return build_pulse_state_from_session(skill_name, session)
+
+
+def is_silence_gated_only_active() -> bool:
+    """True when the active pulse session has pulse.silence_gated_only enabled."""
+    try:
+        from buddy_tools.personality import get_active_personality
+        from buddy_tools.infra.bootstrap import get_memory_root
+
+        profile = get_active_personality()
+        state = load_pulse_state(get_memory_root(), profile.memory_namespace)
+        if state is None or state.status != "active":
+            return False
+        session = state.get_session_config()
+        if session is None:
+            return False
+        return session.pulse.silence_gated_only
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        logger.debug("Could not check silence_gated_only: %s", exc)
+        return False
