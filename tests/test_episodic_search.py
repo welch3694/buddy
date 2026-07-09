@@ -214,7 +214,7 @@ class EpisodicSearchTests(unittest.TestCase):
 
     def test_search_includes_resolved_dates_for_yesterday(self) -> None:
         with patch(
-            "buddy_tools.episodic.retrieval.extract_relative_date_from_query_now",
+            "buddy_tools.episodic.planner.extract_relative_date_from_query_now",
             return_value="2026-07-07",
         ):
             payload = search_episodic_memory(
