@@ -433,6 +433,52 @@ def _skill_dir_for_scope(
     return _user_skills_dir() / name, "shared"
 
 
+def _merge_skill_frontmatter(
+    raw_meta: dict[str, Any],
+    *,
+    name: str,
+    description: str,
+    skill_type: SkillType,
+    personalities: frozenset[str] | None,
+) -> dict[str, Any]:
+    merged = dict(raw_meta)
+    merged["name"] = name
+    merged["description"] = description.strip()
+
+    metadata = merged.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    buddy = metadata.get("buddy")
+    if not isinstance(buddy, dict):
+        buddy = {}
+    else:
+        buddy = dict(buddy)
+
+    if skill_type in ("checklist", "pulse"):
+        buddy["type"] = skill_type
+    if personalities is not None:
+        buddy["personalities"] = sorted(personalities)
+
+    if buddy:
+        metadata = {**metadata, "buddy": buddy}
+        merged["metadata"] = metadata
+    elif "metadata" in merged:
+        merged["metadata"] = metadata
+
+    return merged
+
+
+def _format_skill_md(metadata: dict[str, Any], body: str) -> str:
+    yaml_body = yaml.dump(
+        metadata,
+        default_flow_style=False,
+        sort_keys=False,
+        allow_unicode=True,
+    ).rstrip("\n")
+    return f"---\n{yaml_body}\n---\n\n{body.strip()}\n"
+
+
 def _compose_skill_md(
     name: str,
     description: str,
@@ -443,29 +489,19 @@ def _compose_skill_md(
 ) -> str:
     stripped = body.strip()
     if stripped.startswith("---"):
-        return stripped
+        raw_meta, markdown_body = _parse_frontmatter(stripped)
+    else:
+        raw_meta = {}
+        markdown_body = stripped
 
-    buddy_lines: list[str] = []
-    if skill_type == "checklist":
-        buddy_lines.append("    type: checklist")
-    elif skill_type == "pulse":
-        buddy_lines.append("    type: pulse")
-    if personalities is not None:
-        ids = sorted(personalities)
-        buddy_lines.append(f"    personalities: {json.dumps(ids)}")
-
-    metadata_block = ""
-    if buddy_lines:
-        metadata_block = "metadata:\n  buddy:\n" + "\n".join(buddy_lines) + "\n"
-
-    return (
-        f"---\n"
-        f"name: {name}\n"
-        f"description: {description.strip()}\n"
-        f"{metadata_block}"
-        f"---\n\n"
-        f"{stripped}\n"
+    merged = _merge_skill_frontmatter(
+        raw_meta,
+        name=name,
+        description=description,
+        skill_type=skill_type,
+        personalities=personalities,
     )
+    return _format_skill_md(merged, markdown_body)
 
 
 def _write_and_validate_skill(
