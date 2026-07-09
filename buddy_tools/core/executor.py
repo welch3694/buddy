@@ -43,6 +43,10 @@ from buddy_tools.voice.session import apply_voice
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
+_SKIPPED_TOOL_OUTPUT = (
+    "Error: tool round limit reached; this tool was not executed. "
+    "Summarize what you have and tell the user you could not finish looking up memory."
+)
 
 
 def _log_tool_result(tool_name: str, result: ToolExecutionResult) -> None:
@@ -148,20 +152,47 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             speech_stopped_at_s=chunk.speech_stopped_at_s,
         )
 
+    def _inject_skipped_tool_errors_and_follow_up(self) -> bool:
+        if not self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
+            return False
+
+        runtime_config: RuntimeConfig = self._pending_context.runtime_config
+        chat = runtime_config.chat
+        pending = list(self._pending_tools)
+        pending_names = [tool.name for tool in pending]
+        logger.warning(
+            "Max tool rounds (%d) reached; skipping %d tools: %s",
+            MAX_TOOL_ROUNDS,
+            len(pending_names),
+            pending_names,
+        )
+
+        for tool in pending:
+            output_item = RealtimeConversationItemFunctionCallOutput(
+                type="function_call_output",
+                call_id=tool.call_id,
+                output=_SKIPPED_TOOL_OUTPUT,
+                status="completed",
+            )
+            try:
+                chat.add_item(output_item)
+            except ChatItemError as exc:
+                logger.error("Could not record skipped tool output for %s: %s", tool.call_id, exc)
+
+        self._pending_tools.clear()
+        self.text_prompt_queue.put(self._pending_context)
+        logger.info(
+            "Queued LLM follow-up after skipping %d tools at round limit",
+            len(pending_names),
+        )
+        return True
+
     def _execute_pending_tools(self) -> bool:
         if not self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
             return False
 
         if self._tool_rounds >= MAX_TOOL_ROUNDS:
-            pending_names = [tool.name for tool in self._pending_tools]
-            logger.warning(
-                "Max tool rounds (%d) reached; skipping %d tools: %s",
-                MAX_TOOL_ROUNDS,
-                len(pending_names),
-                pending_names,
-            )
-            self._pending_tools.clear()
-            return False
+            return self._inject_skipped_tool_errors_and_follow_up()
 
         runtime_config: RuntimeConfig = self._pending_context.runtime_config
         chat = runtime_config.chat

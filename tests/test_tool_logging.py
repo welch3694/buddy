@@ -18,6 +18,8 @@ from buddy_tools.core.tool_logging import (
     safe_tool_context,
     tool_error,
 )
+from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
+from speech_to_speech.LLM.chat import Chat
 
 
 class ToolLoggingHelperTests(unittest.TestCase):
@@ -111,21 +113,30 @@ class ExecutorToolLoggingTests(unittest.TestCase):
         self.assertIn("ok ", captured.output[0])
 
     def test_max_tool_rounds_logs_pending_tool_names(self) -> None:
+        chat = Chat(2)
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = chat
+        pending_context = MagicMock()
+        pending_context.runtime_config = runtime_config
+        follow_up_queue = MagicMock()
+
         executor = LocalToolExecutor(MagicMock(), MagicMock(), MagicMock())
-        executor.setup()
+        executor.setup(text_prompt_queue=follow_up_queue)
         executor._tool_rounds = 5
-        executor._pending_context = MagicMock()
-        executor.text_prompt_queue = MagicMock()
+        executor._pending_context = pending_context
 
         tool_a = MagicMock()
         tool_a.name = "capture_camera"
+        tool_a.call_id = "call_a"
         tool_b = MagicMock()
         tool_b.name = "append_memory"
+        tool_b.call_id = "call_b"
         executor._pending_tools = [tool_a, tool_b]
 
         with self.assertLogs("buddy_tools.core.executor", level="WARNING") as captured:
             ran = executor._execute_pending_tools()
-        self.assertFalse(ran)
+        self.assertTrue(ran)
+        follow_up_queue.put.assert_called_once_with(pending_context)
         log_line = captured.output[0]
         self.assertIn("capture_camera", log_line)
         self.assertIn("append_memory", log_line)

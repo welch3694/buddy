@@ -11,6 +11,7 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
+from buddy_tools.episodic.dates import extract_relative_date_from_query_now, resolve_episodic_date_now
 from buddy_tools.episodic.paths import SESSIONS_DIRNAME, episodic_root, session_json_path, turns_jsonl_path
 from buddy_tools.episodic.index import get_search_default_limit, search_index
 from buddy_tools.episodic.planner import plan_episodic_recall
@@ -73,7 +74,8 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         name="read_episodic_summary",
         description=(
             "Read a consolidated summary JSON for a year, month, day, or session in the active "
-            "persona's episodic tree."
+            "persona's episodic tree. For level=day, date accepts YYYY-MM-DD or relative terms "
+            "such as yesterday or today (resolved in the episodic timezone)."
         ),
         parameters={
             "type": "object",
@@ -84,7 +86,10 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
                 "year": {"type": "string", "description": "Four-digit year"},
                 "month": {"type": "string", "description": "YYYY-MM month key"},
-                "date": {"type": "string", "description": "YYYY-MM-DD date key"},
+                "date": {
+                    "type": "string",
+                    "description": "YYYY-MM-DD date key, or relative term (yesterday, today, N days ago)",
+                },
                 "session_id": {
                     "type": "string",
                     "description": "Session id when level is session (alternative to date drill-down)",
@@ -171,10 +176,11 @@ def build_episodic_instructions() -> str:
     return (
         "Episodic memory stores past conversations in a temporal tree (year/month/day/session). "
         "It is NOT in the memory snapshot — use episodic tools to recall what was discussed when.\n"
-        "- list_episodic_periods: browse the index top-down before loading detail\n"
-        "- read_episodic_summary: load a day/month/year/session summary\n"
-        "- read_episodic_turns: read raw turns for one session (paginated)\n"
+        "- read_episodic_summary: load a day/month/year/session summary; for yesterday/today or a "
+        "specific calendar day call this directly with level=day and date (do not browse the tree first)\n"
         "- search_episodic_memory: semantic search over summaries for fuzzy recall; follow recall_plan to drill down\n"
+        "- list_episodic_periods: browse the index when you do not know the target date or period\n"
+        "- read_episodic_turns: read raw turns for one session (paginated)\n"
         "- find_episodes_by_topic: exact topic tag or keyword substring match in summaries\n"
         "Use semantic memory tools (read_memory / snapshot) for durable facts; "
         "use episodic tools for conversation history and 'when did we talk about X' questions."
@@ -214,6 +220,9 @@ def list_episodic_periods(
         years = _sorted_dir_names(tree, _YEAR_RE)
         entries = [{"id": entry, "label": entry, "child_count": _child_count(tree / entry)} for entry in years]
         return {"parent": parent, "entries": entries}
+
+    if not year and month and _MONTH_RE.match(month):
+        year = month.split("-", 1)[0]
 
     if not year or not _YEAR_RE.match(year):
         raise ValueError("year is required and must be YYYY when parent is year, month, or day")
@@ -304,6 +313,16 @@ def read_episodic_summary(
         return {"level": level, "summary": payload, "provenance": episodic_provenance(memory_root, persona_namespace, path)}
 
     if level == "day":
+        if date and not _DAY_RE.match(date):
+            resolved = resolve_episodic_date_now(date)
+            if resolved is None:
+                raise ValueError(
+                    "date must be YYYY-MM-DD or a supported relative term (yesterday, today, N days ago)"
+                )
+            date = resolved
+        if date and _DAY_RE.match(date):
+            year = year or date[:4]
+            month = month or date[:7]
         if not year or not _YEAR_RE.match(year):
             raise ValueError("year is required when level is day")
         if not month or not _MONTH_RE.match(month):
@@ -527,12 +546,19 @@ def search_episodic_memory(
         raise ValueError("limit must be >= 1")
     limit = min(limit, _SEARCH_MAX_LIMIT)
 
+    recall_plan = plan_episodic_recall(query_clean)
     results = search_index(memory_root, persona_namespace, query_clean, limit=limit)
-    return {
+    payload: dict[str, Any] = {
         "query": query_clean,
-        "recall_plan": plan_episodic_recall(query_clean),
+        "recall_plan": recall_plan,
         "results": results,
     }
+    resolved_date = recall_plan.get("resolved_date")
+    if isinstance(resolved_date, str):
+        payload["resolved_dates"] = [resolved_date]
+    elif (extracted := extract_relative_date_from_query_now(query_clean)) is not None:
+        payload["resolved_dates"] = [extracted]
+    return payload
 
 
 def execute_episodic_tool(

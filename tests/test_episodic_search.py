@@ -202,6 +202,28 @@ class EpisodicSearchTests(unittest.TestCase):
         dated = plan_episodic_recall("on 2026-07-05 what did we talk about")
         self.assertEqual(dated["depth"], "turns")
 
+    def test_recall_planner_yesterday(self) -> None:
+        with patch(
+            "buddy_tools.episodic.planner.extract_relative_date_from_query_now",
+            return_value="2026-07-07",
+        ):
+            plan = plan_episodic_recall("what did we talk about yesterday")
+        self.assertEqual(plan["depth"], "day")
+        self.assertEqual(plan["resolved_date"], "2026-07-07")
+        self.assertIn("read_episodic_summary", plan["recommended_tools"])
+
+    def test_search_includes_resolved_dates_for_yesterday(self) -> None:
+        with patch(
+            "buddy_tools.episodic.retrieval.extract_relative_date_from_query_now",
+            return_value="2026-07-07",
+        ):
+            payload = search_episodic_memory(
+                self.memory_root,
+                "buddy",
+                query="what did we talk about yesterday",
+            )
+        self.assertEqual(payload["resolved_dates"], ["2026-07-07"])
+
     def test_persona_isolation(self) -> None:
         payload = search_episodic_memory(self.memory_root, "coach", query="telegram bug")
         self.assertEqual(payload["results"], [])
