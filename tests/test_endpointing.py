@@ -216,5 +216,49 @@ class EndpointingGateTests(unittest.TestCase):
         self.tracker.start_reopen_grace.assert_not_called()
 
 
+    def test_continue_hold_caps_at_two_then_commits(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.start_reopen_grace = Mock()
+        self.tracker.commit = Mock()
+
+        with patch.object(Timer, "start", lambda self: None):
+            outputs = self._observe("I was thinking um")
+
+        self.assertEqual(outputs, [])
+        self.assertEqual(self.tracker.start_reopen_grace.call_count, 1)
+
+        gate = get_endpointing_gate()
+        gate._on_release_timer()
+        self.assertEqual(self.tracker.start_reopen_grace.call_count, 2)
+        self.runtime_config.chat.add_item.assert_not_called()
+
+        gate._on_release_timer()
+        self.runtime_config.chat.add_item.assert_called_once()
+
+    def test_continue_hold_resets_when_user_resumes(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        self.tracker.start_reopen_grace = Mock()
+        self.tracker.commit = Mock()
+
+        with patch.object(Timer, "start", lambda self: None):
+            self._observe("I was thinking um", revision=0)
+            gate = get_endpointing_gate()
+            gate._on_release_timer()
+            self.assertEqual(gate._continue_hold_count, 2)
+            self.assertEqual(self.tracker.start_reopen_grace.call_count, 2)
+
+            second = self._observe("I was thinking um and like", revision=1)
+            self.assertEqual(second, [])
+            # Reset on merge, then one CONTINUE for the new trailing "like".
+            self.assertEqual(gate._continue_hold_count, 1)
+
+            gate._on_release_timer()
+            self.assertEqual(gate._continue_hold_count, 2)
+            gate._on_release_timer()
+            self.runtime_config.chat.add_item.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

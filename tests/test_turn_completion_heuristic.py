@@ -84,6 +84,10 @@ class ClassifyTurnCompletionHeuristicTests(unittest.TestCase):
             TurnCompletionVerdict.UNKNOWN,
         )
 
+    def test_max_continue_holds_from_config(self) -> None:
+        config = HeuristicConfig(max_continue_holds=3)
+        self.assertEqual(config.max_continue_holds, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ Environment variables:
 
 - ``BUDDY_ENDPOINTING_HEURISTICS`` — set to ``0``/``false``/``off`` to disable (default on)
 - ``BUDDY_ENDPOINTING_CONTINUE_HOLD_S`` — seconds to extend reopen grace on CONTINUE (default 2.5)
+- ``BUDDY_ENDPOINTING_MAX_CONTINUE_HOLDS`` — max CONTINUE extensions per transcript snapshot before commit (default 2; resets when the user resumes and STT merges a higher revision)
 """
 
 from __future__ import annotations
@@ -28,8 +29,10 @@ from enum import Enum
 
 _ENV_HEURISTICS_ENABLED = "BUDDY_ENDPOINTING_HEURISTICS"
 _ENV_CONTINUE_HOLD_S = "BUDDY_ENDPOINTING_CONTINUE_HOLD_S"
+_ENV_MAX_CONTINUE_HOLDS = "BUDDY_ENDPOINTING_MAX_CONTINUE_HOLDS"
 
 _DEFAULT_CONTINUE_HOLD_S = 2.5
+_DEFAULT_MAX_CONTINUE_HOLDS = 2
 
 _DISFLUENCY_SUFFIXES = frozenset({"um", "uh", "uhh", "umm", "er", "erm", "hmm"})
 _DANGLING_CONJUNCTIONS = frozenset(
@@ -49,6 +52,7 @@ class TurnCompletionVerdict(Enum):
 class HeuristicConfig:
     enabled: bool = True
     continue_hold_s: float = _DEFAULT_CONTINUE_HOLD_S
+    max_continue_holds: int = _DEFAULT_MAX_CONTINUE_HOLDS
     extra_disfluency_suffixes: frozenset[str] = field(default_factory=frozenset)
     extra_dangling_conjunctions: frozenset[str] = field(default_factory=frozenset)
 
@@ -57,6 +61,7 @@ class HeuristicConfig:
         return cls(
             enabled=_env_bool(_ENV_HEURISTICS_ENABLED, default=True),
             continue_hold_s=_env_float(_ENV_CONTINUE_HOLD_S, _DEFAULT_CONTINUE_HOLD_S),
+            max_continue_holds=_env_int(_ENV_MAX_CONTINUE_HOLDS, _DEFAULT_MAX_CONTINUE_HOLDS),
         )
 
 
@@ -138,5 +143,15 @@ def _env_float(name: str, default: float) -> float:
         return default
     try:
         return float(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
     except ValueError:
         return default

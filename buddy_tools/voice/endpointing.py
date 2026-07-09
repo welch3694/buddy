@@ -80,6 +80,7 @@ class EndpointingGate:
         self._lock = threading.Lock()
         self._pending: PendingUtterance | None = None
         self._release_timer: Timer | None = None
+        self._continue_hold_count = 0
         self.speculative_turns: SpeculativeTurnTracker | None = None
         self.text_prompt_queue: Queue[Any] | None = None
         self.runtime_config: RuntimeConfig | None = None
@@ -161,6 +162,7 @@ class EndpointingGate:
                         language_code=language_code or self._pending.language_code,
                         speech_stopped_at_s=speech_stopped_at_s or self._pending.speech_stopped_at_s,
                     )
+                    self._reset_continue_hold_count_locked()
                 elif turn_revision < self._pending.turn_revision:
                     logger.debug(
                         "Ignoring stale final transcription turn=%s rev=%s (pending rev=%s)",
@@ -177,6 +179,7 @@ class EndpointingGate:
                     language_code=language_code,
                     speech_stopped_at_s=speech_stopped_at_s,
                 )
+                self._reset_continue_hold_count_locked()
 
             return self._evaluate_pending_locked()
 
@@ -334,6 +337,9 @@ class EndpointingGate:
             )
             self._schedule_release_locked(delay_s)
 
+    def _reset_continue_hold_count_locked(self) -> None:
+        self._continue_hold_count = 0
+
     def _try_release_pending_locked(
         self,
         pending: PendingUtterance,
@@ -343,31 +349,51 @@ class EndpointingGate:
         """Run tier-1 heuristics before commit; extend grace on CONTINUE."""
         verdict = classify_turn_completion_heuristic(pending.transcript)
         if verdict is TurnCompletionVerdict.CONTINUE:
-            tracker = self.speculative_turns
-            assert tracker is not None
-            assert pending.turn_id is not None
-            assert pending.turn_revision is not None
-            hold_s = get_heuristic_config().continue_hold_s
-            tracker.start_reopen_grace(pending.turn_id, pending.turn_revision, hold_s)
-            snapshot = gate_state or _tracker_gate_snapshot(
-                tracker,
-                pending.turn_id,
-                pending.turn_revision,
-            )
-            logger.info(
-                "Endpointing heuristic CONTINUE turn=%s rev=%s chars=%d hold=%.1fs [%s]",
-                pending.turn_id,
-                pending.turn_revision,
-                len(pending.transcript),
-                hold_s,
-                snapshot,
-            )
-            self._schedule_release_locked(min(hold_s, _RELEASE_POLL_S))
-            return _ObserveResult.HELD, None
+            cfg = get_heuristic_config()
+            if self._continue_hold_count >= cfg.max_continue_holds:
+                snapshot = gate_state
+                if snapshot is None:
+                    tracker = self.speculative_turns
+                    if tracker is not None and pending.turn_id is not None and pending.turn_revision is not None:
+                        snapshot = _tracker_gate_snapshot(tracker, pending.turn_id, pending.turn_revision)
+                logger.info(
+                    "Endpointing heuristic CONTINUE cap reached (%d) turn=%s rev=%s chars=%d committing [%s]",
+                    cfg.max_continue_holds,
+                    pending.turn_id,
+                    pending.turn_revision,
+                    len(pending.transcript),
+                    snapshot or "tracker=none",
+                )
+            else:
+                tracker = self.speculative_turns
+                assert tracker is not None
+                assert pending.turn_id is not None
+                assert pending.turn_revision is not None
+                hold_s = cfg.continue_hold_s
+                tracker.start_reopen_grace(pending.turn_id, pending.turn_revision, hold_s)
+                self._continue_hold_count += 1
+                snapshot = gate_state or _tracker_gate_snapshot(
+                    tracker,
+                    pending.turn_id,
+                    pending.turn_revision,
+                )
+                logger.info(
+                    "Endpointing heuristic CONTINUE turn=%s rev=%s chars=%d hold=%.1fs count=%d/%d [%s]",
+                    pending.turn_id,
+                    pending.turn_revision,
+                    len(pending.transcript),
+                    hold_s,
+                    self._continue_hold_count,
+                    cfg.max_continue_holds,
+                    snapshot,
+                )
+                self._schedule_release_locked(min(hold_s, _RELEASE_POLL_S))
+                return _ObserveResult.HELD, None
 
         utterance = pending
         self._pending = None
         self._cancel_release_locked()
+        self._reset_continue_hold_count_locked()
         return _ObserveResult.COMMIT, utterance
 
     def _inject_commit_locked(self, utterance: PendingUtterance) -> None:
@@ -399,6 +425,7 @@ class EndpointingGate:
     def reset_for_tests(self) -> None:
         with self._lock:
             self._pending = None
+            self._continue_hold_count = 0
             self._cancel_release_locked()
 
 
