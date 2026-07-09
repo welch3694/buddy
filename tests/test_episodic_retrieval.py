@@ -172,6 +172,38 @@ class EpisodicRetrievalTests(unittest.TestCase):
         self.assertNotIn("summary", entry)
         self.assertIn("provenance", entry)
 
+    def test_list_episodic_periods_month_derives_year(self) -> None:
+        days = list_episodic_periods(
+            self.memory_root,
+            "buddy",
+            parent="month",
+            month=self.year_month,
+        )
+        self.assertEqual(days["year"], self.year)
+        self.assertEqual(days["month"], self.year_month)
+
+    def test_read_episodic_summary_relative_date(self) -> None:
+        with patch(
+            "buddy_tools.episodic.retrieval.resolve_episodic_date_now",
+            return_value=self.day1,
+        ):
+            day_payload = read_episodic_summary(
+                self.memory_root,
+                "buddy",
+                level="day",
+                date="yesterday",
+            )
+        self.assertEqual(day_payload["summary"]["date"], self.day1)
+
+    def test_read_episodic_summary_day_with_date_only(self) -> None:
+        day_payload = read_episodic_summary(
+            self.memory_root,
+            "buddy",
+            level="day",
+            date=self.day1,
+        )
+        self.assertEqual(day_payload["summary"]["date"], self.day1)
+
     def test_read_episodic_summary_each_level(self) -> None:
         year_payload = read_episodic_summary(
             self.memory_root,
@@ -277,7 +309,8 @@ class EpisodicRetrievalTests(unittest.TestCase):
 
     def test_build_tool_instructions_mentions_episodic(self) -> None:
         instructions = build_tool_instructions("Base prompt.", "(no memory saved yet)")
-        self.assertIn("list_episodic_periods", instructions)
+        self.assertIn("read_episodic_summary", instructions)
+        self.assertIn("yesterday", instructions.lower())
         self.assertIn("semantic memory", instructions.lower())
 
     def test_execute_episodic_tool_errors(self) -> None:

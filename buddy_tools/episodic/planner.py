@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-RecallDepth = Literal["period", "session", "turns"]
+from buddy_tools.episodic.dates import extract_relative_date_from_query_now
+
+RecallDepth = Literal["period", "session", "turns", "day"]
 
 _PERIOD_PATTERNS = (
     r"\beverything\s+about\b",
@@ -34,6 +36,17 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
     """Classify query depth and recommend follow-up episodic tools."""
     query_clean = query.strip()
     query_lower = query_clean.lower()
+
+    resolved_date = extract_relative_date_from_query_now(query_clean)
+    if resolved_date is not None:
+        return {
+            "depth": "day",
+            "reason": (
+                f"Query references a relative calendar day — read the day summary for {resolved_date}."
+            ),
+            "recommended_tools": ["read_episodic_summary"],
+            "resolved_date": resolved_date,
+        }
 
     if _SESSION_ID_RE.search(query_clean) or _DATE_RE.search(query_clean):
         return {
