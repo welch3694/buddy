@@ -11,8 +11,9 @@ from queue import Queue
 from threading import Event, Lock
 from typing import Any, Literal
 
+from openai.types.realtime.conversation_item import RealtimeConversationItemUserMessage
 from openai.types.realtime.realtime_response_create_params import RealtimeResponseCreateParams
-from speech_to_speech.LLM.chat import make_user_message
+from openai.types.realtime.realtime_conversation_item_user_message import Content as UserContent
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, LLMResponseChunk
 
@@ -73,15 +74,64 @@ def build_directed_pulse_instructions(state: PulseState, base_instructions: str)
     )
 
 
-def build_conversational_pulse_instructions(state: PulseState, base_instructions: str) -> str:
+def build_conversational_pulse_instructions(
+    state: PulseState,
+    base_instructions: str,
+    *,
+    scene_attached: bool = False,
+) -> str:
     snapshot = json.dumps(_state_snapshot(state), indent=2, sort_keys=True)
+    scene_note = ""
+    if scene_attached:
+        scene_note = (
+            "A fresh webcam snapshot is attached to this turn. "
+            "Use it only for brief, relevant observations about what the user is doing. "
+            "Do not invent director cues or camera switches from the image.\n"
+        )
     return (
         f"{base_instructions}\n\n"
         "Pulse conversational turn — optionally speak briefly to maintain engagement during a lull.\n"
+        f"{scene_note}"
         f"If silence is appropriate, output exactly {NO_OUTPUT_MARKER} and nothing else.\n"
         "Do not call tools. Do not invent scheduled cues, camera switches, or mandatory directives.\n"
         f"Pulse state snapshot:\n{snapshot}"
     )
+
+
+def _should_attach_scene_capture(
+    session: SessionConfig | None,
+    mode: PulseTurnMode,
+    state: PulseState,
+) -> bool:
+    if session is None or mode != "conversational":
+        return False
+    if state.narrator_muted:
+        return False
+    return session.pulse.scene_capture == "conversational"
+
+
+def _try_capture_scene() -> str | None:
+    try:
+        from buddy_tools.media.camera import capture_frame
+
+        return capture_frame()
+    except Exception as exc:
+        logger.warning("Pulse scene capture failed; continuing without image: %s", exc)
+        return None
+
+
+def _make_pulse_nudge_message(
+    nudge: str,
+    *,
+    image_data_uri: str | None = None,
+) -> RealtimeConversationItemUserMessage:
+    text = f"{PULSE_NUDGE_PREFIX}{nudge}"
+    content: list[UserContent] = [UserContent(type="input_text", text=text)]
+    if image_data_uri:
+        content.append(
+            UserContent(type="input_image", image_url=image_data_uri, detail="auto")
+        )
+    return RealtimeConversationItemUserMessage(type="message", role="user", content=content)
 
 
 def _memory_root() -> Path:
@@ -151,6 +201,7 @@ def inject_pulse_turn(
     mode: PulseTurnMode,
     text_prompt_queue: Queue[Any],
     runtime_config: RuntimeConfig,
+    session: SessionConfig | None = None,
 ) -> bool:
     global _active_pulse_turn, _pulse_turn_text
 
@@ -160,8 +211,16 @@ def inject_pulse_turn(
         else "Conversational pulse: speak briefly or output [NO_OUTPUT]."
     )
 
+    scene_attached = False
+    image_data_uri: str | None = None
+    if _should_attach_scene_capture(session, mode, state):
+        image_data_uri = _try_capture_scene()
+        scene_attached = image_data_uri is not None
+
     try:
-        runtime_config.chat.add_item(make_user_message(f"{PULSE_NUDGE_PREFIX}{nudge}"))
+        runtime_config.chat.add_item(
+            _make_pulse_nudge_message(nudge, image_data_uri=image_data_uri)
+        )
     except Exception:
         logger.exception("Pulse turn failed to add nudge message to chat")
         return False
@@ -171,7 +230,11 @@ def inject_pulse_turn(
         turn_instructions = build_directed_pulse_instructions(state, base_instructions)
         clear_pending = True
     else:
-        turn_instructions = build_conversational_pulse_instructions(state, base_instructions)
+        turn_instructions = build_conversational_pulse_instructions(
+            state,
+            base_instructions,
+            scene_attached=scene_attached,
+        )
         clear_pending = False
 
     with _lock:
@@ -195,10 +258,11 @@ def inject_pulse_turn(
         )
     )
     logger.info(
-        "Pulse turn injected mode=%r namespace=%r skill=%r",
+        "Pulse turn injected mode=%r namespace=%r skill=%r scene_attached=%s",
         mode,
         persona_namespace,
         state.skill_name,
+        scene_attached,
     )
     return True
 
@@ -228,6 +292,7 @@ def evaluate_and_maybe_inject_pulse(
         mode=mode,  # type: ignore[arg-type]
         text_prompt_queue=text_prompt_queue,
         runtime_config=runtime_config,
+        session=session,
     )
 
 

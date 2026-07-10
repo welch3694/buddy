@@ -8,8 +8,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from queue import Queue
 from threading import Event
+from unittest import mock
 
 import yaml
+from openai.types.realtime.conversation_item import RealtimeConversationItemUserMessage
 from openai.types.realtime.realtime_response_create_params import RealtimeResponseCreateParams
 
 from buddy_tools.voice.listening_pause import get_listening_pause_controller
@@ -51,6 +53,22 @@ init:
 rules: []
 schedule: []
 """
+
+SESSION_YAML_SCENE_CAPTURE = SESSION_YAML.replace(
+    "mandatory_cue_max_defer_s: 2",
+    "mandatory_cue_max_defer_s: 2\n  scene_capture: conversational",
+)
+
+
+def _last_user_message(chat: Chat) -> RealtimeConversationItemUserMessage | None:
+    for item in reversed(chat.buffer):
+        if isinstance(item, RealtimeConversationItemUserMessage):
+            return item
+    return None
+
+
+def _message_has_image(message: RealtimeConversationItemUserMessage) -> bool:
+    return any(part.type == "input_image" for part in message.content)
 
 
 class PulseGateTests(unittest.TestCase):
@@ -187,6 +205,109 @@ class PulseInjectTests(unittest.TestCase):
     def test_conversational_instructions_include_no_output(self) -> None:
         instructions = build_conversational_pulse_instructions(self.state, "Base.")
         self.assertIn(NO_OUTPUT_MARKER, instructions)
+
+    def test_conversational_instructions_include_scene_note_when_attached(self) -> None:
+        instructions = build_conversational_pulse_instructions(
+            self.state, "Base.", scene_attached=True
+        )
+        self.assertIn("webcam snapshot is attached", instructions)
+
+    @mock.patch("buddy_tools.pulse.inject._try_capture_scene")
+    def test_conversational_inject_attaches_scene_when_enabled(
+        self, mock_capture: mock.MagicMock
+    ) -> None:
+        mock_capture.return_value = "data:image/jpeg;base64,abc"
+        session = parse_session_config(
+            yaml.safe_load(SESSION_YAML_SCENE_CAPTURE), skill_name="live-director"
+        )
+        self.state.pending_cue = None
+        self.state.cue_priority = None
+
+        injected = inject_pulse_turn(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            mode="conversational",
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            session=session,
+        )
+        self.assertTrue(injected)
+        mock_capture.assert_called_once()
+
+        message = _last_user_message(self.runtime_config.chat)
+        assert message is not None
+        self.assertTrue(_message_has_image(message))
+
+        req = self.queue.get_nowait()
+        assert isinstance(req.response, RealtimeResponseCreateParams)
+        assert req.response.instructions is not None
+        self.assertIn("webcam snapshot is attached", req.response.instructions)
+
+    @mock.patch("buddy_tools.pulse.inject._try_capture_scene")
+    def test_directed_inject_skips_scene_capture(self, mock_capture: mock.MagicMock) -> None:
+        session = parse_session_config(
+            yaml.safe_load(SESSION_YAML_SCENE_CAPTURE), skill_name="live-director"
+        )
+        inject_pulse_turn(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            mode="directed",
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            session=session,
+        )
+        mock_capture.assert_not_called()
+        message = _last_user_message(self.runtime_config.chat)
+        assert message is not None
+        self.assertFalse(_message_has_image(message))
+
+    @mock.patch("buddy_tools.pulse.inject._try_capture_scene")
+    def test_conversational_inject_skips_scene_when_narrator_muted(
+        self, mock_capture: mock.MagicMock
+    ) -> None:
+        session = parse_session_config(
+            yaml.safe_load(SESSION_YAML_SCENE_CAPTURE), skill_name="live-director"
+        )
+        self.state.narrator_muted = True
+        self.state.pending_cue = None
+
+        inject_pulse_turn(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            mode="conversational",
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            session=session,
+        )
+        mock_capture.assert_not_called()
+
+    @mock.patch("buddy_tools.pulse.inject._try_capture_scene")
+    def test_conversational_inject_continues_when_capture_fails(
+        self, mock_capture: mock.MagicMock
+    ) -> None:
+        mock_capture.return_value = None
+        session = parse_session_config(
+            yaml.safe_load(SESSION_YAML_SCENE_CAPTURE), skill_name="live-director"
+        )
+        self.state.pending_cue = None
+
+        injected = inject_pulse_turn(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            mode="conversational",
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            session=session,
+        )
+        self.assertTrue(injected)
+        self.queue.get_nowait()
+        message = _last_user_message(self.runtime_config.chat)
+        assert message is not None
+        self.assertFalse(_message_has_image(message))
 
     def test_inject_queues_generate_response_request(self) -> None:
         injected = inject_pulse_turn(

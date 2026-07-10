@@ -115,6 +115,41 @@ class PulseSchemaTests(unittest.TestCase):
         with self.assertRaises(SessionValidationError):
             parse_session_config(raw, skill_name="bad")
 
+    def test_parse_scene_capture_conversational(self) -> None:
+        import yaml
+
+        raw = yaml.safe_load(
+            "name: director\n"
+            "pulse:\n"
+            "  scene_capture: conversational\n"
+            "rules: []\n"
+            "schedule: []\n"
+        )
+        config = parse_session_config(raw, skill_name="director")
+        self.assertEqual(config.pulse.scene_capture, "conversational")
+
+    def test_scene_capture_defaults_to_off(self) -> None:
+        import yaml
+
+        config = parse_session_config(
+            yaml.safe_load("name: x\nrules: []\nschedule: []\n"),
+            skill_name="x",
+        )
+        self.assertEqual(config.pulse.scene_capture, "off")
+
+    def test_rejects_invalid_scene_capture(self) -> None:
+        import yaml
+
+        raw = yaml.safe_load(
+            "name: bad\n"
+            "pulse:\n"
+            "  scene_capture: always\n"
+            "rules: []\n"
+            "schedule: []\n"
+        )
+        with self.assertRaises(SessionValidationError):
+            parse_session_config(raw, skill_name="bad")
+
 
 class PulseRuleEngineTests(unittest.TestCase):
     def _session(self):
