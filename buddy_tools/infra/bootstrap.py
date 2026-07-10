@@ -49,6 +49,13 @@ def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_root: P
     root.mkdir(parents=True, exist_ok=True)
     migrate_legacy_memory(root)
     profile = get_active_personality()
+    from buddy_tools.skills import teardown_persisted_skill_session
+
+    teardown_persisted_skill_session(
+        root,
+        profile.memory_namespace,
+        reason="startup",
+    )
     summary = load_memory_summary(root, profile.memory_namespace)
     base = build_init_instructions()
     runtime_config.session.instructions = build_tool_instructions(
