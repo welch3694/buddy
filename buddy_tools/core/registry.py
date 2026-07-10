@@ -10,7 +10,13 @@ from typing import Any
 from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
-from buddy_tools.media.camera import CAMERA_TOOL_DEFINITIONS, execute_camera_tool
+from buddy_tools.media.camera import (
+    CAMERA_TOOL_DEFINITIONS,
+    CAMERA_TOOL_NAMES,
+    execute_camera_tool,
+    execute_list_cameras_tool,
+    execute_set_active_camera_tool,
+)
 from buddy_tools.voice.listening_pause import build_listening_pause_instructions
 from buddy_tools.episodic.retrieval import (
     EPISODIC_TOOL_DEFINITIONS,
@@ -83,8 +89,9 @@ def build_tool_instructions(
         (
             "You can see through the user's webcam with capture_camera. Call it when they ask what you "
             "see, what is in front of you, to look at something, or to describe their surroundings. "
-            "After capturing, describe what you see in natural spoken language without mentioning "
-            "tools or cameras."
+            "If they want a different webcam (for example OBS Virtual Camera), call list_cameras then "
+            "set_active_camera before capture_camera. After capturing, describe what you see in natural "
+            "spoken language without mentioning tools or cameras."
         ),
         (
             "You can see the user's screen with capture_screen. Call it when they ask what is on their "
@@ -146,8 +153,13 @@ def execute_tool(
         return tool_error(tool_name, f"invalid tool arguments JSON: {exc}")
 
     try:
-        if tool_name == "capture_camera":
-            return execute_camera_tool()
+        if tool_name in CAMERA_TOOL_NAMES:
+            if tool_name == "capture_camera":
+                return execute_camera_tool()
+            if tool_name == "list_cameras":
+                return execute_list_cameras_tool()
+            if tool_name == "set_active_camera":
+                return execute_set_active_camera_tool(args)
 
         if tool_name == "capture_screen":
             return execute_screen_tool(args)

@@ -51,4 +51,19 @@ rules:
 # Conversational fill between cues is gate-driven (pulse.conversation_check_s above),
 # not a YAML rule — the worker injects a conversational LLM turn when quiet long enough.
 
-schedule: []
+schedule:
+  - at_s: 1800
+    cue: "It's been a half hour"
+    priority: mandatory
+  
+  - at_s: 3600
+    cue: "It's been an hour, drink some water"
+    priority: mandatory
+
+  - at_s: 5400
+    cue: "It's been an hour and a half"
+    priority: mandatory
+
+  - at_s: 7200
+    cue: "It's been two hours"
+    priority: mandatory
