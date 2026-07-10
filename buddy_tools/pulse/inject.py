@@ -65,9 +65,10 @@ def build_directed_pulse_instructions(state: PulseState, base_instructions: str)
     snapshot = json.dumps(_state_snapshot(state), indent=2, sort_keys=True)
     return (
         f"{base_instructions}\n\n"
-        "Pulse directed turn — deliver the pending cue naturally in spoken language.\n"
-        f"Pending cue: {state.pending_cue}\n"
-        "Do not call tools on this turn. Do not invent cues beyond the pending cue.\n"
+        "Pulse directed turn — deliver all pending cues naturally in spoken language.\n"
+        f"Pending cue(s): {state.pending_cue}\n"
+        "Cover every directive above in one response. Do not call tools on this turn. "
+        "Do not invent cues beyond the pending cues.\n"
         f"Pulse state snapshot:\n{snapshot}"
     )
 
@@ -154,7 +155,7 @@ def inject_pulse_turn(
     global _active_pulse_turn, _pulse_turn_text
 
     nudge = (
-        f"Directed pulse: deliver pending cue — {state.pending_cue}"
+        f"Directed pulse: deliver all pending cues — {state.pending_cue}"
         if mode == "directed"
         else "Conversational pulse: speak briefly or output [NO_OUTPUT]."
     )

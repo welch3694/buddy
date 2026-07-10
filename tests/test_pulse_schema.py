@@ -10,6 +10,7 @@ from pathlib import Path
 
 from buddy_tools.pulse.rules import (
     apply_rule,
+    apply_schedule_entry,
     evaluate_condition,
     evaluate_pulse_tick,
     resolve_mutation,
@@ -352,6 +353,126 @@ schedule: []
         evaluate_pulse_tick(state, session)
         self.assertEqual(state.pending_cue, "Thirty second mark.")
         self.assertIn("schedule:t30", state.fired_rules)
+
+
+class PulseMandatoryCueMergeTests(unittest.TestCase):
+    def _session(self):
+        import yaml
+
+        return parse_session_config(
+            yaml.safe_load(
+                """
+name: multi-cue
+pulse:
+  tick_interval_s: 5
+init:
+  set:
+    phase: live
+rules:
+  - id: button-cue
+    when: elapsed_since(last_button_cue_at) >= 60
+    set:
+      last_button_cue_at: "$now"
+    cue: "Hit the button."
+    priority: mandatory
+  - id: camera-switch
+    when: elapsed_since(last_camera_cue_at) >= 60
+    set:
+      current_camera: 2
+      last_camera_cue_at: "$now"
+    cue: "Switch to camera 2."
+    priority: mandatory
+  - id: filler
+    when: elapsed_since(last_conversation_pulse_at) >= 10
+    set:
+      last_conversation_pulse_at: "$now"
+    cue: "Say something casual."
+    priority: conversational
+schedule:
+  - at_s: 30
+    cue: "Thirty second mark."
+    priority: mandatory
+    id: t30
+"""
+            ),
+            skill_name="multi-cue",
+        )
+
+    def test_two_mandatory_rules_same_tick_merge_cues(self) -> None:
+        session = self._session()
+        state = build_pulse_state_from_session("multi-cue", session)
+        past = (datetime.now(UTC) - timedelta(seconds=90)).replace(microsecond=0).isoformat()
+        state.vars["last_button_cue_at"] = past
+        state.vars["last_camera_cue_at"] = past
+
+        evaluate_pulse_tick(state, session)
+
+        self.assertEqual(state.pending_cue, "Hit the button.; Switch to camera 2.")
+        self.assertEqual(state.cue_priority, "mandatory")
+        self.assertEqual(state.vars["current_camera"], 2)
+
+    def test_mandatory_rule_appends_while_prior_cue_pending(self) -> None:
+        session = self._session()
+        state = build_pulse_state_from_session("multi-cue", session)
+        first_since = (datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat()
+        state.pending_cue = "Hit the button."
+        state.pending_cue_since = first_since
+        state.cue_priority = "mandatory"
+        state.vars["last_camera_cue_at"] = (
+            datetime.now(UTC) - timedelta(seconds=90)
+        ).replace(microsecond=0).isoformat()
+
+        apply_rule(state, session.rules[1], session)
+
+        self.assertEqual(state.pending_cue, "Hit the button.; Switch to camera 2.")
+        self.assertEqual(state.pending_cue_since, first_since)
+
+    def test_mandatory_append_deduplicates_identical_cue(self) -> None:
+        session = self._session()
+        state = build_pulse_state_from_session("multi-cue", session)
+        first_since = (datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat()
+        state.pending_cue = "Hit the button."
+        state.pending_cue_since = first_since
+        state.cue_priority = "mandatory"
+        state.vars["last_button_cue_at"] = (
+            datetime.now(UTC) - timedelta(seconds=90)
+        ).replace(microsecond=0).isoformat()
+
+        apply_rule(state, session.rules[0], session)
+
+        self.assertEqual(state.pending_cue, "Hit the button.")
+        self.assertEqual(state.pending_cue_since, first_since)
+
+    def test_schedule_entries_merge_mandatory_cues(self) -> None:
+        session = self._session()
+        state = build_pulse_state_from_session("multi-cue", session)
+        first_since = (datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat()
+        state.pending_cue = "Hit the button."
+        state.pending_cue_since = first_since
+        state.cue_priority = "mandatory"
+
+        apply_schedule_entry(state, session.schedule[0], session, elapsed_s=45.0)
+
+        self.assertEqual(state.pending_cue, "Hit the button.; Thirty second mark.")
+        self.assertEqual(state.pending_cue_since, first_since)
+        self.assertIn("schedule:t30", state.fired_rules)
+
+    def test_conversational_does_not_merge_with_mandatory_pending(self) -> None:
+        session = self._session()
+        state = build_pulse_state_from_session("multi-cue", session)
+        first_since = (datetime.now(UTC) - timedelta(seconds=5)).replace(microsecond=0).isoformat()
+        state.pending_cue = "Hit the button."
+        state.pending_cue_since = first_since
+        state.cue_priority = "mandatory"
+        state.vars["last_conversation_pulse_at"] = (
+            datetime.now(UTC) - timedelta(seconds=20)
+        ).replace(microsecond=0).isoformat()
+
+        apply_rule(state, session.rules[2], session)
+
+        self.assertEqual(state.pending_cue, "Hit the button.")
+        self.assertEqual(state.cue_priority, "mandatory")
+        self.assertEqual(state.pending_cue_since, first_since)
 
 
 class PulseTemplateSeedingTests(unittest.TestCase):

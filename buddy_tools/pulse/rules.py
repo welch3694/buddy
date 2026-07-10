@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from buddy_tools.pulse.schema import RuleDefinition, ScheduleEntry, SessionConfig
-from buddy_tools.pulse.state import PulseState
+from buddy_tools.pulse.state import CuePriority, PulseState
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +353,62 @@ def interpolate_template(template: str, state: PulseState, session: SessionConfi
     return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", replace, template)
 
 
+_MANDATORY_CUE_SEPARATOR = "; "
+
+
+def _split_pending_cues(pending_cue: str) -> list[str]:
+    return [part.strip() for part in pending_cue.split(";") if part.strip()]
+
+
+def _merge_mandatory_cues(existing: str, new_cue: str) -> str:
+    """Append a mandatory cue, skipping duplicate directive text."""
+    new_cue = new_cue.strip()
+    if not new_cue:
+        return existing
+    parts = _split_pending_cues(existing)
+    if new_cue in parts:
+        return existing
+    parts.append(new_cue)
+    return _MANDATORY_CUE_SEPARATOR.join(parts)
+
+
+def _queue_pulse_cue(
+    state: PulseState,
+    cue_text: str,
+    priority: CuePriority,
+    *,
+    now_iso: str | None = None,
+) -> None:
+    cleaned = cue_text.strip()
+    if not cleaned:
+        return
+
+    timestamp = now_iso or utc_now_iso()
+    existing = (state.pending_cue or "").strip()
+    existing_priority = state.cue_priority
+
+    if priority == "mandatory":
+        if existing and existing_priority == "mandatory":
+            merged = _merge_mandatory_cues(existing, cleaned)
+            state.pending_cue = merged
+        else:
+            if state.pending_cue != cleaned:
+                state.pending_cue_since = timestamp
+            state.pending_cue = cleaned
+        state.cue_priority = "mandatory"
+        state.pulse_mode = "directed"
+        return
+
+    if existing and existing_priority == "mandatory":
+        return
+
+    if state.pending_cue != cleaned:
+        state.pending_cue_since = timestamp
+    state.pending_cue = cleaned
+    state.cue_priority = "conversational"
+    state.pulse_mode = "conversational"
+
+
 def apply_rule(
     state: PulseState,
     rule: RuleDefinition,
@@ -374,12 +430,7 @@ def apply_rule(
 
     if rule.cue:
         cue_text = interpolate_template(rule.cue, state, session)
-        if cue_text.strip():
-            if state.pending_cue != cue_text:
-                state.pending_cue_since = utc_now_iso()
-            state.pending_cue = cue_text
-            state.cue_priority = rule.priority
-            state.pulse_mode = "directed" if rule.priority == "mandatory" else "conversational"
+        _queue_pulse_cue(state, cue_text, rule.priority)
 
     if rule.once:
         state.fired_rules.append(rule.id)
@@ -406,10 +457,8 @@ def apply_schedule_entry(
     if elapsed_s < entry.at_s:
         return False
 
-    state.pending_cue = interpolate_template(entry.cue, state, session)
-    state.cue_priority = entry.priority
-    state.pulse_mode = "directed" if entry.priority == "mandatory" else "conversational"
-    state.pending_cue_since = utc_now_iso()
+    cue_text = interpolate_template(entry.cue, state, session)
+    _queue_pulse_cue(state, cue_text, entry.priority)
     state.fired_rules.append(fired_key)
     logger.info(
         "Pulse schedule fired: id=%r skill=%r at_s=%.2f",
