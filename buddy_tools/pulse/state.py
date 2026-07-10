@@ -165,13 +165,6 @@ def pulse_state_path(memory_root: Path, persona_namespace: str) -> Path:
     return path
 
 
-def ensure_pulse_anchors(state: PulseState) -> None:
-    """Backfill elapsed_since anchors for sessions created before init seeding."""
-    anchor = state.started_at or _utc_now_iso()
-    state.vars.setdefault("last_camera_switch_at", anchor)
-    state.vars.setdefault("last_conversation_pulse_at", anchor)
-
-
 def load_pulse_state(memory_root: Path, persona_namespace: str) -> PulseState | None:
     path = pulse_state_path(memory_root, persona_namespace)
     if not path.is_file():
@@ -180,9 +173,7 @@ def load_pulse_state(memory_root: Path, persona_namespace: str) -> PulseState | 
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("pulse_state.json must be an object")
-        state = PulseState.from_dict(data)
-        ensure_pulse_anchors(state)
-        return state
+        return PulseState.from_dict(data)
     except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
         logger.warning("Could not load pulse state from %s: %s", path, exc)
         return None
@@ -217,25 +208,26 @@ def build_pulse_state_from_session(
     skill_name: str,
     session: SessionConfig,
 ) -> PulseState:
-    vars_data = dict(session.init_set)
-    phase = str(vars_data.pop("phase", "running")).strip() or "running"
-    narrator_muted = bool(vars_data.pop("narrator_muted", False))
+    from buddy_tools.pulse.rules import apply_set_fields
+
+    raw_init = dict(session.init_set)
+    phase = str(raw_init.pop("phase", "running")).strip() or "running"
+    narrator_muted = bool(raw_init.pop("narrator_muted", False))
     started_at = _utc_now_iso()
 
-    # Seed elapsed_since anchors so first rule interval is measured from session start.
-    vars_data.setdefault("last_camera_switch_at", started_at)
-    vars_data.setdefault("last_conversation_pulse_at", started_at)
-
-    return PulseState(
+    state = PulseState(
         skill_name=skill_name,
         status="active",
         started_at=started_at,
         phase=phase,
         tick_interval_seconds=session.pulse.tick_interval_s,
         narrator_muted=narrator_muted,
-        vars=vars_data,
+        vars={},
         session_config=session_config_to_dict(session),
     )
+    apply_set_fields(state, session, raw_init, now_iso=started_at)
+
+    return state
 
 
 def init_pulse_state_from_skill(skill_name: str, skill_directory: Path) -> PulseState:

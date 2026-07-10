@@ -86,7 +86,7 @@ Conversational fill between mandatory cues is **not** a YAML rule — it is driv
 
 ## `init.set` — runtime vars
 
-Arbitrary key/value pairs copied into `pulse_state.json` → `vars` at session start. Values are **literal** — `$…` mutations are **not** evaluated in `init.set` (use rule `set:` for runtime mutations).
+Arbitrary key/value pairs applied into `pulse_state.json` → `vars` at session start. **`init.set` uses the same `$…` mutations as rule `set:` blocks** (evaluated in YAML declaration order). At init time, `$now` resolves to the session `started_at` timestamp.
 
 Special keys:
 
@@ -95,14 +95,16 @@ Special keys:
 | `phase` | Also stored on `PulseState.phase` (usable in `when: phase == …`) |
 | `narrator_muted` | Also stored on `PulseState.narrator_muted` |
 
-**Auto-seeded** if omitted (session start timestamp):
+Common timestamp anchors for `elapsed_since(...)` — declare explicitly in `init.set`:
 
-- `last_camera_switch_at`
-- `last_conversation_pulse_at`
+```yaml
+init:
+  set:
+    last_camera_switch_at: "$now"
+    last_conversation_pulse_at: "$now"
+```
 
-Custom timer anchors (e.g. `last_button_cue_at`) are **not** auto-seeded — set them in `init.set` as static values only if appropriate, or reset them in a rule's `set:` on first fire. For a repeating interval from session start, reuse `last_camera_switch_at` or add a one-time bootstrap rule.
-
-Use ISO timestamp vars as anchors for `elapsed_since(...)`. Rule `set:` can assign `"$now"`; auto-seeded anchors behave as if set to session start.
+Use any anchor var names your rules need (e.g. `last_button_cue_at: "$now"`). The engine does **not** auto-seed timer anchors; omitted anchors mean `elapsed_since(...)` never passes until a rule sets them.
 
 ---
 
@@ -184,7 +186,7 @@ when: phase == late && elapsed_since(last_camera_switch_at) >= switch_interval_s
 
 ## `set:` mutations
 
-String values starting with `$` are evaluated expressions in **rule `set:`** (not in `init.set`). Arguments may be **numeric literals**, **var names**, or **nested `$…` calls**.
+String values starting with `$` are evaluated expressions in **`init.set` and rule `set:`**. Arguments may be **numeric literals**, **var names**, or **nested `$…` calls**.
 
 | Mutation | Args | Returns | Example |
 |----------|------|---------|---------|
@@ -209,6 +211,7 @@ init:
     switch_interval_s: 180
     min_switch_interval_s: 60
     tighten_step_s: 5
+    last_camera_switch_at: "$now"
 
 rules:
   - id: camera-switch
@@ -308,7 +311,7 @@ schedule:
 
 ### Multiple independent timers
 
-Use separate anchor vars per rule so timers drift independently. Seed anchors in `init.set` or rely on auto-seeded `last_camera_switch_at` for one of them:
+Use separate anchor vars per rule so timers drift independently. Seed each anchor in `init.set`:
 
 ```yaml
 init:
@@ -316,7 +319,8 @@ init:
     phase: live
     button_interval_s: 180
     camera_interval_s: 120
-    # last_button_cue_at: set via first rule fire, or use last_camera_switch_at pattern
+    last_button_cue_at: "$now"
+    last_camera_cue_at: "$now"
 
 rules:
   - id: button-cue
@@ -345,7 +349,7 @@ If both fire before one directed turn, `pending_cue` becomes `"Hit the button.; 
 |---------------|------------|
 | OR / NOT in `when` | Separate rules; use `phase` / vars |
 | Arithmetic in `when` | Store computed value in `set:` |
-| `$…` mutations in `init.set` | Use literals in init; mutate in rule `set:` |
+| Omitted timer anchor in `init.set` | Rule never fires until anchor is set — add `anchor: "$now"` in init |
 | `$mul`, `$div` | Use `$add` / `$sub` chains (or extend engine) |
 | `"; "` inside cue text | Rephrase cue — semicolon+space is the merge separator |
 | Rule triggered by another rule firing | Share state via vars set in `set:` |

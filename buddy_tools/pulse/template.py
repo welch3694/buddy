@@ -25,7 +25,8 @@ init:
     min_switch_interval_s: 60
     tighten_step_s: 5
     narrator_muted: false
-    # last_camera_switch_at auto-seeded to session start when omitted
+    last_camera_switch_at: "$now"
+    last_conversation_pulse_at: "$now"
 
 cameras:
   - {{ id: 1, label: "wide shot" }}
