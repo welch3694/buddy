@@ -1040,6 +1040,12 @@ def build_pulse_context(
         lines.append(f"- Last worker tick: {pulse.last_tick_at}.")
     if pulse.pending_cue:
         lines.append(f"- Pending cue ({pulse.cue_priority or 'mandatory'}): {pulse.pending_cue}")
+    session = pulse.get_session_config()
+    if session is not None and session.pulse.silence_gated_only:
+        lines.append(
+            "- Silence-gated-only mode is active: suppress reactive speech; "
+            "speak only on extended silence or mandatory cues."
+        )
     if pulse.vars:
         lines.append(f"- Runtime vars: {json.dumps(pulse.vars, sort_keys=True)}")
 

@@ -24,6 +24,7 @@ PULSE_CONFIG_PARAM_DOCS: dict[str, str] = {
     "min_speak_interval_s": "pulse.min_speak_interval_s",
     "tick_interval_s": "pulse.tick_interval_s",
     "mandatory_cue_max_defer_s": "pulse.mandatory_cue_max_defer_s",
+    "keep_them_talking": "pulse.silence_gated_only",
 }
 
 PULSE_CONFIG_PARAM_KEYS = frozenset(PULSE_CONFIG_PARAM_DOCS)
@@ -74,6 +75,11 @@ def merge_pulse_params(raw: dict[str, Any], params: dict[str, Any]) -> list[str]
         elif key == "mandatory_cue_max_defer_s":
             pulse = _ensure_mapping(raw, "pulse")
             pulse["mandatory_cue_max_defer_s"] = value
+        elif key == "keep_them_talking":
+            if not isinstance(value, bool):
+                raise SessionValidationError("keep_them_talking must be a boolean")
+            pulse = _ensure_mapping(raw, "pulse")
+            pulse["silence_gated_only"] = value
         changed.append(key)
     return changed
 

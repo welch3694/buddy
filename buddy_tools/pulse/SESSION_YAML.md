@@ -24,6 +24,7 @@ Use the `update_pulse_config` tool to merge structured params without LLM-genera
 | `min_speak_interval_s` | `pulse.min_speak_interval_s` | Minimum gap between narrator speaks |
 | `tick_interval_s` | `pulse.tick_interval_s` | Worker tick period |
 | `mandatory_cue_max_defer_s` | `pulse.mandatory_cue_max_defer_s` | Max defer for mandatory cues |
+| `keep_them_talking` | `pulse.silence_gated_only` | Suppress reactive speech; pulses only (bool) |
 
 **Note:** Re-serializing `session.yaml` after a param merge may drop YAML comments. Rule bodies and custom vars remain intact.
 
@@ -74,6 +75,9 @@ Conversational fill between mandatory cues is **not** a YAML rule — it is driv
 | `conversation_check_s` | `60` | Min seconds between conversational pulse attempts |
 | `min_speak_interval_s` | `45` | Min seconds since last assistant speech before optional chat |
 | `mandatory_cue_max_defer_s` | `30` | Force-fire mandatory cue after this defer (even if user is talking) |
+| `silence_gated_only` | `false` | When `true`, suppress reactive spoken responses to user voice; Buddy speaks only via pulse injection (extended silence or mandatory cues). Voice alias: `keep_them_talking` via `update_pulse_config`. |
+
+**Interaction with `narrator_muted`:** `silence_gated_only` blocks reactive LLM speech on user turns. `narrator_muted` (in `init.set` or runtime `vars`) blocks pulse worker injection. Both can be active; combined behavior is near-total silence except force-fired mandatory cues after `mandatory_cue_max_defer_s`.
 
 ---
 

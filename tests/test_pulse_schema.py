@@ -88,6 +88,32 @@ class PulseSchemaTests(unittest.TestCase):
         self.assertEqual(config.pulse.tick_interval_s, 3.0)
         self.assertEqual(config.init_set["phase"], "warmup")
 
+    def test_parse_silence_gated_only(self) -> None:
+        import yaml
+
+        raw = yaml.safe_load(
+            "name: filming\n"
+            "pulse:\n"
+            "  silence_gated_only: true\n"
+            "rules: []\n"
+            "schedule: []\n"
+        )
+        config = parse_session_config(raw, skill_name="filming")
+        self.assertTrue(config.pulse.silence_gated_only)
+
+    def test_rejects_non_boolean_silence_gated_only(self) -> None:
+        import yaml
+
+        raw = yaml.safe_load(
+            "name: bad\n"
+            "pulse:\n"
+            '  silence_gated_only: "maybe"\n'
+            "rules: []\n"
+            "schedule: []\n"
+        )
+        with self.assertRaises(SessionValidationError):
+            parse_session_config(raw, skill_name="bad")
+
 
 class PulseRuleEngineTests(unittest.TestCase):
     def _session(self):

@@ -348,6 +348,28 @@ class PulseConfigToolsTests(unittest.TestCase):
         self.assertIn("Error", result.output)
         self.assertIn("not a pulse skill", result.output)
 
+    def test_update_pulse_config_keep_them_talking(self) -> None:
+        skill = create_skill(
+            "filming-pulse",
+            "Filming mode.",
+            "# Filming",
+            skill_type="pulse",
+        )
+        result = execute_skill_tool(
+            self.memory_root,
+            "coach",
+            "update_pulse_config",
+            {
+                "skill_name": "filming-pulse",
+                "params": {"keep_them_talking": True},
+            },
+        )
+        self.assertIn("Updated pulse config", result.output)
+        self.assertNotIn("Error", result.output)
+
+        config = load_session_config(skill.directory, skill_name=skill.name)
+        self.assertTrue(config.pulse.silence_gated_only)
+
 
 class PulseConfigMergeUnitTests(unittest.TestCase):
     def test_merge_pulse_params_maps_keys(self) -> None:
@@ -367,6 +389,23 @@ class PulseConfigMergeUnitTests(unittest.TestCase):
         self.assertEqual(changed, ["camera_switch_interval_s", "conversation_min_silence_s"])
         self.assertEqual(raw["init"]["set"]["switch_interval_s"], 120)
         self.assertEqual(raw["pulse"]["conversation_check_s"], 45)
+
+    def test_merge_keep_them_talking_maps_to_silence_gated_only(self) -> None:
+        raw = {
+            "name": "test",
+            "init": {"set": {"phase": "live"}},
+            "rules": [],
+            "schedule": [],
+        }
+        changed = merge_pulse_params(raw, {"keep_them_talking": True})
+        self.assertEqual(changed, ["keep_them_talking"])
+        self.assertTrue(raw["pulse"]["silence_gated_only"])
+
+    def test_merge_keep_them_talking_rejects_non_boolean(self) -> None:
+        raw = {"name": "test", "rules": [], "schedule": []}
+        with self.assertRaises(Exception) as ctx:
+            merge_pulse_params(raw, {"keep_them_talking": 1})
+        self.assertIn("keep_them_talking must be a boolean", str(ctx.exception))
 
     def test_apply_pulse_config_writes_valid_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
