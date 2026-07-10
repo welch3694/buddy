@@ -1169,6 +1169,52 @@ def _teardown_pulse_session(memory_root: Path, persona_namespace: str, skill_nam
     cancel_timers_for_skill(skill_name)
 
 
+def teardown_persisted_skill_session(
+    memory_root: Path,
+    persona_namespace: str,
+    *,
+    reason: str,
+) -> str | None:
+    """Tear down any active skill persisted on disk (startup/shutdown cleanup).
+
+    Mirrors ``cancel_skill`` without requiring a live tool call. Returns the
+    skill name when something was torn down, else ``None``.
+    """
+    state = load_skill_state(memory_root, persona_namespace)
+    pulse = load_pulse_state(memory_root, persona_namespace)
+
+    active_state = state is not None and state.status in ("in_progress", "paused")
+    active_pulse = pulse is not None and pulse.status in ("active", "paused")
+    if not active_state and not active_pulse:
+        return None
+
+    if active_state:
+        skill_name = state.skill_name
+        skill_type = state.skill_type
+    else:
+        assert pulse is not None
+        skill_name = pulse.skill_name
+        skill_type = "pulse"
+
+    logger.info(
+        "Tearing down persisted skill on %s: skill=%r type=%r persona_namespace=%r",
+        reason,
+        skill_name,
+        skill_type,
+        persona_namespace,
+    )
+
+    if skill_type == "pulse":
+        _teardown_pulse_session(memory_root, persona_namespace, skill_name)
+    else:
+        cancel_timers_for_skill(skill_name)
+        if active_pulse:
+            _teardown_pulse_session(memory_root, persona_namespace, pulse.skill_name)
+
+    clear_skill_state(memory_root, persona_namespace)
+    return skill_name
+
+
 def _start_skill(
     memory_root: Path,
     persona_namespace: str,
@@ -1582,18 +1628,16 @@ def _pause_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResu
 
 
 def _cancel_skill(memory_root: Path, persona_namespace: str) -> ToolExecutionResult:
-    state = load_skill_state(memory_root, persona_namespace)
-    if state is None:
+    skill_name = teardown_persisted_skill_session(
+        memory_root,
+        persona_namespace,
+        reason="cancel_skill",
+    )
+    if skill_name is None:
         return tool_error("cancel_skill", "no active skill to cancel")
 
-    if state.skill_type == "pulse":
-        _teardown_pulse_session(memory_root, persona_namespace, state.skill_name)
-    else:
-        cancel_timers_for_skill(state.skill_name)
-
-    clear_skill_state(memory_root, persona_namespace)
     return ToolExecutionResult(
-        output=f"Cancelled skill {state.skill_name!r}.",
+        output=f"Cancelled skill {skill_name!r}.",
         refresh_instructions=True,
     )
 

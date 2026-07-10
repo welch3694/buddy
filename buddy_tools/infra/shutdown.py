@@ -16,8 +16,21 @@ def finalize_buddy_session() -> None:
         return
     _shutdown_done = True
 
+    from buddy_tools.infra.bootstrap import get_memory_root
+    from buddy_tools.personality import get_active_personality
+    from buddy_tools.skills import teardown_persisted_skill_session
     from buddy_tools.timers import cancel_all_timers
 
+    try:
+        profile = get_active_personality()
+    except FileNotFoundError:
+        logger.debug("Skipping skill teardown on shutdown: active personality not available")
+    else:
+        teardown_persisted_skill_session(
+            get_memory_root(),
+            profile.memory_namespace,
+            reason="shutdown",
+        )
     cancel_all_timers()
 
     from buddy_tools.episodic import get_episodic_manager
