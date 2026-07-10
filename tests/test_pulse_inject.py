@@ -179,6 +179,8 @@ class PulseInjectTests(unittest.TestCase):
     def test_directed_instructions_include_pending_cue_and_snapshot(self) -> None:
         instructions = build_directed_pulse_instructions(self.state, "Base.")
         self.assertIn("Switch to camera 2.", instructions)
+        self.assertIn("Pending cue(s):", instructions)
+        self.assertIn("deliver all pending cues", instructions)
         self.assertIn("Pulse state snapshot", instructions)
         self.assertIn("Do not call tools", instructions)
 
