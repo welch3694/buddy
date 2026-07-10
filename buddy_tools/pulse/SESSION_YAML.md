@@ -50,6 +50,8 @@ Each worker tick runs two steps:
 
 Rules **do not speak directly**. A non-empty `cue:` queues text; the injection layer delivers it after user silence (and other gates). See `buddy_tools/pulse/gates.py` and `inject.py`.
 
+When multiple **mandatory** cues are due before one directed turn is delivered (same tick or while a prior mandatory cue is still pending), they are **merged** into a single `pending_cue` string separated by `"; "` (duplicates skipped). The agent receives all directives and should cover them in one response. See [Mandatory cue merging](#mandatory-cue-merging) below.
+
 Conversational fill between mandatory cues is **not** a YAML rule — it is driven by `pulse.conversation_check_s` and related gate settings.
 
 ---
@@ -76,14 +78,15 @@ Conversational fill between mandatory cues is **not** a YAML rule — it is driv
 | `min_speak_interval_s` | `45` | Min seconds since last assistant speech before optional chat |
 | `mandatory_cue_max_defer_s` | `30` | Force-fire mandatory cue after this defer (even if user is talking) |
 | `silence_gated_only` | `false` | When `true`, suppress reactive spoken responses to user voice; Buddy speaks only via pulse injection (extended silence or mandatory cues). Voice alias: `keep_them_talking` via `update_pulse_config`. |
+| `scene_capture` | `off` | Passive webcam snapshot on pulse turns: `off` (none) or `conversational` (lull-fill turns only; skipped when `narrator_muted` or capture fails). |
 
-**Interaction with `narrator_muted`:** `silence_gated_only` blocks reactive LLM speech on user turns. `narrator_muted` (in `init.set` or runtime `vars`) blocks pulse worker injection. Both can be active; combined behavior is near-total silence except force-fired mandatory cues after `mandatory_cue_max_defer_s`.
+**Interaction with `narrator_muted`:** `silence_gated_only` blocks reactive LLM speech on user turns. `narrator_muted` (in `init.set` or runtime `vars`) blocks pulse worker injection and scene capture. Both can be active; combined behavior is near-total silence except force-fired mandatory cues after `mandatory_cue_max_defer_s`.
 
 ---
 
 ## `init.set` — runtime vars
 
-Arbitrary key/value pairs copied into `pulse_state.json` → `vars` at session start.
+Arbitrary key/value pairs copied into `pulse_state.json` → `vars` at session start. Values are **literal** — `$…` mutations are **not** evaluated in `init.set` (use rule `set:` for runtime mutations).
 
 Special keys:
 
@@ -97,7 +100,9 @@ Special keys:
 - `last_camera_switch_at`
 - `last_conversation_pulse_at`
 
-Use ISO timestamp vars (set `"$now"` or rely on seeding) as anchors for `elapsed_since(...)`.
+Custom timer anchors (e.g. `last_button_cue_at`) are **not** auto-seeded — set them in `init.set` as static values only if appropriate, or reset them in a rule's `set:` on first fire. For a repeating interval from session start, reuse `last_camera_switch_at` or add a one-time bootstrap rule.
+
+Use ISO timestamp vars as anchors for `elapsed_since(...)`. Rule `set:` can assign `"$now"`; auto-seeded anchors behave as if set to session start.
 
 ---
 
@@ -121,9 +126,28 @@ rules:
 | `once` | If `true`, rule fires at most once per session (`fired_rules` tracks id). |
 | `set` | Applied before `cue` on the same fire. Supports `$…` mutations. |
 | `cue` | Interpolates `{var}` placeholders. Empty string does not queue speech. |
-| `priority` | `mandatory` cues take precedence over conversational injection. |
+| `priority` | `mandatory` cues take precedence over conversational injection. Multiple mandatory cues merge; see below. |
 
-Rules are evaluated **in file order** each tick.
+Rules are evaluated **in file order** each tick. Schedule entries run **before** rules each tick.
+
+---
+
+## Mandatory cue merging
+
+`PulseState` stores one `pending_cue` string. When a mandatory cue is queued:
+
+| Situation | Behavior |
+|-----------|----------|
+| No prior pending cue | Set `pending_cue` to the new cue; set `pending_cue_since` |
+| Prior pending cue is also **mandatory** | **Append** new cue after `"; "` (skip exact duplicates) |
+| Prior pending cue is **conversational** | Replace with the new mandatory cue; reset `pending_cue_since` |
+| New cue is **conversational** while mandatory is pending | Ignored — mandatory wins until delivered |
+
+All firing rules' `set:` blocks still apply even when cues merge. Injection instructions tell the agent to deliver **all** pending directives in one spoken response (e.g. `"Hit the button.; Switch to camera 2."` → *"Switch to camera 2, and hit the button."*).
+
+`pending_cue_since` is **not** reset when appending to an existing mandatory batch — the defer timer (`mandatory_cue_max_defer_s`) stays anchored to when the first cue in the batch became pending.
+
+**Cues must not contain `"; "`** in the directive text — that character is the merge separator.
 
 ---
 
@@ -160,7 +184,7 @@ when: phase == late && elapsed_since(last_camera_switch_at) >= switch_interval_s
 
 ## `set:` mutations
 
-String values starting with `$` are evaluated expressions. Arguments may be **numeric literals**, **var names**, or **nested `$…` calls**.
+String values starting with `$` are evaluated expressions in **rule `set:`** (not in `init.set`). Arguments may be **numeric literals**, **var names**, or **nested `$…` calls**.
 
 | Mutation | Args | Returns | Example |
 |----------|------|---------|---------|
@@ -226,7 +250,7 @@ schedule:
     priority: mandatory
 ```
 
-Each entry fires once. Schedule is evaluated before `rules` each tick.
+Each entry fires once. Schedule is evaluated before `rules` each tick. Mandatory schedule cues use the same [merge behavior](#mandatory-cue-merging) as mandatory rules.
 
 ---
 
@@ -250,7 +274,7 @@ Live state lives at:
 {BUDDY_DATA_DIR}/memory/{persona_namespace}/pulse_state.json
 ```
 
-Useful fields: `vars`, `pending_cue`, `phase`, `started_at`, `tick_count`, `session_config` (snapshot).
+Useful fields: `vars`, `pending_cue` (may contain multiple mandatory directives joined by `"; "`), `pending_cue_since`, `phase`, `started_at`, `tick_count`, `session_config` (snapshot).
 
 ---
 
@@ -282,6 +306,37 @@ schedule:
     priority: mandatory
 ```
 
+### Multiple independent timers
+
+Use separate anchor vars per rule so timers drift independently. Seed anchors in `init.set` or rely on auto-seeded `last_camera_switch_at` for one of them:
+
+```yaml
+init:
+  set:
+    phase: live
+    button_interval_s: 180
+    camera_interval_s: 120
+    # last_button_cue_at: set via first rule fire, or use last_camera_switch_at pattern
+
+rules:
+  - id: button-cue
+    when: elapsed_since(last_button_cue_at) >= button_interval_s
+    set:
+      last_button_cue_at: "$now"
+    cue: "Hit the button."
+    priority: mandatory
+
+  - id: camera-switch
+    when: elapsed_since(last_camera_cue_at) >= camera_interval_s
+    set:
+      current_camera: "$rotate(cameras)"
+      last_camera_cue_at: "$now"
+    cue: "Switch to camera {current_camera} — {label}."
+    priority: mandatory
+```
+
+If both fire before one directed turn, `pending_cue` becomes `"Hit the button.; Switch to camera 2 — close-up."` (example).
+
 ---
 
 ## Limitations (explicit)
@@ -290,7 +345,9 @@ schedule:
 |---------------|------------|
 | OR / NOT in `when` | Separate rules; use `phase` / vars |
 | Arithmetic in `when` | Store computed value in `set:` |
+| `$…` mutations in `init.set` | Use literals in init; mutate in rule `set:` |
 | `$mul`, `$div` | Use `$add` / `$sub` chains (or extend engine) |
+| `"; "` inside cue text | Rephrase cue — semicolon+space is the merge separator |
 | Rule triggered by another rule firing | Share state via vars set in `set:` |
 | Live reload of `session.yaml` | Cancel + re-start skill (or `update_pulse_config` then re-start) |
 | Empty `cue` rule to trigger conversational speech | Use gate-driven conversational pulses |

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 SESSION_FILENAME = "session.yaml"
 RulePriority = Literal["mandatory", "conversational"]
+SceneCaptureMode = Literal["off", "conversational"]
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class PulseTimingConfig:
     min_speak_interval_s: float | None = None
     mandatory_cue_max_defer_s: float | None = None
     silence_gated_only: bool = False
+    scene_capture: SceneCaptureMode = "off"
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,15 @@ def _bool_field(value: Any, field_name: str) -> bool:
     return value
 
 
+def _parse_scene_capture(value: Any) -> SceneCaptureMode:
+    if value is None:
+        return "off"
+    mode = str(value).strip().lower()
+    if mode not in ("off", "conversational"):
+        raise SessionValidationError("pulse.scene_capture must be 'off' or 'conversational'")
+    return mode  # type: ignore[return-value]
+
+
 def _normalize_raw_session(raw: dict[str, Any]) -> dict[str, Any]:
     """Accept legacy flat keys from early pulse prototypes."""
     normalized = dict(raw)
@@ -134,6 +145,7 @@ def _parse_pulse_config(raw: dict[str, Any]) -> PulseTimingConfig:
             silence_gated_raw,
             "pulse.silence_gated_only",
         ),
+        scene_capture=_parse_scene_capture(pulse_raw.get("scene_capture")),
     )
 
 
@@ -262,8 +274,9 @@ def session_config_to_dict(config: SessionConfig) -> dict[str, Any]:
                     ("min_speak_interval_s", config.pulse.min_speak_interval_s),
                     ("mandatory_cue_max_defer_s", config.pulse.mandatory_cue_max_defer_s),
                     ("silence_gated_only", config.pulse.silence_gated_only),
+                    ("scene_capture", config.pulse.scene_capture),
                 )
-                if value is not None and value is not False
+                if value is not None and value is not False and value != "off"
             },
         },
         "init": {"set": dict(config.init_set)},
