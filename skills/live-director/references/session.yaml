@@ -18,7 +18,8 @@ init:
     min_switch_interval_s: 60
     tighten_step_s: 5
     narrator_muted: false
-    # last_camera_switch_at is auto-seeded to session start if omitted (first cue ~180s later)
+    last_camera_switch_at: "$now"
+    last_conversation_pulse_at: "$now"
 
 # Camera list used by $rotate(cameras) in the camera-switch rule below.
 # Add or rename entries; keep id + label for cue interpolation ({current_camera}, {label}).

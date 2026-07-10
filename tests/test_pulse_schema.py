@@ -33,6 +33,8 @@ init:
   set:
     phase: live
     current_camera: 1
+    last_camera_switch_at: "$now"
+    last_conversation_pulse_at: "$now"
 
 cameras:
   - { id: 1, label: "wide shot" }
@@ -149,6 +151,46 @@ class PulseSchemaTests(unittest.TestCase):
         )
         with self.assertRaises(SessionValidationError):
             parse_session_config(raw, skill_name="bad")
+
+
+class PulseInitSetTests(unittest.TestCase):
+    def test_init_set_evaluates_now_mutation(self) -> None:
+        import yaml
+
+        config = parse_session_config(
+            yaml.safe_load(
+                "name: t\n"
+                "init:\n"
+                "  set:\n"
+                '    last_camera_switch_at: "$now"\n'
+                "    switch_interval_s: 180\n"
+                "rules: []\n"
+                "schedule: []\n"
+            ),
+            skill_name="t",
+        )
+        state = build_pulse_state_from_session("t", config)
+        self.assertEqual(state.vars["last_camera_switch_at"], state.started_at)
+        self.assertNotEqual(state.vars["last_camera_switch_at"], "$now")
+
+    def test_init_set_evaluates_numeric_mutation_in_order(self) -> None:
+        import yaml
+
+        config = parse_session_config(
+            yaml.safe_load(
+                "name: t\n"
+                "init:\n"
+                "  set:\n"
+                "    base: 100\n"
+                '    adjusted: "$add(base, 5)"\n'
+                "rules: []\n"
+                "schedule: []\n"
+            ),
+            skill_name="t",
+        )
+        state = build_pulse_state_from_session("t", config)
+        self.assertEqual(state.vars["base"], 100)
+        self.assertEqual(state.vars["adjusted"], 105)
 
 
 class PulseRuleEngineTests(unittest.TestCase):

@@ -228,12 +228,18 @@ def _split_mutation_args(args: str) -> list[str]:
     return parts
 
 
-def _resolve_mutation_arg(raw: str, state: PulseState, session: SessionConfig) -> Any:
+def _resolve_mutation_arg(
+    raw: str,
+    state: PulseState,
+    session: SessionConfig,
+    *,
+    now_iso: str | None = None,
+) -> Any:
     cleaned = raw.strip()
     if not cleaned:
         raise ValueError("empty mutation argument")
     if cleaned.startswith("$"):
-        return resolve_mutation(cleaned, state, session)
+        return resolve_mutation(cleaned, state, session, now_iso=now_iso)
     try:
         if "." in cleaned:
             return float(cleaned)
@@ -246,61 +252,84 @@ def _resolve_mutation_arg(raw: str, state: PulseState, session: SessionConfig) -
     return value
 
 
-def _resolve_numeric_arg(raw: str, state: PulseState, session: SessionConfig) -> float:
-    value = _resolve_mutation_arg(raw, state, session)
+def _resolve_numeric_arg(
+    raw: str,
+    state: PulseState,
+    session: SessionConfig,
+    *,
+    now_iso: str | None = None,
+) -> float:
+    value = _resolve_mutation_arg(raw, state, session, now_iso=now_iso)
     try:
         return float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"expected numeric argument, got {value!r}") from exc
 
 
-def _apply_numeric_mutation(name: str, args: list[str], state: PulseState, session: SessionConfig) -> float:
+def _apply_numeric_mutation(
+    name: str,
+    args: list[str],
+    state: PulseState,
+    session: SessionConfig,
+    *,
+    now_iso: str | None = None,
+) -> float:
     if name == "add":
         if len(args) != 2:
             raise ValueError("$add requires exactly 2 arguments")
-        return _resolve_numeric_arg(args[0], state, session) + _resolve_numeric_arg(args[1], state, session)
+        return _resolve_numeric_arg(args[0], state, session, now_iso=now_iso) + _resolve_numeric_arg(
+            args[1], state, session, now_iso=now_iso
+        )
 
     if name == "sub":
         if len(args) != 2:
             raise ValueError("$sub requires exactly 2 arguments")
-        return _resolve_numeric_arg(args[0], state, session) - _resolve_numeric_arg(args[1], state, session)
+        return _resolve_numeric_arg(args[0], state, session, now_iso=now_iso) - _resolve_numeric_arg(
+            args[1], state, session, now_iso=now_iso
+        )
 
     if name == "min":
         if len(args) != 2:
             raise ValueError("$min requires exactly 2 arguments")
         return min(
-            _resolve_numeric_arg(args[0], state, session),
-            _resolve_numeric_arg(args[1], state, session),
+            _resolve_numeric_arg(args[0], state, session, now_iso=now_iso),
+            _resolve_numeric_arg(args[1], state, session, now_iso=now_iso),
         )
 
     if name == "max":
         if len(args) != 2:
             raise ValueError("$max requires exactly 2 arguments")
         return max(
-            _resolve_numeric_arg(args[0], state, session),
-            _resolve_numeric_arg(args[1], state, session),
+            _resolve_numeric_arg(args[0], state, session, now_iso=now_iso),
+            _resolve_numeric_arg(args[1], state, session, now_iso=now_iso),
         )
 
     if name == "clamp":
         if len(args) == 2:
-            value = _resolve_numeric_arg(args[0], state, session)
-            lower = _resolve_numeric_arg(args[1], state, session)
+            value = _resolve_numeric_arg(args[0], state, session, now_iso=now_iso)
+            lower = _resolve_numeric_arg(args[1], state, session, now_iso=now_iso)
             return max(lower, value)
         if len(args) == 3:
-            value = _resolve_numeric_arg(args[0], state, session)
-            lower = _resolve_numeric_arg(args[1], state, session)
-            upper = _resolve_numeric_arg(args[2], state, session)
+            value = _resolve_numeric_arg(args[0], state, session, now_iso=now_iso)
+            lower = _resolve_numeric_arg(args[1], state, session, now_iso=now_iso)
+            upper = _resolve_numeric_arg(args[2], state, session, now_iso=now_iso)
             return min(max(value, lower), upper)
         raise ValueError("$clamp requires 2 arguments (floor) or 3 arguments (floor and ceiling)")
 
     raise ValueError(f"unsupported mutation: ${name}(...)")
 
-def resolve_mutation(value: Any, state: PulseState, session: SessionConfig) -> Any:
+def resolve_mutation(
+    value: Any,
+    state: PulseState,
+    session: SessionConfig,
+    *,
+    now_iso: str | None = None,
+) -> Any:
     if not isinstance(value, str):
         return value
     cleaned = value.strip()
     if cleaned == "$now":
-        return utc_now_iso()
+        return now_iso if now_iso is not None else utc_now_iso()
 
     if not cleaned.startswith("$"):
         return value
@@ -322,7 +351,7 @@ def resolve_mutation(value: Any, state: PulseState, session: SessionConfig) -> A
         return _rotate_list(items, current_key)
 
     try:
-        numeric = _apply_numeric_mutation(name, args, state, session)
+        numeric = _apply_numeric_mutation(name, args, state, session, now_iso=now_iso)
     except ValueError as exc:
         logger.warning("Pulse mutation failed for %r: %s", cleaned, exc)
         return value
@@ -330,6 +359,22 @@ def resolve_mutation(value: Any, state: PulseState, session: SessionConfig) -> A
     if numeric.is_integer():
         return int(numeric)
     return numeric
+
+
+def apply_set_fields(
+    state: PulseState,
+    session: SessionConfig,
+    set_fields: dict[str, Any],
+    *,
+    now_iso: str | None = None,
+) -> None:
+    """Apply init.set or rule set mutations in declaration order."""
+    for field, raw_value in set_fields.items():
+        resolved = resolve_mutation(raw_value, state, session, now_iso=now_iso)
+        if field == "phase":
+            state.phase = str(resolved)
+        else:
+            state.vars[field] = resolved
 
 
 def _camera_label(session: SessionConfig, camera_id: Any) -> str:
@@ -421,12 +466,7 @@ def apply_rule(
     if not evaluate_condition(state, rule.when, now=now):
         return False
 
-    for field, raw_value in rule.set_fields.items():
-        resolved = resolve_mutation(raw_value, state, session)
-        if field == "phase":
-            state.phase = str(resolved)
-        else:
-            state.vars[field] = resolved
+    apply_set_fields(state, session, rule.set_fields)
 
     if rule.cue:
         cue_text = interpolate_template(rule.cue, state, session)
