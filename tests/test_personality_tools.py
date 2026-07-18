@@ -182,6 +182,7 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertEqual(handler.ref_text, "narrator transcript")
         tool_names = {t.name for t in runtime_config.session.tools}
         self.assertIn("switch_personality", tool_names)
+        self.assertIn("update_personality", tool_names)
         self.assertNotIn("create_personality", tool_names)
 
     def test_personality_switch_clears_pending_function_calls(self) -> None:

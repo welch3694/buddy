@@ -88,6 +88,32 @@ _PERSONA_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
             },
         },
     ),
+    RealtimeFunctionTool(
+        type="function",
+        name="update_personality",
+        description=(
+            "Update an existing personality's name, description, prompt, or voice_id. "
+            "Use when the user wants to refine how a persona behaves or sounds. "
+            "The prompt field must be persona-only content for prompt.md."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "personality_id": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Persona-only prompt.md content — identity, tone, role, traits. "
+                        "Not tool docs or system prompt stack."
+                    ),
+                },
+                "voice_id": {"type": "string"},
+            },
+            "required": ["personality_id"],
+        },
+    ),
 ]
 
 _PERSONA_ADMIN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
@@ -121,32 +147,6 @@ _PERSONA_ADMIN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     ),
     RealtimeFunctionTool(
         type="function",
-        name="update_personality",
-        description=(
-            "Update an existing personality's name, description, prompt, or voice_id. "
-            "Use when the user wants to refine how a persona behaves or sounds. "
-            "The prompt field must be persona-only content for prompt.md."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {"type": "string"},
-                "name": {"type": "string"},
-                "description": {"type": "string"},
-                "prompt": {
-                    "type": "string",
-                    "description": (
-                        "Persona-only prompt.md content — identity, tone, role, traits. "
-                        "Not tool docs or system prompt stack."
-                    ),
-                },
-                "voice_id": {"type": "string"},
-            },
-            "required": ["personality_id"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
         name="delete_personality",
         description=(
             "Delete a personality. Cannot delete the default buddy personality."
@@ -172,23 +172,23 @@ def build_persona_instructions() -> str:
         "Identity rule: You are only the active personality. When the user asks for a "
         "different persona, to become someone else, or to talk to a named personality, "
         "you MUST call switch_personality. Never impersonate another persona without that tool.\n"
-        "You can switch and inspect personalities and voices:\n"
+        "You can switch, inspect, and refine personalities and voices:\n"
         "- list_personalities / list_voices: see what is available\n"
-        "- read_personality: load on-disk prompt.md and profile fields\n"
+        "- read_personality: load on-disk prompt.md and profile fields before editing\n"
         "- switch_personality: become a different persona when asked\n"
         "- switch_voice: change only the cloned voice\n"
+        "- update_personality: refine how a persona behaves or sounds (persona-only prompt.md content)\n"
         "After switching personalities, respond briefly in character without mentioning tools."
     )
 
 
 def build_persona_admin_instructions() -> str:
     return (
-        "You can create and edit assistant personalities:\n"
+        "You can create and delete assistant personalities:\n"
         "- create_personality: make a new persona after asking what they should be like\n"
-        "- update_personality: refine an existing persona (persona-only prompt.md content)\n"
         "- delete_personality: remove a persona (not buddy)\n"
-        "Use read_personality before editing. Prompt content must be persona-only — never "
-        "include tool instructions, memory snapshots, or system prompt boilerplate."
+        "Prompt content for create_personality must be persona-only — never include tool "
+        "instructions, memory snapshots, or system prompt boilerplate."
     )
 
 
@@ -201,8 +201,8 @@ PERSONA_TOOL_GROUP = ToolGroup(
     id="persona",
     title="Persona",
     when_to_use=(
-        "User asks to switch personas, change voice, list personalities, "
-        "or read a personality profile. Prefer switch_personality over roleplay."
+        "User asks to switch personas, change voice, list or read personalities, "
+        "or refine the active persona with update_personality. Prefer switch_personality over roleplay."
     ),
     tools=tuple(_PERSONA_TOOL_DEFINITIONS),
     instructions=build_persona_instructions(),
@@ -212,7 +212,7 @@ PERSONA_ADMIN_TOOL_GROUP = ToolGroup(
     id="persona_admin",
     title="Persona admin",
     when_to_use=(
-        "User asks to create, update, or delete a personality (admin; not for roleplay)."
+        "User asks to create or delete a personality (admin; not for roleplay or edits)."
     ),
     tools=tuple(_PERSONA_ADMIN_TOOL_DEFINITIONS),
     instructions=build_persona_admin_instructions(),
