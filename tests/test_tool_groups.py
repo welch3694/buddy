@@ -75,6 +75,7 @@ class ToolRoutingInstructionTests(unittest.TestCase):
         self.assertIn("switch_personality", text)
         self.assertIn("Identity rule", text)
         self.assertIn("Never impersonate", text)
+        self.assertIn("update_personality", text)
         self.assertNotIn("create_personality", text)
 
     def test_active_context_and_admin_for_buddy(self) -> None:
@@ -131,8 +132,8 @@ class ToolVisibilityTests(unittest.TestCase):
     def test_non_buddy_hides_persona_admin(self) -> None:
         names = {t.name for t in visible_tool_definitions(TOOL_GROUPS, self._profile())}
         self.assertIn("switch_personality", names)
+        self.assertIn("update_personality", names)
         self.assertNotIn("create_personality", names)
-        self.assertNotIn("update_personality", names)
         self.assertNotIn("delete_personality", names)
 
     def test_buddy_gets_persona_admin(self) -> None:

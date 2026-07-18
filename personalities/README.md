@@ -52,7 +52,7 @@ memory_namespace: buddy
 
 The `id` must match the folder name. `voice_id` must reference a valid voice in `voices/`.
 
-Optional `tool_groups` is a list of tool group ids to expose beyond the defaults. Known groups: `persona`, `persona_admin`, `memory`, `episodic`, `skills`, `timers`, `vision`. Most groups are always visible. `persona_admin` (create/update/delete personality) is hidden by default except for the `buddy` personality, which gets it automatically; other personas can opt in with `tool_groups: [persona_admin]`.
+Optional `tool_groups` is a list of tool group ids to expose beyond the defaults. Known groups: `persona`, `persona_admin`, `memory`, `episodic`, `skills`, `timers`, `vision`. Most groups are always visible (including `update_personality` on the `persona` group). `persona_admin` (create/delete personality) is hidden by default except for the `buddy` personality, which gets it automatically; other personas can opt in with `tool_groups: [persona_admin]`.
 
 ## Skills (Agent Skills layout)
 
