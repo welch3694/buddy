@@ -32,6 +32,7 @@ class PersonalityProfile:
     memory_namespace: str
     prompt: str
     directory: Path
+    tool_groups: tuple[str, ...] = ()
 
 
 def get_personalities_dir() -> Path:
@@ -89,6 +90,24 @@ def _normalize_behaviors(raw: Any) -> dict[str, str]:
             raise ValueError("behaviors must be a mapping of string keys to string values")
         behaviors[key] = value
     return behaviors
+
+
+def _normalize_tool_groups(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ValueError("tool_groups must be a list of group id strings")
+    groups: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("tool_groups must be a list of non-empty group id strings")
+        gid = item.strip()
+        if gid in seen:
+            continue
+        seen.add(gid)
+        groups.append(gid)
+    return tuple(groups)
 
 
 def _write_profile_yaml(path: Path, data: dict[str, Any]) -> None:
@@ -159,6 +178,7 @@ def get_personality(
         memory_namespace=str(raw.get("memory_namespace", sanitized)).strip() or sanitized,
         prompt=prompt,
         directory=directory.resolve(),
+        tool_groups=_normalize_tool_groups(raw.get("tool_groups")),
     )
 
 
@@ -222,6 +242,7 @@ def create_personality(
     voice_id: str = DEFAULT_VOICE_ID,
     behaviors: dict[str, str] | None = None,
     memory_namespace: str | None = None,
+    tool_groups: list[str] | tuple[str, ...] | None = None,
     personalities_dir: Path | None = None,
     validate_voice: bool = True,
 ) -> PersonalityProfile:
@@ -245,7 +266,8 @@ def create_personality(
         get_voice(voice_id)
 
     namespace = (memory_namespace or sanitized).strip() or sanitized
-    profile_data = {
+    normalized_groups = _normalize_tool_groups(list(tool_groups) if tool_groups is not None else None)
+    profile_data: dict[str, Any] = {
         "id": sanitized,
         "name": name_text,
         "description": description.strip(),
@@ -253,6 +275,8 @@ def create_personality(
         "behaviors": behaviors or {},
         "memory_namespace": namespace,
     }
+    if normalized_groups:
+        profile_data["tool_groups"] = list(normalized_groups)
 
     directory.mkdir(parents=True, exist_ok=False)
     _write_profile_yaml(directory / PROFILE_FILENAME, profile_data)
@@ -269,6 +293,7 @@ def update_personality(
     voice_id: str | None = None,
     behaviors: dict[str, str] | None = None,
     memory_namespace: str | None = None,
+    tool_groups: list[str] | tuple[str, ...] | None = None,
     personalities_dir: Path | None = None,
     validate_voice: bool = True,
 ) -> PersonalityProfile:
@@ -304,6 +329,13 @@ def update_personality(
         if not namespace:
             raise ValueError("memory_namespace cannot be empty")
         raw["memory_namespace"] = namespace
+
+    if tool_groups is not None:
+        normalized_groups = _normalize_tool_groups(list(tool_groups))
+        if normalized_groups:
+            raw["tool_groups"] = list(normalized_groups)
+        else:
+            raw.pop("tool_groups", None)
 
     _write_profile_yaml(profile_path, raw)
 

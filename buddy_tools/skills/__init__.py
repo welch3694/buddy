@@ -15,6 +15,7 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality, get_personality
+from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.pulse import (
     clear_pulse_state,
@@ -1012,6 +1013,18 @@ def build_skill_instructions() -> str:
         "calling advance_skill. The tool returns the authoritative next step — do not invent step order. "
         "When authoring skills, prefer persona scope unless the user asks for a shared skill."
     )
+
+
+SKILL_TOOL_GROUP = ToolGroup(
+    id="skills",
+    title="Skills",
+    when_to_use=(
+        "User wants a guided workflow, checklist, pulse session, or to list/start/"
+        "create/update skills for the active persona."
+    ),
+    tools=tuple(SKILL_TOOL_DEFINITIONS),
+    instructions=build_skill_instructions(),
+)
 
 
 def build_pulse_context(

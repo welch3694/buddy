@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from openai.types.realtime import RealtimeFunctionTool
 
+from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 
@@ -314,6 +315,18 @@ def build_memory_instructions() -> str:
         "Keep memory concise (bullet points like '- Favorite color: red').\n"
         "After saving memory, confirm briefly in spoken language without mentioning tools or files."
     )
+
+
+MEMORY_TOOL_GROUP = ToolGroup(
+    id="memory",
+    title="Memory",
+    when_to_use=(
+        "User asks to remember, forget, update, or recall durable facts "
+        "(preferences, names, household details) stored as markdown notes."
+    ),
+    tools=tuple(MEMORY_TOOL_DEFINITIONS),
+    instructions=build_memory_instructions(),
+)
 
 
 def execute_memory_tool(

@@ -11,7 +11,6 @@ from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.media.camera import (
-    CAMERA_TOOL_DEFINITIONS,
     CAMERA_TOOL_NAMES,
     execute_camera_tool,
     execute_list_cameras_tool,
@@ -19,54 +18,115 @@ from buddy_tools.media.camera import (
 )
 from buddy_tools.voice.listening_pause import build_listening_pause_instructions
 from buddy_tools.episodic.retrieval import (
-    EPISODIC_TOOL_DEFINITIONS,
+    EPISODIC_TOOL_GROUP,
     EPISODIC_TOOL_NAMES,
-    build_episodic_instructions,
     execute_episodic_tool,
 )
 from buddy_tools.memory import (
-    MEMORY_TOOL_DEFINITIONS,
+    MEMORY_TOOL_GROUP,
     MEMORY_TOOL_NAMES,
-    build_memory_instructions,
     execute_memory_tool,
     load_memory_summary,
 )
-from buddy_tools.personality import get_personality
+from buddy_tools.personality import DEFAULT_PERSONALITY_ID, PersonalityProfile, get_personality
 from buddy_tools.personality.tools import (
-    PERSONALITY_TOOL_DEFINITIONS,
     PERSONALITY_TOOL_NAMES,
-    build_personality_instructions,
+    PERSONA_ADMIN_TOOL_GROUP,
+    PERSONA_TOOL_GROUP,
     execute_personality_tool,
+)
+from buddy_tools.core.groups import (
+    ToolGroup,
+    flatten_tool_definitions,
+    resolve_visible_groups,
+    visible_tool_definitions,
 )
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
-from buddy_tools.media.screen import SCREEN_TOOL_DEFINITIONS, execute_screen_tool
+from buddy_tools.media.screen import execute_screen_tool
+from buddy_tools.media.vision import VISION_TOOL_GROUP
 from buddy_tools.skills import (
-    SKILL_TOOL_DEFINITIONS,
+    SKILL_TOOL_GROUP,
     SKILL_TOOL_NAMES,
     build_active_skill_context,
-    build_skill_instructions,
     execute_skill_tool,
 )
 from buddy_tools.infra.startup import build_voice_system_prompt
 from buddy_tools.timers import (
-    TIMER_TOOL_DEFINITIONS,
+    TIMER_TOOL_GROUP,
     TIMER_TOOL_NAMES,
-    build_timer_instructions,
     execute_timer_tool,
 )
 
+# Re-export for bootstrap and other callers.
+__all__ = [
+    "ALL_TOOL_DEFINITIONS",
+    "TOOL_GROUPS",
+    "build_tool_instructions",
+    "execute_tool",
+    "load_memory_summary",
+    "refresh_session_instructions",
+    "tools_for_personality",
+]
+
 logger = logging.getLogger(__name__)
 
-ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
-    MEMORY_TOOL_DEFINITIONS
-    + EPISODIC_TOOL_DEFINITIONS
-    + PERSONALITY_TOOL_DEFINITIONS
-    + SKILL_TOOL_DEFINITIONS
-    + TIMER_TOOL_DEFINITIONS
-    + CAMERA_TOOL_DEFINITIONS
-    + SCREEN_TOOL_DEFINITIONS
+TOOL_GROUPS: tuple[ToolGroup, ...] = (
+    PERSONA_TOOL_GROUP,
+    PERSONA_ADMIN_TOOL_GROUP,
+    MEMORY_TOOL_GROUP,
+    EPISODIC_TOOL_GROUP,
+    SKILL_TOOL_GROUP,
+    TIMER_TOOL_GROUP,
+    VISION_TOOL_GROUP,
 )
+
+ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = flatten_tool_definitions(TOOL_GROUPS)
+
+
+def _default_visible_groups() -> list[ToolGroup]:
+    return [group for group in TOOL_GROUPS if group.default_visible]
+
+
+def _groups_for_instructions(personality_id: str | None) -> list[ToolGroup]:
+    if not personality_id:
+        return _default_visible_groups()
+    try:
+        profile = get_personality(personality_id, validate_voice=False)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.warning("Could not resolve personality %r for tool groups: %s", personality_id, exc)
+        return _default_visible_groups()
+    try:
+        return resolve_visible_groups(
+            TOOL_GROUPS,
+            profile,
+            default_personality_id=DEFAULT_PERSONALITY_ID,
+        )
+    except ValueError as exc:
+        logger.warning("Invalid tool_groups for %r: %s", personality_id, exc)
+        return _default_visible_groups()
+
+
+def _build_routing_section(groups: list[ToolGroup]) -> str:
+    lines = [
+        "## Tool routing",
+        "Choose tools using this decision tree:",
+    ]
+    for group in groups:
+        lines.append(f"- {group.title} (`{group.id}`): {group.when_to_use}")
+    return "\n".join(lines)
+
+
+def _build_active_context_section(personality_id: str) -> str | None:
+    try:
+        profile = get_personality(personality_id, validate_voice=False)
+    except (FileNotFoundError, ValueError) as exc:
+        logger.warning("Could not build active context for %r: %s", personality_id, exc)
+        return None
+    return (
+        "## Active context\n"
+        f"Current personality: {profile.name} (id: {profile.id})."
+    )
 
 
 def build_tool_instructions(
@@ -78,28 +138,21 @@ def build_tool_instructions(
     personality_id: str | None = None,
     include_full_skill_body: bool = False,
 ) -> str:
+    visible_groups = _groups_for_instructions(personality_id)
     parts = [
         base_prompt.strip(),
-        build_memory_instructions(),
-        build_episodic_instructions(),
-        build_personality_instructions(),
-        build_skill_instructions(),
-        build_listening_pause_instructions(),
-        build_timer_instructions(),
-        (
-            "You can see through the user's webcam with capture_camera. Call it when they ask what you "
-            "see, what is in front of you, to look at something, or to describe their surroundings. "
-            "If they want a different webcam (for example OBS Virtual Camera), call list_cameras then "
-            "set_active_camera before capture_camera. After capturing, describe what you see in natural "
-            "spoken language without mentioning tools or cameras."
-        ),
-        (
-            "You can see the user's screen with capture_screen. Call it when they ask what is on their "
-            "screen, to read something visible, or to help with what they are looking at. "
-            "After capturing, describe what you see in natural spoken language without mentioning "
-            "tools or screenshots."
-        ),
+        _build_routing_section(visible_groups),
     ]
+
+    if personality_id:
+        active_context = _build_active_context_section(personality_id)
+        if active_context:
+            parts.append(active_context)
+
+    for group in visible_groups:
+        parts.append(f"## {group.title}\n{group.instructions}")
+
+    parts.append(build_listening_pause_instructions())
 
     if memory_root is not None and persona_namespace and personality_id:
         try:
@@ -137,6 +190,15 @@ def refresh_session_instructions(
         persona_namespace=persona_namespace,
         personality_id=personality_id,
         include_full_skill_body=include_full_skill_body,
+    )
+
+
+def tools_for_personality(profile: PersonalityProfile) -> list[RealtimeFunctionTool]:
+    """Return session tool defs visible for the given personality profile."""
+    return visible_tool_definitions(
+        TOOL_GROUPS,
+        profile,
+        default_personality_id=DEFAULT_PERSONALITY_ID,
     )
 
 

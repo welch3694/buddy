@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from openai.types.realtime import RealtimeFunctionTool
 
+from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 from buddy_tools.episodic.dates import extract_relative_date_from_query_now, resolve_episodic_date_now
@@ -185,6 +186,18 @@ def build_episodic_instructions() -> str:
         "Use semantic memory tools (read_memory / snapshot) for durable facts; "
         "use episodic tools for conversation history and 'when did we talk about X' questions."
     )
+
+
+EPISODIC_TOOL_GROUP = ToolGroup(
+    id="episodic",
+    title="Episodic memory",
+    when_to_use=(
+        "User asks about past conversations, when something was discussed, "
+        "or wants to browse/search conversation history (not durable fact notes)."
+    ),
+    tools=tuple(EPISODIC_TOOL_DEFINITIONS),
+    instructions=build_episodic_instructions(),
+)
 
 
 def _session_blurb(session: EpisodicSession) -> str:
