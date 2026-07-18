@@ -11,7 +11,7 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.memory import migrate_legacy_memory
 from buddy_tools.personality import get_active_personality
-from buddy_tools.core.registry import ALL_TOOL_DEFINITIONS, build_tool_instructions, load_memory_summary
+from buddy_tools.core.registry import build_tool_instructions, load_memory_summary, tools_for_personality
 from buddy_tools.infra.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
 from buddy_tools.voice.endpointing import configure_endpointing
@@ -65,7 +65,7 @@ def configure_runtime_tools(runtime_config: RuntimeConfig | None, memory_root: P
         persona_namespace=profile.memory_namespace,
         personality_id=profile.id,
     )
-    runtime_config.session.tools = list(ALL_TOOL_DEFINITIONS)
+    runtime_config.session.tools = tools_for_personality(profile)
     runtime_config.session.tool_choice = "auto"
 
 

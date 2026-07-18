@@ -19,6 +19,7 @@ from speech_to_speech.LLM.chat import make_user_message
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
 from buddy_tools.voice.listening_pause import get_listening_pause_controller
+from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 
 logger = logging.getLogger(__name__)
@@ -568,6 +569,18 @@ def build_timer_instructions() -> str:
         "Use start_timer for repeating check-ins or interval coaching; cancel_timer to stop; "
         "list_timers to report pace; reschedule_timer or start_timer with replace=true to change cadence atomically."
     )
+
+
+TIMER_TOOL_GROUP = ToolGroup(
+    id="timers",
+    title="Timers",
+    when_to_use=(
+        "User wants reminders, repeating check-ins, interval coaching, "
+        "or to start/cancel/list scheduled proactive turns."
+    ),
+    tools=tuple(TIMER_TOOL_DEFINITIONS),
+    instructions=build_timer_instructions(),
+)
 
 
 def execute_timer_tool(tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:

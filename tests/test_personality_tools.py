@@ -177,8 +177,12 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertEqual(chat.buffer, [])
         self.assertIn("You are Coach.", runtime_config.session.instructions)
         self.assertIn("switch_personality", runtime_config.session.instructions)
+        self.assertIn("Identity rule", runtime_config.session.instructions)
         self.assertIn("narrator", runtime_config.session.audio.output.voice)
         self.assertEqual(handler.ref_text, "narrator transcript")
+        tool_names = {t.name for t in runtime_config.session.tools}
+        self.assertIn("switch_personality", tool_names)
+        self.assertNotIn("create_personality", tool_names)
 
     def test_personality_switch_clears_pending_function_calls(self) -> None:
         """After switch, function_call is gone so tool output cannot be paired in chat."""
@@ -215,6 +219,8 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertIn("read_personality", text)
         self.assertIn("switch_personality", text)
         self.assertIn("list_voices", text)
+        self.assertIn("Identity rule", text)
+        self.assertIn("## Tool routing", text)
 
 
 if __name__ == "__main__":

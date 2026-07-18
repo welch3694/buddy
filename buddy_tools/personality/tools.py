@@ -16,11 +16,12 @@ from buddy_tools.personality import (
     list_personalities,
     update_personality,
 )
+from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 from buddy_tools.voice.voices import DEFAULT_VOICE_ID, list_voices
 
-PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
+_PERSONA_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
         type="function",
         name="list_personalities",
@@ -87,6 +88,9 @@ PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
             },
         },
     ),
+]
+
+_PERSONA_ADMIN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
         type="function",
         name="create_personality",
@@ -129,7 +133,13 @@ PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 "personality_id": {"type": "string"},
                 "name": {"type": "string"},
                 "description": {"type": "string"},
-                "prompt": {"type": "string", "description": "Persona-only prompt.md content — identity, tone, role, traits. Not tool docs or system prompt stack."},
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "Persona-only prompt.md content — identity, tone, role, traits. "
+                        "Not tool docs or system prompt stack."
+                    ),
+                },
                 "voice_id": {"type": "string"},
             },
             "required": ["personality_id"],
@@ -151,21 +161,64 @@ PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     ),
 ]
 
+PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
+    _PERSONA_TOOL_DEFINITIONS + _PERSONA_ADMIN_TOOL_DEFINITIONS
+)
 PERSONALITY_TOOL_NAMES = frozenset(tool.name for tool in PERSONALITY_TOOL_DEFINITIONS)
 
 
-def build_personality_instructions() -> str:
+def build_persona_instructions() -> str:
     return (
-        "You can manage assistant personalities and voices:\n"
+        "Identity rule: You are only the active personality. When the user asks for a "
+        "different persona, to become someone else, or to talk to a named personality, "
+        "you MUST call switch_personality. Never impersonate another persona without that tool.\n"
+        "You can switch and inspect personalities and voices:\n"
         "- list_personalities / list_voices: see what is available\n"
-        "- read_personality: load on-disk prompt.md and profile fields before editing\n"
+        "- read_personality: load on-disk prompt.md and profile fields\n"
         "- switch_personality: become a different persona when asked\n"
         "- switch_voice: change only the cloned voice\n"
+        "After switching personalities, respond briefly in character without mentioning tools."
+    )
+
+
+def build_persona_admin_instructions() -> str:
+    return (
+        "You can create and edit assistant personalities:\n"
         "- create_personality: make a new persona after asking what they should be like\n"
         "- update_personality: refine an existing persona (persona-only prompt.md content)\n"
         "- delete_personality: remove a persona (not buddy)\n"
-        "After switching personalities, respond briefly in character without mentioning tools."
+        "Use read_personality before editing. Prompt content must be persona-only — never "
+        "include tool instructions, memory snapshots, or system prompt boilerplate."
     )
+
+
+def build_personality_instructions() -> str:
+    """Combined personality help (persona + admin) for tests and legacy callers."""
+    return f"{build_persona_instructions()}\n{build_persona_admin_instructions()}"
+
+
+PERSONA_TOOL_GROUP = ToolGroup(
+    id="persona",
+    title="Persona",
+    when_to_use=(
+        "User asks to switch personas, change voice, list personalities, "
+        "or read a personality profile. Prefer switch_personality over roleplay."
+    ),
+    tools=tuple(_PERSONA_TOOL_DEFINITIONS),
+    instructions=build_persona_instructions(),
+)
+
+PERSONA_ADMIN_TOOL_GROUP = ToolGroup(
+    id="persona_admin",
+    title="Persona admin",
+    when_to_use=(
+        "User asks to create, update, or delete a personality (admin; not for roleplay)."
+    ),
+    tools=tuple(_PERSONA_ADMIN_TOOL_DEFINITIONS),
+    instructions=build_persona_admin_instructions(),
+    default_visible=False,
+    admin_only=True,
+)
 
 
 def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:
@@ -193,6 +246,7 @@ def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecut
             "voice_id": profile.voice_id,
             "memory_namespace": profile.memory_namespace,
             "behaviors": profile.behaviors,
+            "tool_groups": list(profile.tool_groups),
         }
         return ToolExecutionResult(output=json.dumps(payload))
 

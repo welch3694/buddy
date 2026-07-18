@@ -10,7 +10,7 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.memory import load_memory_summary
 from buddy_tools.personality import PersonalityProfile, get_personality, set_active_personality
-from buddy_tools.core.registry import build_tool_instructions
+from buddy_tools.core.registry import build_tool_instructions, tools_for_personality
 from buddy_tools.infra.startup import build_voice_system_prompt
 from buddy_tools.voice.session import apply_voice
 
@@ -33,7 +33,7 @@ def apply_personality_switch(
     chat: Chat,
     memory_root: Path,
 ) -> PersonalityProfile:
-    """Activate a personality, refresh session instructions/voice, and reset chat."""
+    """Activate a personality, refresh session instructions/voice/tools, and reset chat."""
     set_active_personality(personality_id)
     profile = get_personality(personality_id)
 
@@ -47,6 +47,7 @@ def apply_personality_switch(
         persona_namespace=profile.memory_namespace,
         personality_id=profile.id,
     )
+    runtime_config.session.tools = tools_for_personality(profile)
 
     apply_voice(profile.voice_id, runtime_config=runtime_config)
     reset_chat_history(chat)
