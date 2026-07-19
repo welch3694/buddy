@@ -52,6 +52,25 @@ def apply_personality_switch(
     apply_voice(profile.voice_id, runtime_config=runtime_config)
     reset_chat_history(chat)
 
+    from buddy_tools.companion.bridge import get_companion_bridge
+    from buddy_tools.companion.publisher import emit_persona
+
+    bridge = get_companion_bridge()
+    if bridge is not None:
+        bridge.set_active_persona(
+            personality_id=profile.id,
+            persona_name=profile.name,
+            persona_namespace=profile.memory_namespace,
+            voice_id=profile.voice_id,
+        )
+    else:
+        emit_persona(
+            personality_id=profile.id,
+            name=profile.name,
+            memory_namespace=profile.memory_namespace,
+            voice_id=profile.voice_id,
+        )
+
     logger.info(
         "Switched to personality %r (%s) with voice %r",
         profile.id,

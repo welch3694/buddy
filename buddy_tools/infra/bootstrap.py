@@ -129,6 +129,9 @@ def insert_local_tool_executor(
         memory_root=memory_root,
         persona_namespace=profile.memory_namespace,
         stop_event=stop_event,
+        personality_id=profile.id,
+        persona_name=profile.name,
+        voice_id=profile.voice_id,
     )
 
     lm_bridge: Queue[Any] = Queue()

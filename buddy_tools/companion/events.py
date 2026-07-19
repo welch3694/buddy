@@ -89,3 +89,23 @@ def salient_pulse_snapshot(state: PulseState | None) -> dict[str, Any]:
 
 def pulse_state_event(state: PulseState | None) -> dict[str, Any]:
     return salient_pulse_snapshot(state)
+
+
+def persona_event(
+    *,
+    personality_id: str,
+    name: str,
+    memory_namespace: str,
+    voice_id: str | None = None,
+    ts: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": "persona",
+        "id": personality_id,
+        "name": name,
+        "memory_namespace": memory_namespace,
+        "ts": ts or _utc_now_iso(),
+    }
+    if voice_id is not None:
+        payload["voice_id"] = voice_id
+    return payload
