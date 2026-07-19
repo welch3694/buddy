@@ -16,6 +16,7 @@ from buddy_tools.infra.context_budget import (
 )
 from buddy_tools.voice.listening_pause import configure_listening_pause, process_transcription_with_listening_pause
 from buddy_tools.voice.clone import refresh_voice_clone_prompt, voice_clone_log_context
+from buddy_tools.voice.turn_state import VoiceTurnState, set_turn_state
 from buddy_tools.voice.voices import ref_text_for_audio_path
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,11 @@ def _patch_qwen3_voice_clone_stability() -> None:
             if getattr(self, "voice_clone_prompt", None) is None:
                 refresh_voice_clone_prompt(self)
             logger.info("Qwen3-TTS synthesizing with %s", voice_clone_log_context(self))
+        set_turn_state(
+            VoiceTurnState.SPEAKING,
+            reason="tts_start",
+            announce_ui=True,
+        )
 
         if self.backend == "mlx":
             yield from original_process_voice_clone(self, text)
@@ -141,6 +147,13 @@ def _patch_pocket_tts_voice_logging() -> None:
             voice = getattr(self, "voice", None)
             if voice is not None:
                 logger.info("Pocket TTS synthesizing with voice=%r", voice)
+            set_turn_state(
+                VoiceTurnState.SPEAKING,
+                reason="tts_start",
+                turn_id=getattr(tts_input, "turn_id", None),
+                turn_revision=getattr(tts_input, "turn_revision", None),
+                announce_ui=True,
+            )
         yield from original_process(self, tts_input)
 
     PocketTTSHandler.process = process_with_voice_log  # type: ignore[method-assign]
@@ -173,6 +186,14 @@ def _iter_llm_outputs_with_context_budget(
 ) -> Iterator[Any]:
     """Run preflight trim and intercept context-overflow failures (testable helper)."""
     from speech_to_speech.pipeline.messages import EndOfResponse, LLMResponseChunk
+
+    set_turn_state(
+        VoiceTurnState.GENERATING,
+        reason="llm_start",
+        turn_id=getattr(request, "turn_id", None),
+        turn_revision=getattr(request, "turn_revision", None),
+        announce_ui=True,
+    )
 
     runtime_config = request.runtime_config
     response = request.response
@@ -211,6 +232,68 @@ def _iter_llm_outputs_with_context_budget(
             )
             continue
         yield item
+
+
+def _mark_listening_after_response() -> None:
+    from buddy_tools.voice.listening_pause import get_listening_pause_controller
+
+    if get_listening_pause_controller().paused:
+        return
+    set_turn_state(VoiceTurnState.LISTENING, reason="response_complete", announce_ui=True)
+
+
+def _wrap_should_listen_for_turn_state(should_listen: Any) -> None:
+    """Wrap Event.set so playback-complete re-enable marks listening (once)."""
+    if should_listen is None or getattr(should_listen, "_buddy_turn_state_wrapped", False):
+        return
+
+    original_set = should_listen.set
+
+    def set_and_mark_listening() -> None:
+        original_set()
+        try:
+            from buddy_tools.voice.turn_state import current_turn_state
+
+            current = current_turn_state()
+        except Exception:
+            return
+        if current in (VoiceTurnState.SPEAKING, VoiceTurnState.GENERATING):
+            _mark_listening_after_response()
+
+    should_listen.set = set_and_mark_listening  # type: ignore[method-assign]
+    should_listen._buddy_turn_state_wrapped = True  # type: ignore[attr-defined]
+
+
+def _patch_response_complete_turn_state() -> None:
+    """Return to listening when playback finishes and should_listen is re-enabled."""
+    from speech_to_speech.connections.local_audio_streamer import LocalAudioStreamer
+
+    if not getattr(LocalAudioStreamer, "_buddy_turn_state_patch_applied", False):
+        original_run = LocalAudioStreamer.run
+
+        def run_with_turn_state(self: Any) -> None:
+            _wrap_should_listen_for_turn_state(self.should_listen)
+            original_run(self)
+
+        LocalAudioStreamer.run = run_with_turn_state  # type: ignore[method-assign]
+        LocalAudioStreamer._buddy_turn_state_patch_applied = True
+
+    try:
+        from speech_to_speech.connections.websocket_streamer import WebSocketStreamer
+    except Exception:
+        return
+
+    if getattr(WebSocketStreamer, "_buddy_turn_state_patch_applied", False):
+        return
+
+    original_ws_init = WebSocketStreamer.__init__
+
+    def init_with_turn_state(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_ws_init(self, *args, **kwargs)
+        _wrap_should_listen_for_turn_state(self.should_listen)
+
+    WebSocketStreamer.__init__ = init_with_turn_state  # type: ignore[method-assign]
+    WebSocketStreamer._buddy_turn_state_patch_applied = True
 
 
 def _patch_llm_context_budget() -> None:
@@ -322,6 +405,7 @@ def apply_patches() -> None:
     _patch_pocket_tts_voice_logging()
     _patch_transcription_notifier_listening_pause()
     _patch_llm_context_budget()
+    _patch_response_complete_turn_state()
     _patch_graceful_shutdown()
 
     original_build = pipeline._build_pipeline_handlers

@@ -23,7 +23,7 @@ For issue creation, editing, or closing without implementation, use the `issue` 
 
 - Agent mode (shell access required)
 - Run from repo root
-- Virtual environment at `.venv/`
+- Virtual environment at `.venv/` — **always** invoke `.\.venv\Scripts\python.exe` (never bare `python` / `py`) for imports, probes, pip, and pytest; see `.cursor/rules/python-venv.mdc`
 - `gh` authenticated for `welch3694/buddy`
 
 ## Inputs
@@ -176,8 +176,9 @@ Run automated tests when they exist; otherwise use the manual test plan from Ste
 
 | Changed area | Command |
 |--------------|---------|
-| Any Python logic (when `tests/` exists) | `.venv\Scripts\activate && python -m pytest tests/ -x` |
-| Single test file | `.venv\Scripts\activate && python -m pytest tests/test_<module>.py -x` |
+| Any Python logic (when `tests/` exists) | `.\.venv\Scripts\python.exe -m pytest tests/ -x` |
+| Single test file | `.\.venv\Scripts\python.exe -m pytest tests/test_<module>.py -x` |
+| Import / API probe | `.\.venv\Scripts\python.exe -c "..."` |
 | No test suite yet | Manual verification per acceptance criteria and test plan |
 
 Fix failures before updating the issue. Do not mark acceptance criteria complete while tests are red unless the user explicitly overrides.
@@ -196,7 +197,7 @@ After implementation passes tests:
 gh issue comment <NUMBER> --body "## Implementation complete
 **Branch:** \`issue/<NUMBER>-<short-slug>\`
 **Changes:** <1-2 sentences>
-**Tests:** \`python -m pytest tests/ ...\` — pass (or manual verification — pass)
+**Tests:** \`.\.venv\Scripts\python.exe -m pytest tests/ ...\` — pass (or manual verification — pass)
 
 ### Acceptance criteria
 - [x] <criterion met>
@@ -272,5 +273,5 @@ User: "Implement issue #12"
 2. Add `in-progress`, comment started
 3. `git checkout main && git pull && git checkout -b issue/12-add-calendar-tool`
 4. Write `.cursor/plans/issue-12-add-calendar-tool.md`, implement in `buddy_tools/`
-5. Run `python -m pytest tests/ -x` if tests exist; otherwise verify tool registration manually
+5. Run `.\.venv\Scripts\python.exe -m pytest tests/ -x` if tests exist; otherwise verify tool registration manually
 6. Comment on issue, set `needs-review`, summarize in chat

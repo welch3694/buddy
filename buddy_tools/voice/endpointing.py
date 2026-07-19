@@ -16,6 +16,7 @@ from buddy_tools.voice.turn_completion_heuristic import (
     classify_turn_completion_heuristic,
     get_heuristic_config,
 )
+from buddy_tools.voice.turn_state import VoiceTurnState, set_turn_state
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
 from speech_to_speech.pipeline.speculative_turns import SpeculativeTurnTracker
@@ -243,6 +244,13 @@ class EndpointingGate:
             gate_state,
         )
         self._schedule_release_locked(_RELEASE_POLL_S)
+        set_turn_state(
+            VoiceTurnState.HOLDING,
+            reason="endpointing_gate",
+            turn_id=pending.turn_id,
+            turn_revision=pending.turn_revision,
+            announce_ui=True,
+        )
         return _ObserveResult.HELD, None
 
     def _flush_or_discard_pending_locked(self) -> None:
@@ -388,6 +396,13 @@ class EndpointingGate:
                     snapshot,
                 )
                 self._schedule_release_locked(min(hold_s, _RELEASE_POLL_S))
+                set_turn_state(
+                    VoiceTurnState.HOLDING,
+                    reason="heuristic_continue",
+                    turn_id=pending.turn_id,
+                    turn_revision=pending.turn_revision,
+                    announce_ui=True,
+                )
                 return _ObserveResult.HELD, None
 
         utterance = pending
@@ -437,6 +452,13 @@ class EndpointingGate:
                 utterance.turn_id,
                 utterance.turn_revision,
                 utterance.transcript[:80],
+            )
+            set_turn_state(
+                VoiceTurnState.GENERATING,
+                reason="endpointing_release",
+                turn_id=utterance.turn_id,
+                turn_revision=utterance.turn_revision,
+                announce_ui=True,
             )
         except Exception:
             logger.exception("Endpointing gate failed to inject commit for turn=%s", utterance.turn_id)
@@ -538,11 +560,24 @@ def commit_voice_turn(
             utterance.turn_id,
             utterance.turn_revision,
         )
+        set_turn_state(
+            VoiceTurnState.LISTENING,
+            reason="silence_gated_only",
+            turn_id=utterance.turn_id,
+            turn_revision=utterance.turn_revision,
+        )
         return iter(())
 
     request = build_commit_request(runtime_config, utterance)
     if request is None:
         return iter(())
+    set_turn_state(
+        VoiceTurnState.GENERATING,
+        reason="voice_commit",
+        turn_id=utterance.turn_id,
+        turn_revision=utterance.turn_revision,
+        announce_ui=True,
+    )
     return iter([request])
 
 
