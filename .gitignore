@@ -72,3 +72,7 @@ voices/ron/
 # User runtime data (memory, active personality selection)
 memory/
 personalities/active.json
+
+# Companion panel (Vite / React)
+companion/node_modules/
+companion/dist/
