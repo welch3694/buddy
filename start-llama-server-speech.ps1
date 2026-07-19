@@ -39,6 +39,22 @@ try {
     Write-Host "LLM model: $($llm.model_name)"
     Write-Host "GGUF: $($llm.model_gguf)"
 
+    # Disable Gemma 4 thinking tokens for voice chat.
+    # Pass JSON via env — Windows PowerShell 5.1 (powershell.exe) strips " from
+    # native CLI args, so --chat-template-kwargs '{"preserve_thinking":false}'
+    # arrives as {preserve_thinking:false} and llama-server fails with:
+    #   parse error ... last read: '{p'; expected string literal
+    # That error is unrelated to personality prompt.md edits; restarting after
+    # an edit just re-hits this quoting bug when start-buddy.ps1 launches 5.1.
+    $chatTemplateKwargs = '{"preserve_thinking":false}'
+    try {
+        $null = $chatTemplateKwargs | ConvertFrom-Json
+    } catch {
+        throw "Internal chat-template-kwargs is not valid JSON: $chatTemplateKwargs"
+    }
+    $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = $chatTemplateKwargs
+    Write-Host "Chat template kwargs: $chatTemplateKwargs"
+
     # Keep --ctx-size in sync with BUDDY_CTX_SIZE (default 16384) in start-speech-to-speech.ps1
     & $llm.server_exe `
         -m $llm.model_gguf `
@@ -51,8 +67,18 @@ try {
         --min-p 0.1 `
         --host 0.0.0.0 --port 8080 `
         --flash-attn on `
-        --chat-template-kwargs '{"preserve_thinking":false}' `
         --log-colors on
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "llama-server exited with code $LASTEXITCODE." -ForegroundColor Red
+        if ($env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS) {
+            Write-Host "LLAMA_ARG_CHAT_TEMPLATE_KWARGS was: $($env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS)" -ForegroundColor Yellow
+        }
+        Write-Host "Note: a --chat-template-kwargs JSON parse error is a Windows PowerShell quoting bug, not a bad personality prompt. This script sets LLAMA_ARG_CHAT_TEMPLATE_KWARGS instead of a CLI flag to avoid that." -ForegroundColor Yellow
+        Wait-IfStartupFailed
+        exit $LASTEXITCODE
+    }
 } catch {
     Write-Host ""
     Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red

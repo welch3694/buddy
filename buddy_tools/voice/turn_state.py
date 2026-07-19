@@ -96,6 +96,15 @@ class TurnStateController:
                         turn_revision=turn_revision,
                     )
                 )
+
+        from buddy_tools.companion.publisher import emit_turn_state
+
+        emit_turn_state(
+            state.value,
+            reason=reason,
+            turn_id=turn_id,
+            turn_revision=turn_revision,
+        )
         return True
 
 
