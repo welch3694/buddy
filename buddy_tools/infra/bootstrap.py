@@ -15,6 +15,7 @@ from buddy_tools.core.registry import build_tool_instructions, load_memory_summa
 from buddy_tools.infra.startup import build_init_instructions
 from buddy_tools.timers import configure_timers
 from buddy_tools.voice.endpointing import configure_endpointing
+from buddy_tools.voice.turn_state import configure_turn_state
 from buddy_tools.pulse import configure_pulse
 from buddy_tools.episodic import configure_episodic, link_episodic_executor
 from buddy_tools.voice.session import apply_startup_voice, register_pipeline_handlers
@@ -99,6 +100,9 @@ def insert_local_tool_executor(
         speculative_turns=speculative_turns,
         should_listen=should_listen,
     )
+    text_output_queue = transcription_notifier_setup.get("text_output_queue")
+    if text_output_queue is not None:
+        configure_turn_state(text_output_queue=text_output_queue)
     configure_pulse(
         text_prompt_queue=text_prompt_queue,
         runtime_config=runtime_config,

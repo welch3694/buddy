@@ -12,13 +12,11 @@ from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.events import PartialTranscriptionEvent, TranscriptionCompletedEvent
 from speech_to_speech.pipeline.messages import PartialTranscription, Transcription
 
+from buddy_tools.voice.turn_state import VoiceTurnState, configure_turn_state, set_turn_state
+
 logger = logging.getLogger(__name__)
 
 PAUSED_PARTIAL_PREFIX = "[paused - ignored] "
-PAUSED_LOG_MESSAGE = (
-    'Listening PAUSED — speech ignored (say "start listening" to resume)'
-)
-RESUMED_LOG_MESSAGE = "Listening RESUMED — responding to speech again"
 STOP_LISTENING_PHRASE = "stop listening"
 START_LISTENING_PHRASE = "start listening"
 
@@ -66,20 +64,20 @@ class ListeningPauseController:
         if self.paused:
             return
         self.paused = True
+        set_turn_state(VoiceTurnState.PAUSED, reason="stop_listening", announce_ui=True)
         if self.cancel_scope is not None:
             self.cancel_scope.cancel()
         if self.should_listen is not None:
             self.should_listen.set()
-        logger.info(PAUSED_LOG_MESSAGE)
 
     def resume(self) -> bool:
         """Resume listening. Returns True when state changed."""
         if not self.paused:
             return False
         self.paused = False
+        set_turn_state(VoiceTurnState.LISTENING, reason="start_listening", announce_ui=True)
         if self.should_listen is not None:
             self.should_listen.set()
-        logger.info(RESUMED_LOG_MESSAGE)
         return True
 
 
@@ -133,6 +131,9 @@ def process_transcription_with_listening_pause(
     """Gate STT output before it reaches chat history or the LLM."""
     active_controller = controller or get_listening_pause_controller()
 
+    if notifier.text_output_queue is not None:
+        configure_turn_state(text_output_queue=notifier.text_output_queue)
+
     if isinstance(transcription, PartialTranscription):
         if active_controller.paused and transcription.text:
             if notifier.text_output_queue is not None:
@@ -148,6 +149,13 @@ def process_transcription_with_listening_pause(
                     str(transcription.text)[:80],
                 )
             return iter(())
+        if transcription.text and not active_controller.paused:
+            set_turn_state(
+                VoiceTurnState.LISTENING,
+                reason="partial_transcription",
+                turn_id=transcription.turn_id,
+                turn_revision=transcription.turn_revision,
+            )
         return None
 
     transcript, language_code, turn_id, turn_revision, speech_stopped_at_s = _extract_transcription_fields(

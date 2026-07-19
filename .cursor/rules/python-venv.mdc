@@ -1,0 +1,34 @@
+---
+description: Always use the project .venv for Python commands and imports
+alwaysApply: true
+---
+
+# Python virtualenv
+
+All Python in this repo must run through `.venv`. System/`py`/`python` on PATH often lacks project packages (`speech_to_speech`, `buddy_tools` deps, etc.) and causes `ModuleNotFoundError`.
+
+## Required
+
+Prefer the venv interpreter directly (reliable in agent shells; do not rely on prior `activate`):
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/ -x
+.\.venv\Scripts\python.exe -c "from speech_to_speech.pipeline import events"
+.\.venv\Scripts\python.exe -m pip show speech-to-speech
+```
+
+On Unix-style shells in the same repo:
+
+```bash
+.venv/bin/python -m pytest tests/ -x
+```
+
+## Do not
+
+- Run bare `python`, `python3`, or `py` for project code, tests, or import probes
+- Assume a previous turn activated the venv (each Shell call may be a fresh session)
+- Use `activate && python ...` as the primary pattern — activation is easy to skip and flaky across shells; call `.\.venv\Scripts\python.exe` instead
+
+## If `.venv` is missing
+
+Tell the user and point them at README setup (`python -m venv .venv`, then `.\setup-venv.ps1`). Do not invent a system-Python workaround for imports.

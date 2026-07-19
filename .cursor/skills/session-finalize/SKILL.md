@@ -96,10 +96,11 @@ Fix critical issues found during review before committing. Report non-blocking s
 
 Run automated tests when a test suite exists; otherwise note manual verification from the issue or plan.
 
-```bash
-.venv\Scripts\activate
-python -m pytest tests/
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/
 ```
+
+Do not use bare `python` — see `.cursor/rules/python-venv.mdc`.
 
 If `tests/` does not exist yet, skip automated tests and document manual verification steps in the PR test plan instead.
 
