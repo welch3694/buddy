@@ -13,6 +13,7 @@ if str(_ROOT) not in sys.path:
 
 from buddy_tools import apply_patches
 from buddy_tools.infra.env import load_env_file
+from buddy_tools.infra.logging_config import quiet_http_client_loggers
 from buddy_tools.infra.shutdown import finalize_buddy_session
 from buddy_tools.infra.startup import inject_s2s_init_chat_prompt
 
@@ -20,6 +21,8 @@ from buddy_tools.infra.startup import inject_s2s_init_chat_prompt
 def main() -> None:
     load_env_file()
     apply_patches()
+    # Before s2s setup_logger: keep Buddy INFO (tool calls) but drop httpx poll spam.
+    quiet_http_client_loggers()
     sys.argv = inject_s2s_init_chat_prompt()
     from speech_to_speech.s2s_pipeline import main as s2s_main
 
