@@ -300,6 +300,14 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             pulse_chunk = handle_pulse_response_chunk(lm_output)
             if pulse_chunk is None:
                 return
+            if pulse_chunk.text:
+                from buddy_tools.companion.publisher import emit_assistant_text
+
+                emit_assistant_text(
+                    pulse_chunk.text,
+                    turn_id=pulse_chunk.turn_id,
+                    turn_revision=pulse_chunk.turn_revision,
+                )
             yield pulse_chunk
             return
 

@@ -123,6 +123,14 @@ def insert_local_tool_executor(
     if telegram_bridge is not None:
         send_telegram_reply = telegram_bridge.send_reply
 
+    from buddy_tools.companion import create_and_start_companion_bridge
+
+    create_and_start_companion_bridge(
+        memory_root=memory_root,
+        persona_namespace=profile.memory_namespace,
+        stop_event=stop_event,
+    )
+
     lm_bridge: Queue[Any] = Queue()
     channel_bridge: Queue[Any] = Queue()
     new_handlers: list[Any] = []
