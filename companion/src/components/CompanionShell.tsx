@@ -1,11 +1,12 @@
 import { BridgeStatus } from "./BridgeStatus";
 import { CentralOrb } from "./CentralOrb";
-import type { ConnectionStatus, TurnState } from "../types/bridge";
+import type { ConnectionStatus, PersonaInfo, TurnState } from "../types/bridge";
 
 type CompanionShellProps = {
   connection: ConnectionStatus;
   turnState: TurnState | null;
   reason: string | null;
+  persona: PersonaInfo | null;
   mock: boolean;
 };
 
@@ -13,12 +14,16 @@ export function CompanionShell({
   connection,
   turnState,
   reason,
+  persona,
   mock,
 }: CompanionShellProps) {
   const stateLabel =
     connection !== "connected"
       ? "OFFLINE"
       : (turnState ?? "STANDBY").toUpperCase();
+
+  const personaName =
+    connection === "connected" && persona?.name ? persona.name : "—";
 
   return (
     <div className="shell">
@@ -27,7 +32,13 @@ export function CompanionShell({
       <div className="shell__scanlines" aria-hidden="true" />
 
       <header className="shell__header">
-        <h1 className="shell__brand">BUDDY</h1>
+        <div className="shell__identity">
+          <h1 className="shell__brand">BUDDY</h1>
+          <div className="shell__persona" aria-live="polite">
+            <span className="shell__persona-key">ACTIVE PERSONA</span>
+            <span className="shell__persona-val">{personaName}</span>
+          </div>
+        </div>
         <BridgeStatus connection={connection} mock={mock} />
       </header>
 

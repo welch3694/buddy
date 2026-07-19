@@ -102,12 +102,41 @@ class CompanionPublisherTests(unittest.TestCase):
 
     def test_snapshot_caches_latest(self) -> None:
         publisher = CompanionEventPublisher()
+        publisher.emit_persona(
+            personality_id="coach",
+            name="Coach",
+            memory_namespace="coach",
+            voice_id="ron",
+        )
         publisher.emit_turn_state("listening")
         publisher.emit_pulse_state(None)
         snapshots = publisher.snapshot_events()
-        self.assertEqual([e["type"] for e in snapshots], ["turn_state", "pulse_state"])
-        self.assertEqual(snapshots[0]["state"], "listening")
-        self.assertFalse(snapshots[1]["active"])
+        self.assertEqual(
+            [e["type"] for e in snapshots],
+            ["persona", "turn_state", "pulse_state"],
+        )
+        self.assertEqual(snapshots[0]["name"], "Coach")
+        self.assertEqual(snapshots[1]["state"], "listening")
+        self.assertFalse(snapshots[2]["active"])
+
+    def test_persona_emit_updates_snapshot(self) -> None:
+        publisher = CompanionEventPublisher()
+        publisher.emit_persona(
+            personality_id="coach",
+            name="Coach",
+            memory_namespace="coach",
+        )
+        publisher.emit_persona(
+            personality_id="buddy",
+            name="Buddy",
+            memory_namespace="buddy",
+            voice_id="jack",
+        )
+        snapshots = publisher.snapshot_events()
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["id"], "buddy")
+        self.assertEqual(snapshots[0]["name"], "Buddy")
+        self.assertEqual(snapshots[0]["voice_id"], "jack")
 
 
 class SalientPulseSnapshotTests(unittest.TestCase):
@@ -166,6 +195,8 @@ class CompanionBridgeStartTests(unittest.TestCase):
             memory_root=self.memory_root,
             persona_namespace="buddy",
             stop_event=stop,
+            personality_id="buddy",
+            persona_name="Buddy",
         )
         self.assertIsNone(bridge)
         self.assertIsNone(get_companion_publisher())
@@ -178,17 +209,28 @@ class CompanionBridgeStartTests(unittest.TestCase):
                 memory_root=self.memory_root,
                 persona_namespace="buddy",
                 stop_event=stop,
+                personality_id="buddy",
+                persona_name="Buddy",
+                voice_id="jack",
             )
         self.assertIsNotNone(bridge)
         publisher = get_companion_publisher()
         self.assertIsNotNone(publisher)
         assert publisher is not None
 
-        # Seeded turn_state on start
+        # Seeded persona + turn_state on start
         events = publisher.drain()
+        persona_events = [e for e in events if e["type"] == "persona"]
+        self.assertTrue(persona_events)
+        self.assertEqual(persona_events[0]["id"], "buddy")
+        self.assertEqual(persona_events[0]["name"], "Buddy")
         turn_events = [e for e in events if e["type"] == "turn_state"]
         self.assertTrue(turn_events)
         self.assertEqual(turn_events[0]["state"], "listening")
+
+        snapshots = publisher.snapshot_events()
+        self.assertEqual(snapshots[0]["type"], "persona")
+        self.assertEqual(snapshots[0]["name"], "Buddy")
 
         save_pulse_state(
             self.memory_root,
@@ -255,6 +297,7 @@ class SchemaDocTests(unittest.TestCase):
         self.assertIn("turn_state", text)
         self.assertIn("assistant_text", text)
         self.assertIn("pulse_state", text)
+        self.assertIn("persona", text)
         self.assertIn("ws://127.0.0.1:8766", text)
 
 

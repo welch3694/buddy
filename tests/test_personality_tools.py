@@ -185,6 +185,41 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertIn("update_personality", tool_names)
         self.assertNotIn("create_personality", tool_names)
 
+    def test_apply_personality_switch_emits_companion_persona(self) -> None:
+        from buddy_tools.companion.publisher import (
+            CompanionEventPublisher,
+            get_companion_publisher,
+            reset_companion_publisher_for_tests,
+            set_companion_publisher,
+        )
+
+        reset_companion_publisher_for_tests()
+        publisher = CompanionEventPublisher()
+        set_companion_publisher(publisher)
+        self.addCleanup(reset_companion_publisher_for_tests)
+
+        runtime_config = RuntimeConfig()
+        chat = Chat(10)
+        handler = Mock()
+        handler.__class__.__name__ = "Qwen3TTSHandler"
+        handler.ref_audio = None
+        handler.ref_text = "old"
+        set_tts_handler(handler)
+
+        apply_personality_switch(
+            "coach",
+            runtime_config=runtime_config,
+            chat=chat,
+            memory_root=self.memory_root,
+        )
+
+        events = publisher.drain()
+        persona_events = [e for e in events if e["type"] == "persona"]
+        self.assertEqual(len(persona_events), 1)
+        self.assertEqual(persona_events[0]["id"], "coach")
+        self.assertEqual(persona_events[0]["name"], "Coach")
+        self.assertIs(get_companion_publisher(), publisher)
+
     def test_personality_switch_clears_pending_function_calls(self) -> None:
         """After switch, function_call is gone so tool output cannot be paired in chat."""
         from openai.types.realtime import RealtimeConversationItemFunctionCall

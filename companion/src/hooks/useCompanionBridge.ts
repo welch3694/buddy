@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  isPersonaEvent,
   isTurnState,
   isTurnStateEvent,
+  personaFromEvent,
   TURN_STATES,
   type ConnectionStatus,
+  type PersonaInfo,
   type TurnState,
 } from "../types/bridge";
 
@@ -11,6 +14,13 @@ const DEFAULT_WS_URL = "ws://127.0.0.1:8766";
 const MIN_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 8000;
 const MOCK_INTERVAL_MS = 2200;
+
+const MOCK_PERSONA: PersonaInfo = {
+  id: "mock",
+  name: "Mock",
+  memoryNamespace: "mock",
+  voiceId: null,
+};
 
 function resolveWsUrl(): string {
   return import.meta.env.VITE_COMPANION_WS_URL?.trim() || DEFAULT_WS_URL;
@@ -25,6 +35,7 @@ export type CompanionBridgeState = {
   connection: ConnectionStatus;
   turnState: TurnState | null;
   reason: string | null;
+  persona: PersonaInfo | null;
   mock: boolean;
 };
 
@@ -37,6 +48,7 @@ export function useCompanionBridge(): CompanionBridgeState {
     mock ? "listening" : null,
   );
   const [reason, setReason] = useState<string | null>(mock ? "mock" : null);
+  const [persona, setPersona] = useState<PersonaInfo | null>(mock ? MOCK_PERSONA : null);
   const backoffRef = useRef(MIN_BACKOFF_MS);
   const wsRef = useRef<WebSocket | null>(null);
   const closedRef = useRef(false);
@@ -48,6 +60,7 @@ export function useCompanionBridge(): CompanionBridgeState {
     setConnection("connected");
     setTurnState(TURN_STATES[0]);
     setReason("mock");
+    setPersona(MOCK_PERSONA);
 
     const id = window.setInterval(() => {
       index = (index + 1) % TURN_STATES.length;
@@ -90,6 +103,11 @@ export function useCompanionBridge(): CompanionBridgeState {
         try {
           payload = JSON.parse(String(event.data));
         } catch {
+          return;
+        }
+
+        if (isPersonaEvent(payload)) {
+          setPersona(personaFromEvent(payload));
           return;
         }
 
@@ -136,5 +154,5 @@ export function useCompanionBridge(): CompanionBridgeState {
     };
   }, [mock]);
 
-  return { connection, turnState, reason, mock };
+  return { connection, turnState, reason, persona, mock };
 }

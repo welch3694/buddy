@@ -36,6 +36,23 @@ Emitted on `TurnStateController` transitions.
 
 `state` is one of: `listening` | `holding` | `generating` | `speaking` | `paused`.
 
+### `persona`
+
+Active personality for the voice session. Emitted once at bridge start and included in connect snapshots.
+
+```json
+{
+  "type": "persona",
+  "id": "coach",
+  "name": "Coach",
+  "memory_namespace": "coach",
+  "voice_id": "ron",
+  "ts": "2026-07-19T16:00:00+00:00"
+}
+```
+
+`voice_id` may be omitted. Re-emitted when the voice session switches personality mid-run; connect snapshots always reflect the latest.
+
 ### `assistant_text`
 
 Caption chunks for what Buddy is saying (post pulse-suppress filter).
@@ -87,4 +104,4 @@ Full `session_config` is not broadcast.
 
 ## On connect
 
-The server immediately sends the latest cached `turn_state` and `pulse_state` snapshots (if any), then streams live events.
+The server immediately sends the latest cached `persona`, `turn_state`, and `pulse_state` snapshots (if any), then streams live events.

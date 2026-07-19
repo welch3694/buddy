@@ -36,6 +36,15 @@ class PulseStateWatcher:
         self.poll_interval_s = max(0.1, poll_interval_s)
         self._thread: threading.Thread | None = None
         self._last_fingerprint: str | None = None
+        self._ns_lock = threading.Lock()
+
+    def set_persona_namespace(self, persona_namespace: str) -> None:
+        """Retarget polling after a mid-session personality switch."""
+        with self._ns_lock:
+            if persona_namespace == self.persona_namespace:
+                return
+            self.persona_namespace = persona_namespace
+            self._last_fingerprint = None
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -59,11 +68,13 @@ class PulseStateWatcher:
         return f"{mtime}:{json.dumps(body, sort_keys=True, default=str)}"
 
     def _run(self) -> None:
-        path = pulse_state_path(self.memory_root, self.persona_namespace)
-        logger.debug("Companion pulse watcher polling %s", path)
+        logger.debug("Companion pulse watcher started")
         while not self.stop_event.is_set():
             try:
-                state = load_pulse_state(self.memory_root, self.persona_namespace)
+                with self._ns_lock:
+                    namespace = self.persona_namespace
+                path = pulse_state_path(self.memory_root, namespace)
+                state = load_pulse_state(self.memory_root, namespace)
                 snapshot = salient_pulse_snapshot(state)
                 fingerprint = self._fingerprint(snapshot, path)
                 if fingerprint != self._last_fingerprint:

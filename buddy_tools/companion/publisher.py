@@ -11,7 +11,12 @@ import threading
 from queue import Empty, Full, Queue
 from typing import Any
 
-from buddy_tools.companion.events import assistant_text_event, pulse_state_event, turn_state_event
+from buddy_tools.companion.events import (
+    assistant_text_event,
+    persona_event,
+    pulse_state_event,
+    turn_state_event,
+)
 from buddy_tools.pulse.state import PulseState
 
 logger = logging.getLogger(__name__)
@@ -30,6 +35,7 @@ class CompanionEventPublisher:
         self._lock = threading.Lock()
         self._latest_turn_state: dict[str, Any] | None = None
         self._latest_pulse_state: dict[str, Any] | None = None
+        self._latest_persona: dict[str, Any] | None = None
 
     def emit(self, event: dict[str, Any]) -> None:
         """Enqueue an event without blocking. Drops oldest on overflow."""
@@ -39,6 +45,8 @@ class CompanionEventPublisher:
                 self._latest_turn_state = dict(event)
             elif event_type == "pulse_state":
                 self._latest_pulse_state = dict(event)
+            elif event_type == "persona":
+                self._latest_persona = dict(event)
 
         while True:
             try:
@@ -87,6 +95,23 @@ class CompanionEventPublisher:
     def emit_pulse_state(self, state: PulseState | None) -> None:
         self.emit(pulse_state_event(state))
 
+    def emit_persona(
+        self,
+        *,
+        personality_id: str,
+        name: str,
+        memory_namespace: str,
+        voice_id: str | None = None,
+    ) -> None:
+        self.emit(
+            persona_event(
+                personality_id=personality_id,
+                name=name,
+                memory_namespace=memory_namespace,
+                voice_id=voice_id,
+            )
+        )
+
     def try_get(self) -> dict[str, Any] | None:
         try:
             return self._queue.get_nowait()
@@ -103,9 +128,11 @@ class CompanionEventPublisher:
         return events
 
     def snapshot_events(self) -> list[dict[str, Any]]:
-        """Current turn + pulse snapshots for newly connected clients."""
+        """Current persona + turn + pulse snapshots for newly connected clients."""
         with self._lock:
             snapshots: list[dict[str, Any]] = []
+            if self._latest_persona is not None:
+                snapshots.append(dict(self._latest_persona))
             if self._latest_turn_state is not None:
                 snapshots.append(dict(self._latest_turn_state))
             if self._latest_pulse_state is not None:
@@ -169,3 +196,21 @@ def emit_pulse_state(state: PulseState | None) -> None:
     if publisher is None:
         return
     publisher.emit_pulse_state(state)
+
+
+def emit_persona(
+    *,
+    personality_id: str,
+    name: str,
+    memory_namespace: str,
+    voice_id: str | None = None,
+) -> None:
+    publisher = get_companion_publisher()
+    if publisher is None:
+        return
+    publisher.emit_persona(
+        personality_id=personality_id,
+        name=name,
+        memory_namespace=memory_namespace,
+        voice_id=voice_id,
+    )
