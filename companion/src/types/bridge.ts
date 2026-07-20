@@ -35,7 +35,19 @@ export type PersonaEvent = {
   ts: string;
 };
 
-export type BridgeEvent = TurnStateEvent | PersonaEvent | { type: string; [key: string]: unknown };
+export type AssistantTextEvent = {
+  type: "assistant_text";
+  text: string;
+  turn_id?: string | null;
+  turn_revision?: number | null;
+  ts: string;
+};
+
+export type BridgeEvent =
+  | TurnStateEvent
+  | PersonaEvent
+  | AssistantTextEvent
+  | { type: string; [key: string]: unknown };
 
 export function isTurnState(value: unknown): value is TurnState {
   return typeof value === "string" && (TURN_STATES as readonly string[]).includes(value);
@@ -65,4 +77,10 @@ export function personaFromEvent(event: PersonaEvent): PersonaInfo {
     memoryNamespace: event.memory_namespace,
     voiceId: typeof event.voice_id === "string" ? event.voice_id : null,
   };
+}
+
+export function isAssistantTextEvent(value: unknown): value is AssistantTextEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  return event.type === "assistant_text" && typeof event.text === "string";
 }

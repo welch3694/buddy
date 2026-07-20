@@ -10,6 +10,7 @@ export default function App() {
       turnState={bridge.turnState}
       reason={bridge.reason}
       persona={bridge.persona}
+      captionText={bridge.captionText}
       mock={bridge.mock}
     />
   );

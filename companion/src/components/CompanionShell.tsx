@@ -1,5 +1,7 @@
 import { BridgeStatus } from "./BridgeStatus";
 import { CentralOrb } from "./CentralOrb";
+import { LiveCaptions } from "./LiveCaptions";
+import { useCaptionHighlight } from "../hooks/useCaptionHighlight";
 import type { ConnectionStatus, PersonaInfo, TurnState } from "../types/bridge";
 
 type CompanionShellProps = {
@@ -7,6 +9,7 @@ type CompanionShellProps = {
   turnState: TurnState | null;
   reason: string | null;
   persona: PersonaInfo | null;
+  captionText: string;
   mock: boolean;
 };
 
@@ -15,8 +18,11 @@ export function CompanionShell({
   turnState,
   reason,
   persona,
+  captionText,
   mock,
 }: CompanionShellProps) {
+  const captions = useCaptionHighlight(captionText, turnState);
+
   const stateLabel =
     connection !== "connected"
       ? "OFFLINE"
@@ -24,6 +30,17 @@ export function CompanionShell({
 
   const personaName =
     connection === "connected" && persona?.name ? persona.name : "—";
+
+  const captionStatus =
+    connection !== "connected"
+      ? "—"
+      : captions.phase === "idle"
+        ? "STANDBY"
+        : captions.phase === "speaking"
+          ? "LIVE"
+          : captions.phase === "settled"
+            ? "SETTLED"
+            : "BUFFER";
 
   return (
     <div className="shell">
@@ -44,6 +61,11 @@ export function CompanionShell({
 
       <main className="shell__stage">
         <CentralOrb turnState={turnState} connection={connection} />
+        <LiveCaptions
+          words={captions.words}
+          activeWordIndex={captions.activeWordIndex}
+          phase={captions.phase}
+        />
       </main>
 
       <footer className="shell__telemetry">
@@ -57,9 +79,17 @@ export function CompanionShell({
             {connection === "connected" && reason ? reason : "—"}
           </span>
         </div>
-        <div className="shell__tele-block shell__tele-block--reserve">
+        <div className="shell__tele-block">
           <span className="shell__tele-key">CAPTIONS</span>
-          <span className="shell__tele-val shell__tele-val--dim">STANDBY</span>
+          <span
+            className={
+              captions.phase === "idle" || connection !== "connected"
+                ? "shell__tele-val shell__tele-val--dim"
+                : "shell__tele-val"
+            }
+          >
+            {captionStatus}
+          </span>
         </div>
         <div className="shell__tele-block shell__tele-block--reserve">
           <span className="shell__tele-key">SENSES</span>
