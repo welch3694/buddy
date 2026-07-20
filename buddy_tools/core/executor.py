@@ -53,6 +53,7 @@ _SKIPPED_TOOL_OUTPUT = (
     "Error: tool round limit reached; this tool was not executed. "
     "Summarize what you have and tell the user you could not finish looking up memory."
 )
+CLAIM_TTS_FALLBACK = "I didn't actually run that — say it again and I'll try."
 
 
 def _log_tool_result(tool_name: str, result: ToolExecutionResult) -> None:
@@ -311,6 +312,21 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         logger.info("Queued LLM follow-up after tool execution (round %d)", self._tool_rounds)
         return True
 
+    def _claim_tts_fallback_chunk(self) -> LLMResponseChunk | None:
+        """Build a spoken fallback chunk from the last remembered turn context."""
+        ctx = self._pending_context
+        if ctx is None:
+            return None
+        return LLMResponseChunk(
+            text=CLAIM_TTS_FALLBACK,
+            language_code=ctx.language_code,
+            runtime_config=ctx.runtime_config,
+            response=ctx.response,
+            turn_id=ctx.turn_id,
+            turn_revision=ctx.turn_revision,
+            speech_stopped_at_s=ctx.speech_stopped_at_s,
+        )
+
     def process(self, lm_output: LLMOut) -> Iterator[LLMOut]:
         if isinstance(lm_output, LLMResponseChunk):
             if not self._turn_output_allowed(lm_output.turn_id, lm_output.turn_revision):
@@ -322,6 +338,10 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 self._turn_text_buffer.append(lm_output.text)
             pulse_chunk = handle_pulse_response_chunk(lm_output)
             if pulse_chunk is None:
+                return
+            full_text = "".join(self._turn_text_buffer)
+            if claims_without_receipt(full_text, self._turn_receipts) and not self._pending_tools:
+                # Hold fabricated action claims until receipts exist (or EOR fallback).
                 return
             if pulse_chunk.text:
                 from buddy_tools.companion.publisher import emit_assistant_text
@@ -344,6 +364,8 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
 
             full_text = "".join(self._turn_text_buffer).strip()
             self._turn_text_buffer.clear()
+            spoken_text = full_text
+            fallback_chunk: LLMResponseChunk | None = None
             if claims_without_receipt(full_text, self._turn_receipts):
                 claims = find_action_claims(full_text)
                 preview = full_text if len(full_text) <= 80 else full_text[:80] + "..."
@@ -356,13 +378,24 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                         "text_preview": preview,
                     },
                 )
+                fallback_chunk = self._claim_tts_fallback_chunk()
+                spoken_text = CLAIM_TTS_FALLBACK if fallback_chunk is not None else ""
             handle_pulse_end_of_response()
-            record_assistant_speech_for_active_pulse(full_text)
-            _log_episodic_assistant_turn(lm_output.turn_id, full_text)
+            record_assistant_speech_for_active_pulse(spoken_text)
+            _log_episodic_assistant_turn(lm_output.turn_id, spoken_text)
 
             self._tool_rounds = 0
             self._pending_context = None
             self._turn_receipts.clear()
+            if fallback_chunk is not None:
+                from buddy_tools.companion.publisher import emit_assistant_text
+
+                emit_assistant_text(
+                    fallback_chunk.text,
+                    turn_id=fallback_chunk.turn_id,
+                    turn_revision=fallback_chunk.turn_revision,
+                )
+                yield fallback_chunk
             yield lm_output
             return
 

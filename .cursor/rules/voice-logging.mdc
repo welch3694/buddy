@@ -16,7 +16,7 @@ Buddy ships a localhost companion panel for turn state, captions, and pulse sens
   - **safe context** (ids, scopes, short argument summaries — not full prompts or memory content)
 - Unexpected exceptions use `logger.exception` (via `log_tool_failure(..., exc=exc)`).
 - Do not return `"Error: …"` to the LLM without logging on the server side.
-- When assistant text matches action-completion claims (starting / saved / remembered / cancelled / updated / done, etc.) and the executor has **no turn receipts**, log **WARNING** via `log_tool_bypass` with `tool_bypass`, reason, and safe context (`turn_id`, matched claims, receipt count, short text preview). TTS gating of those claims is a separate concern — this rule requires the WARNING even if speech still goes out.
+- When assistant text matches action-completion claims (starting / saved / remembered / cancelled / updated / done, etc.) and the executor has **no turn receipts**, log **WARNING** via `log_tool_bypass` with `tool_bypass`, reason, and safe context (`turn_id`, matched claims, receipt count, short text preview). The executor also holds those claims off TTS and may speak an honest fallback instead — this rule still requires the WARNING on every bypass turn.
 
 ## Pattern
 
