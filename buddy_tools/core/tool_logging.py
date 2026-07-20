@@ -61,6 +61,15 @@ def log_tool_failure(
         logger.warning(message)
 
 
+def log_tool_bypass(
+    reason: str,
+    *,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """WARNING when assistant claims an action with no tool receipt this turn."""
+    logger.warning("tool_bypass: %s%s", reason, _format_context(context))
+
+
 def tool_error(
     tool_name: str,
     reason: str,
