@@ -22,6 +22,7 @@ from buddy_tools.voice.listening_pause import (
     ListeningPauseController,
     process_transcription_with_listening_pause,
 )
+from buddy_tools.voice.short_utterance_gate import reset_short_utterance_config_for_tests
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, Transcription
 
@@ -64,6 +65,7 @@ class EndpointingGateTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_endpointing_for_tests()
         reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
         self.queue: Queue = Queue()
         self.runtime_config = RuntimeConfig()
         self.runtime_config.chat.add_item = Mock()
@@ -81,6 +83,7 @@ class EndpointingGateTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_endpointing_for_tests()
         reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
 
     def _observe(self, text: str, *, turn_id: str = "t1", revision: int = 0) -> list[GenerateResponseRequest]:
         result = process_with_endpointing_gate(
@@ -310,6 +313,7 @@ class SilenceGatedOnlyTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_endpointing_for_tests()
         reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
         self.queue: Queue = Queue()
         self.runtime_config = RuntimeConfig()
         self.runtime_config.chat.add_item = Mock()
@@ -327,6 +331,7 @@ class SilenceGatedOnlyTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_endpointing_for_tests()
         reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
 
     def _observe(self, text: str, *, turn_id: str = "t1", revision: int = 0) -> list[GenerateResponseRequest]:
         result = process_with_endpointing_gate(
@@ -405,6 +410,98 @@ class SilenceGatedOnlyTests(unittest.TestCase):
         self.assertEqual(outputs, [])
         self.runtime_config.chat.add_item.assert_not_called()
         side_effects.assert_called_once()
+
+
+class ShortUtteranceCommitTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_endpointing_for_tests()
+        reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
+        self.queue: Queue = Queue()
+        self.runtime_config = RuntimeConfig()
+        self.runtime_config.chat.add_item = Mock()
+        self.notifier = Mock()
+        self.notifier.text_output_queue = None
+        self.notifier.should_listen = Event()
+        self.notifier.runtime_config = self.runtime_config
+        self.tracker = Mock()
+        configure_endpointing(
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            speculative_turns=self.tracker,
+        )
+
+    def tearDown(self) -> None:
+        reset_endpointing_for_tests()
+        reset_heuristic_config_for_tests()
+        reset_short_utterance_config_for_tests()
+
+    def _observe(self, text: str, *, turn_id: str = "t1", revision: int = 0) -> list[GenerateResponseRequest]:
+        result = process_with_endpointing_gate(
+            self.notifier,
+            transcript=text,
+            language_code=None,
+            turn_id=turn_id,
+            turn_revision=revision,
+            speech_stopped_at_s=100.0,
+        )
+        if result is None:
+            return []
+        return list(result)
+
+    def test_sync_discard_filler_skips_side_effects_and_chat(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=False):
+            with patch("buddy_tools.voice.endpointing.perform_commit_side_effects") as side_effects:
+                outputs = self._observe("yeah")
+
+        self.assertEqual(outputs, [])
+        self.runtime_config.chat.add_item.assert_not_called()
+        side_effects.assert_not_called()
+
+    def test_sync_discard_uh_skips_commit(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=False):
+            with patch("buddy_tools.voice.endpointing.perform_commit_side_effects") as side_effects:
+                outputs = self._observe("uh")
+
+        self.assertEqual(outputs, [])
+        self.runtime_config.chat.add_item.assert_not_called()
+        side_effects.assert_not_called()
+
+    def test_sync_multi_word_still_commits(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=False):
+            outputs = self._observe("hello there")
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], GenerateResponseRequest)
+        self.runtime_config.chat.add_item.assert_called_once()
+
+    def test_timer_discard_filler_commits_tracker_without_llm(self) -> None:
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.side_effect = [None, True]
+        self.tracker.has_pending_reopen_or_grace.return_value = False
+        self.tracker.commit = Mock()
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=False):
+            with patch("buddy_tools.voice.endpointing.perform_commit_side_effects") as side_effects:
+                with patch.object(Timer, "start", lambda self: None):
+                    outputs = self._observe("yeah")
+                    self.assertEqual(outputs, [])
+
+                get_endpointing_gate()._on_release_timer()
+
+        self.assertTrue(self.queue.empty())
+        self.runtime_config.chat.add_item.assert_not_called()
+        side_effects.assert_not_called()
+        self.tracker.commit.assert_called_once_with("t1", 0)
 
 
 if __name__ == "__main__":
