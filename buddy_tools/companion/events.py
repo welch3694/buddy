@@ -296,3 +296,19 @@ def persona_event(
     if voice_id is not None:
         payload["voice_id"] = voice_id
     return payload
+
+
+def theme_event(
+    *,
+    theme_id: str,
+    name: str,
+    tokens: dict[str, str],
+    ts: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "theme",
+        "id": theme_id,
+        "name": name,
+        "tokens": dict(tokens),
+        "ts": ts or _utc_now_iso(),
+    }

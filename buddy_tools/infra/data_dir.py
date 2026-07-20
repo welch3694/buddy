@@ -16,6 +16,8 @@ from buddy_tools.personality import (
     PROMPT_FILENAME,
     set_personalities_dir,
 )
+from buddy_tools.themes.catalog import set_themes_dir
+from buddy_tools.themes.schema import THEME_FILENAME, is_valid_theme_dir
 from buddy_tools.voice.voices import (
     AUDIO_FILENAME,
     REF_TEXT_FILENAME,
@@ -46,6 +48,10 @@ def get_shipped_voices_dir() -> Path:
     return get_repo_root() / "voices"
 
 
+def get_shipped_themes_dir() -> Path:
+    return get_repo_root() / "themes"
+
+
 def get_built_in_skills_dir() -> Path:
     return get_repo_root() / "skills"
 
@@ -56,6 +62,10 @@ def get_user_skills_dir() -> Path:
 
 def get_user_voices_dir() -> Path:
     return get_data_dir() / "voices"
+
+
+def get_user_themes_dir() -> Path:
+    return get_data_dir() / "themes"
 
 
 def default_data_dir() -> Path:
@@ -95,6 +105,10 @@ def _is_valid_personality_dir(path: Path) -> bool:
 
 def _is_valid_voice_dir(path: Path) -> bool:
     return (path / AUDIO_FILENAME).is_file() and (path / REF_TEXT_FILENAME).is_file()
+
+
+def _is_valid_theme_pack_dir(path: Path) -> bool:
+    return (path / THEME_FILENAME).is_file() and is_valid_theme_dir(path)
 
 
 def _memory_dir_has_content(memory_dir: Path) -> bool:
@@ -187,6 +201,34 @@ def seed_shipped_voices(shipped_dir: Path, user_dir: Path) -> list[str]:
     return seeded
 
 
+def seed_shipped_themes(shipped_dir: Path, user_dir: Path) -> list[str]:
+    """Copy shipped theme packs into user_dir when missing or incomplete."""
+    if not shipped_dir.is_dir():
+        return []
+
+    user_dir.mkdir(parents=True, exist_ok=True)
+    seeded: list[str] = []
+
+    for entry in sorted(shipped_dir.iterdir()):
+        if not entry.is_dir() or not _SAFE_NAME.match(entry.name):
+            continue
+        if not _is_valid_theme_pack_dir(entry):
+            continue
+
+        target = user_dir / entry.name
+        if _is_valid_theme_pack_dir(target):
+            continue
+
+        if target.exists():
+            _remove_tree(target)
+
+        shutil.copytree(entry, target)
+        seeded.append(entry.name)
+        logger.info("Seeded theme %r from %s", entry.name, entry)
+
+    return seeded
+
+
 def migrate_legacy_user_data(repo_root: Path, data_dir: Path) -> list[str]:
     """Copy legacy repo memory and active.json into the user data dir when appropriate."""
     actions: list[str] = []
@@ -228,16 +270,19 @@ def configure_user_data() -> Path:
     (data_dir / "personalities").mkdir(parents=True, exist_ok=True)
     (data_dir / "skills").mkdir(parents=True, exist_ok=True)
     (data_dir / "voices").mkdir(parents=True, exist_ok=True)
+    (data_dir / "themes").mkdir(parents=True, exist_ok=True)
 
     migrate_legacy_user_data(repo_root, data_dir)
     seeded_personalities = seed_shipped_personalities(
         get_shipped_personalities_dir(), data_dir / "personalities"
     )
     seeded_voices = seed_shipped_voices(get_shipped_voices_dir(), data_dir / "voices")
+    seeded_themes = seed_shipped_themes(get_shipped_themes_dir(), data_dir / "themes")
 
     set_memory_root(data_dir / "memory")
     set_personalities_dir(data_dir / "personalities")
     set_voices_dir(data_dir / "voices")
+    set_themes_dir(data_dir / "themes")
 
     _DATA_DIR = data_dir
     _CONFIGURED = True
@@ -247,6 +292,8 @@ def configure_user_data() -> Path:
         logger.info("Seeded personalities: %s", ", ".join(seeded_personalities))
     if seeded_voices:
         logger.info("Seeded voices: %s", ", ".join(seeded_voices))
+    if seeded_themes:
+        logger.info("Seeded themes: %s", ", ".join(seeded_themes))
 
     return data_dir
 

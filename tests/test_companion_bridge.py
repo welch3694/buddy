@@ -166,16 +166,23 @@ class CompanionPublisherTests(unittest.TestCase):
             memory_namespace="coach",
             voice_id="ron",
         )
+        publisher.emit_theme(
+            theme_id="ember",
+            name="Ember",
+            tokens={"--void": "#120805", "--teal": "#f0a060"},
+        )
         publisher.emit_turn_state("listening")
         publisher.emit_pulse_state(None)
         snapshots = publisher.snapshot_events()
         self.assertEqual(
             [e["type"] for e in snapshots],
-            ["persona", "turn_state", "pulse_state"],
+            ["persona", "theme", "turn_state", "pulse_state"],
         )
         self.assertEqual(snapshots[0]["name"], "Coach")
-        self.assertEqual(snapshots[1]["state"], "listening")
-        self.assertFalse(snapshots[2]["active"])
+        self.assertEqual(snapshots[1]["id"], "ember")
+        self.assertEqual(snapshots[1]["tokens"]["--void"], "#120805")
+        self.assertEqual(snapshots[2]["state"], "listening")
+        self.assertFalse(snapshots[3]["active"])
 
     def test_persona_emit_updates_snapshot(self) -> None:
         publisher = CompanionEventPublisher()
@@ -195,6 +202,24 @@ class CompanionPublisherTests(unittest.TestCase):
         self.assertEqual(snapshots[0]["id"], "buddy")
         self.assertEqual(snapshots[0]["name"], "Buddy")
         self.assertEqual(snapshots[0]["voice_id"], "jack")
+
+    def test_theme_emit_updates_snapshot(self) -> None:
+        publisher = CompanionEventPublisher()
+        publisher.emit_theme(
+            theme_id="default",
+            name="Default",
+            tokens={"--void": "#020812"},
+        )
+        publisher.emit_theme(
+            theme_id="slate",
+            name="Slate",
+            tokens={"--void": "#0a0c10"},
+        )
+        snapshots = publisher.snapshot_events()
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["type"], "theme")
+        self.assertEqual(snapshots[0]["id"], "slate")
+        self.assertEqual(snapshots[0]["tokens"]["--void"], "#0a0c10")
 
 
 class SalientPulseSnapshotTests(unittest.TestCase):

@@ -50,6 +50,7 @@ from buddy_tools.episodic import (
 from buddy_tools.episodic.turns import truncate_tool_output
 from buddy_tools.channels.turn_context import get_turn
 from buddy_tools.voice.session import apply_voice
+from buddy_tools.themes.session import apply_theme
 from buddy_tools.voice.action_intents import (
     clear_action_intent,
     peek_action_intent,
@@ -299,6 +300,14 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 except (FileNotFoundError, ValueError) as exc:
                     logger.exception("Tool %s: voice switch failed", tool.name)
                     result = ToolExecutionResult(output=f"Error: could not switch voice: {exc}")
+
+            if result.theme_switch_id:
+                try:
+                    theme_pack = apply_theme(result.theme_switch_id)
+                    result = ToolExecutionResult(output=f"Now using the {theme_pack.name} theme.")
+                except (FileNotFoundError, ValueError, OSError) as exc:
+                    logger.exception("Tool %s: theme switch failed", tool.name)
+                    result = ToolExecutionResult(output=f"Error: could not switch theme: {exc}")
 
             if result.refresh_instructions:
                 try:

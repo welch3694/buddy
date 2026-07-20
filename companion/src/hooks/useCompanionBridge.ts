@@ -4,20 +4,24 @@ import {
   isPersonaEvent,
   isPulseStateEvent,
   isSpeakingProgressEvent,
+  isThemeEvent,
   isToolCallEvent,
   isTurnState,
   isTurnStateEvent,
   personaFromEvent,
+  themeFromEvent,
   TURN_STATES,
   type ConnectionStatus,
   type PersonaInfo,
   type PulseStateActive,
   type PulseStateEvent,
   type SpeakingPlayback,
+  type ThemeInfo,
   type ToolCallEvent,
   type ToolCallToast,
   type TurnState,
 } from "../types/bridge";
+import { applyThemeTokens } from "../theme/applyThemeTokens";
 
 const DEFAULT_WS_URL = "ws://127.0.0.1:8766";
 const MIN_BACKOFF_MS = 500;
@@ -130,6 +134,7 @@ export type CompanionBridgeState = {
   turnState: TurnState | null;
   reason: string | null;
   persona: PersonaInfo | null;
+  theme: ThemeInfo | null;
   captionText: string;
   /** PCM playback timing from the bridge; null until first sample / mock tick. */
   speakingPlayback: SpeakingPlayback | null;
@@ -151,6 +156,7 @@ export function useCompanionBridge(): CompanionBridgeState {
   );
   const [reason, setReason] = useState<string | null>(mock ? "mock" : null);
   const [persona, setPersona] = useState<PersonaInfo | null>(mock ? MOCK_PERSONA : null);
+  const [theme, setTheme] = useState<ThemeInfo | null>(null);
   const [captionText, setCaptionText] = useState("");
   const [speakingPlayback, setSpeakingPlayback] = useState<SpeakingPlayback | null>(null);
   const [pulseState, setPulseState] = useState<PulseStateEvent | null>(
@@ -322,6 +328,13 @@ export function useCompanionBridge(): CompanionBridgeState {
           return;
         }
 
+        if (isThemeEvent(payload)) {
+          const next = themeFromEvent(payload);
+          applyThemeTokens(next.tokens);
+          setTheme(next);
+          return;
+        }
+
         if (isAssistantTextEvent(payload)) {
           const turnId = typeof payload.turn_id === "string" ? payload.turn_id : null;
           const revision =
@@ -417,6 +430,7 @@ export function useCompanionBridge(): CompanionBridgeState {
     turnState,
     reason,
     persona,
+    theme,
     captionText,
     speakingPlayback,
     pulseState,
