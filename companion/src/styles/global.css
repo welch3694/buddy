@@ -238,10 +238,6 @@ body {
   min-width: 0;
 }
 
-.senses-hud__row--vars {
-  margin-top: 0.1rem;
-}
-
 .senses-hud__k {
   font-size: 0.62rem;
   letter-spacing: 0.14em;
@@ -259,16 +255,6 @@ body {
 
 .senses-hud__v--cue {
   color: var(--amber);
-}
-
-.senses-hud__v--flight {
-  color: var(--teal);
-  text-shadow: 0 0 8px rgba(61, 224, 200, 0.45);
-}
-
-.senses-hud__v--vars {
-  white-space: nowrap;
-  opacity: 0.85;
 }
 
 @media (max-width: 720px) {
