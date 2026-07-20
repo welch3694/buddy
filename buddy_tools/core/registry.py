@@ -57,6 +57,11 @@ from buddy_tools.timers import (
     TIMER_TOOL_NAMES,
     execute_timer_tool,
 )
+from buddy_tools.themes import (
+    THEME_TOOL_GROUP,
+    THEME_TOOL_NAMES,
+    execute_theme_tool,
+)
 
 # Re-export for bootstrap and other callers.
 __all__ = [
@@ -74,6 +79,7 @@ logger = logging.getLogger(__name__)
 TOOL_GROUPS: tuple[ToolGroup, ...] = (
     PERSONA_TOOL_GROUP,
     PERSONA_ADMIN_TOOL_GROUP,
+    THEME_TOOL_GROUP,
     MEMORY_TOOL_GROUP,
     EPISODIC_TOOL_GROUP,
     SKILL_TOOL_GROUP,
@@ -234,6 +240,9 @@ def execute_tool(
 
         if tool_name in PERSONALITY_TOOL_NAMES:
             return execute_personality_tool(tool_name, args)
+
+        if tool_name in THEME_TOOL_NAMES:
+            return execute_theme_tool(tool_name, args)
 
         if tool_name in SKILL_TOOL_NAMES:
             return execute_skill_tool(memory_root, persona_namespace, tool_name, args)

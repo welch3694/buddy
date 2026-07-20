@@ -45,6 +45,7 @@ class ToolGroupRegistrationTests(unittest.TestCase):
             {
                 "persona",
                 "persona_admin",
+                "theme",
                 "memory",
                 "episodic",
                 "skills",

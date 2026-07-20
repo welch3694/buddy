@@ -16,6 +16,7 @@ from buddy_tools.companion.events import (
     persona_event,
     pulse_state_event,
     speaking_progress_event,
+    theme_event,
     tool_call_event,
     turn_state_event,
 )
@@ -38,6 +39,7 @@ class CompanionEventPublisher:
         self._latest_turn_state: dict[str, Any] | None = None
         self._latest_pulse_state: dict[str, Any] | None = None
         self._latest_persona: dict[str, Any] | None = None
+        self._latest_theme: dict[str, Any] | None = None
 
     def emit(self, event: dict[str, Any]) -> None:
         """Enqueue an event without blocking. Drops oldest on overflow."""
@@ -49,6 +51,8 @@ class CompanionEventPublisher:
                 self._latest_pulse_state = dict(event)
             elif event_type == "persona":
                 self._latest_persona = dict(event)
+            elif event_type == "theme":
+                self._latest_theme = dict(event)
 
         while True:
             try:
@@ -131,6 +135,21 @@ class CompanionEventPublisher:
             )
         )
 
+    def emit_theme(
+        self,
+        *,
+        theme_id: str,
+        name: str,
+        tokens: dict[str, str],
+    ) -> None:
+        self.emit(
+            theme_event(
+                theme_id=theme_id,
+                name=name,
+                tokens=tokens,
+            )
+        )
+
     def emit_tool_call(
         self,
         *,
@@ -166,11 +185,13 @@ class CompanionEventPublisher:
         return events
 
     def snapshot_events(self) -> list[dict[str, Any]]:
-        """Current persona + turn + pulse snapshots for newly connected clients."""
+        """Current persona + theme + turn + pulse snapshots for newly connected clients."""
         with self._lock:
             snapshots: list[dict[str, Any]] = []
             if self._latest_persona is not None:
                 snapshots.append(dict(self._latest_persona))
+            if self._latest_theme is not None:
+                snapshots.append(dict(self._latest_theme))
             if self._latest_turn_state is not None:
                 snapshots.append(dict(self._latest_turn_state))
             if self._latest_pulse_state is not None:
@@ -270,6 +291,18 @@ def emit_persona(
         memory_namespace=memory_namespace,
         voice_id=voice_id,
     )
+
+
+def emit_theme(
+    *,
+    theme_id: str,
+    name: str,
+    tokens: dict[str, str],
+) -> None:
+    publisher = get_companion_publisher()
+    if publisher is None:
+        return
+    publisher.emit_theme(theme_id=theme_id, name=name, tokens=tokens)
 
 
 def emit_tool_call(

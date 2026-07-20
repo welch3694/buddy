@@ -1,0 +1,89 @@
+id: ember
+name: Ember
+palette:
+  void: "#120805"
+  void_mid: "#1f1008"
+  teal: "#f0a060"
+  cyan: "#ffc080"
+  ice: "#ffe8d0"
+  amber: "#ffb020"
+  muted: "#7a5a4a"
+  danger: "#8a6a5a"
+fonts:
+  display: '"Orbitron", sans-serif'
+  mono: '"Share Tech Mono", ui-monospace, monospace'
+orb:
+  base:
+    core: "#5a3020"
+    glow: "rgba(240, 160, 96, 0.35)"
+    ring: "rgba(255, 192, 128, 0.55)"
+    scale: 1
+    breathe_amp: 0.04
+    breathe_ms: 3200
+    bloom_opacity: 0.35
+    shimmer_opacity: 0
+    ring_spin_ms: 18000
+    saturate: 1
+  states:
+    listening:
+      core: "#6a3828"
+      glow: "rgba(240, 160, 96, 0.4)"
+      ring: "rgba(255, 192, 128, 0.5)"
+      scale: 1
+      breathe_amp: 0.035
+      breathe_ms: 3400
+      bloom_opacity: 0.4
+      shimmer_opacity: 0
+      ring_spin_ms: 22000
+    holding:
+      core: "#7a4030"
+      glow: "rgba(255, 180, 100, 0.45)"
+      ring: "rgba(255, 210, 150, 0.65)"
+      scale: 1.02
+      breathe_amp: 0.07
+      breathe_ms: 2400
+      bloom_opacity: 0.5
+      shimmer_opacity: 0.25
+      ring_spin_ms: 10000
+    generating:
+      core: "#8a4830"
+      glow: "rgba(255, 192, 128, 0.55)"
+      ring: "rgba(255, 220, 180, 0.7)"
+      scale: 1.04
+      breathe_amp: 0.055
+      breathe_ms: 1400
+      bloom_opacity: 0.55
+      shimmer_opacity: 0.85
+      ring_spin_ms: 3200
+    speaking:
+      core: "#f0a060"
+      glow: "rgba(255, 200, 120, 0.75)"
+      ring: "rgba(255, 230, 200, 0.9)"
+      scale: 1.12
+      breathe_amp: 0.1
+      breathe_ms: 900
+      bloom_opacity: 0.85
+      shimmer_opacity: 0.45
+      ring_spin_ms: 6000
+    paused:
+      core: "#3a2820"
+      glow: "rgba(120, 90, 70, 0.2)"
+      ring: "rgba(140, 110, 90, 0.35)"
+      scale: 0.92
+      breathe_amp: 0.01
+      breathe_ms: 8000
+      bloom_opacity: 0.15
+      shimmer_opacity: 0
+      ring_spin_ms: 60000
+      saturate: 0.35
+    offline:
+      core: "#1a120e"
+      glow: "rgba(90, 70, 50, 0.12)"
+      ring: "rgba(100, 80, 60, 0.25)"
+      scale: 0.88
+      breathe_amp: 0
+      breathe_ms: 1
+      bloom_opacity: 0.08
+      shimmer_opacity: 0
+      ring_spin_ms: 120000
+      saturate: 0.25

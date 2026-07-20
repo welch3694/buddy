@@ -38,6 +38,9 @@ class CompanionBridge:
         self.persona_name = persona_name
         self.persona_namespace = persona_namespace
         self.voice_id = voice_id
+        self.theme_id: str | None = None
+        self.theme_name: str | None = None
+        self.theme_tokens: dict[str, str] = {}
         self.publisher = CompanionEventPublisher()
         self.server = CompanionBridgeServer(config, self.publisher, stop_event=stop_event)
         self.pulse_watcher = PulseStateWatcher(
@@ -55,10 +58,16 @@ class CompanionBridge:
             memory_namespace=self.persona_namespace,
             voice_id=self.voice_id,
         )
+        self._emit_startup_theme()
         # Seed turn_state so clients connecting mid-session get current status.
         self.publisher.emit_turn_state(current_turn_state().value, reason="bridge_start")
         self.pulse_watcher.start()
         self.server.start()
+
+    def _emit_startup_theme(self) -> None:
+        from buddy_tools.themes.session import emit_active_theme
+
+        emit_active_theme()
 
     def set_active_persona(
         self,
@@ -80,6 +89,19 @@ class CompanionBridge:
             memory_namespace=persona_namespace,
             voice_id=voice_id,
         )
+
+    def set_active_theme(
+        self,
+        *,
+        theme_id: str,
+        name: str,
+        tokens: dict[str, str],
+    ) -> None:
+        """Update cached theme and broadcast to clients."""
+        self.theme_id = theme_id
+        self.theme_name = name
+        self.theme_tokens = dict(tokens)
+        self.publisher.emit_theme(theme_id=theme_id, name=name, tokens=tokens)
 
 
 def get_companion_bridge() -> CompanionBridge | None:

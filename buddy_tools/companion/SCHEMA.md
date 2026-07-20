@@ -53,6 +53,26 @@ Active personality for the voice session. Emitted once at bridge start and inclu
 
 `voice_id` may be omitted. Re-emitted when the voice session switches personality mid-run; connect snapshots always reflect the latest.
 
+### `theme`
+
+Active companion display theme. Emitted once at bridge start (when a theme pack is available) and included in connect snapshots. Re-emitted on `switch_theme`.
+
+```json
+{
+  "type": "theme",
+  "id": "ember",
+  "name": "Ember",
+  "tokens": {
+    "--void": "#120805",
+    "--teal": "#f0a060",
+    "--orb-listening-core": "#6a3828"
+  },
+  "ts": "2026-07-20T16:00:00+00:00"
+}
+```
+
+`tokens` maps CSS custom-property names to validated values (palette, fonts, orb base/state overrides). The companion applies them on `document.documentElement` without restart.
+
 ### `assistant_text`
 
 Caption chunks for what Buddy is saying (post pulse-suppress filter).

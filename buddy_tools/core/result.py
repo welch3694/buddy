@@ -16,5 +16,6 @@ class ToolExecutionResult:
     image_caption: str | None = None
     personality_switch_id: str | None = None
     voice_switch_id: str | None = None
+    theme_switch_id: str | None = None
     refresh_instructions: bool = False
     include_full_skill_body: bool = False

@@ -35,6 +35,20 @@ export type PersonaEvent = {
   ts: string;
 };
 
+export type ThemeInfo = {
+  id: string;
+  name: string;
+  tokens: Record<string, string>;
+};
+
+export type ThemeEvent = {
+  type: "theme";
+  id: string;
+  name: string;
+  tokens: Record<string, string>;
+  ts: string;
+};
+
 export type AssistantTextEvent = {
   type: "assistant_text";
   text: string;
@@ -126,6 +140,7 @@ export type ToolCallToast = {
 export type BridgeEvent =
   | TurnStateEvent
   | PersonaEvent
+  | ThemeEvent
   | AssistantTextEvent
   | SpeakingProgressEvent
   | PulseStateEvent
@@ -159,6 +174,33 @@ export function personaFromEvent(event: PersonaEvent): PersonaInfo {
     name: event.name,
     memoryNamespace: event.memory_namespace,
     voiceId: typeof event.voice_id === "string" ? event.voice_id : null,
+  };
+}
+
+export function isThemeEvent(value: unknown): value is ThemeEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  if (
+    event.type !== "theme" ||
+    typeof event.id !== "string" ||
+    typeof event.name !== "string" ||
+    event.tokens === null ||
+    typeof event.tokens !== "object" ||
+    Array.isArray(event.tokens)
+  ) {
+    return false;
+  }
+  for (const [key, tokenValue] of Object.entries(event.tokens as Record<string, unknown>)) {
+    if (typeof key !== "string" || typeof tokenValue !== "string") return false;
+  }
+  return true;
+}
+
+export function themeFromEvent(event: ThemeEvent): ThemeInfo {
+  return {
+    id: event.id,
+    name: event.name,
+    tokens: { ...event.tokens },
   };
 }
 
