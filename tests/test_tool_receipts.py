@@ -37,6 +37,16 @@ class FindActionClaimsTests(unittest.TestCase):
         self.assertEqual(find_action_claims("Sure, I can help with that."), [])
         self.assertEqual(find_action_claims(""), [])
         self.assertEqual(find_action_claims("   "), [])
+        # Casual "starting to …" must not trip the claim gate.
+        self.assertEqual(
+            find_action_claims(
+                'Haha, you caught me! I guess my "aura" is starting to shine through on the dashboard.'
+            ),
+            [],
+        )
+        self.assertEqual(find_action_claims("We're starting soon — hang tight."), [])
+        self.assertEqual(find_action_claims("Well done on that set."), [])
+        self.assertEqual(find_action_claims("I'm not done thinking yet."), [])
 
 
 class ClaimsWithoutReceiptTests(unittest.TestCase):

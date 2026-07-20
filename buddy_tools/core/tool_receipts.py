@@ -12,7 +12,8 @@ from buddy_tools.core.tool_logging import is_tool_error, safe_tool_context
 
 ReceiptStatus = Literal["ok", "error", "skipped"]
 
-# Prefer multi-word phrases; bare "done" / "starting" use word boundaries.
+# Prefer multi-word / constrained phrases. Bare "starting" / "done" false-positive
+# on casual speech (e.g. "aura is starting to shine", "well done").
 _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), label)
     for pattern, label in (
@@ -20,7 +21,8 @@ _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bi am starting\b", "i am starting"),
         (r"\bi['’]?ve started\b", "i've started"),
         (r"\bi have started\b", "i have started"),
-        (r"\bstarting\b", "starting"),
+        # Imperative / object-taking only — not "is starting to …"
+        (r"\bstarting (?:the|a|an|your|this|it)\b", "starting"),
         (r"\bsaved\b", "saved"),
         (r"\bremembered\b", "remembered"),
         (r"\bi['’]?ll remember\b", "i'll remember"),
@@ -30,7 +32,8 @@ _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bupdated\b", "updated"),
         (r"\bi['’]?m done\b", "i'm done"),
         (r"\ball done\b", "all done"),
-        (r"\bdone\b", "done"),
+        # Whole-utterance "Done." only — not "well done" / "not done yet"
+        (r"(?:^|[.!?]\s+)done[.!]?\s*$", "done"),
     )
 )
 
