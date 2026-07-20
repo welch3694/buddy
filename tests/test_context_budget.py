@@ -179,6 +179,43 @@ class PatchWrapperTests(unittest.TestCase):
         self.assertIsNone(outputs[1].error)
         runtime_config.chat.to_transformers_chat()
 
+    def test_offered_tools_logged_before_generation(self) -> None:
+        from buddy_tools.core import patch as patch_module
+
+        def fake_original(_handler: Any, _request: Any) -> Iterator[Any]:
+            yield EndOfResponse(turn_id="turn_1", turn_revision=0)
+
+        handler = mock.MagicMock()
+        handler._turn_output_allowed.return_value = True
+
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(5)
+        runtime_config.session.instructions = "sys"
+        runtime_config.session.tools = [{"type": "function", "name": "start_skill"}]
+        runtime_config.session.tool_choice = "auto"
+
+        request = mock.MagicMock()
+        request.runtime_config = runtime_config
+        request.response = None
+        request.language_code = "en"
+        request.speech_stopped_at_s = 0.0
+        request.turn_id = "turn_diag"
+        request.turn_revision = 1
+
+        with patch.object(patch_module.logger, "info") as info_mock:
+            list(_iter_llm_outputs_with_context_budget(fake_original, handler, request))
+
+        offered = [
+            call
+            for call in info_mock.call_args_list
+            if call.args and isinstance(call.args[0], str) and call.args[0].startswith("Offered tools:")
+        ]
+        self.assertEqual(len(offered), 1)
+        self.assertEqual(offered[0].args[1], 1)
+        self.assertEqual(offered[0].args[2], "auto")
+        self.assertEqual(offered[0].args[3], "turn_diag")
+        self.assertEqual(offered[0].args[4], 1)
+
 
 class GracefulDegradationTests(unittest.TestCase):
     def test_preflight_swallows_internal_errors(self) -> None:
