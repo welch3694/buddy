@@ -163,8 +163,40 @@ class SalientPulseSnapshotTests(unittest.TestCase):
         self.assertEqual(snap["phase"], "intro")
         self.assertEqual(snap["vars"]["current_camera"], "cam_a")
         self.assertEqual(snap["camera_labels"]["cam_a"], "Wide")
+        self.assertEqual(
+            [row["key"] for row in snap["senses"]],
+            ["phase", "pulse_mode", "pending_cue"],
+        )
         self.assertNotIn("session_config", snap)
         self.assertNotIn("pulse", snap)
+
+    def test_senses_from_panel_config_list_cameras(self) -> None:
+        state = PulseState(
+            skill_name="live-director",
+            status="active",
+            phase="live",
+            pulse_mode="directed",
+            pending_cue="Switch cameras",
+            vars={"current_camera": 2},
+            session_config={
+                "cameras": [
+                    {"id": 1, "label": "wide shot"},
+                    {"id": 2, "label": "close-up"},
+                ],
+                "panel": {
+                    "senses": ["phase", "pulse_mode", "current_camera", "pending_cue"],
+                },
+            },
+        )
+        snap = salient_pulse_snapshot(state)
+        self.assertEqual(snap["camera_labels"]["2"], "close-up")
+        by_key = {row["key"]: row for row in snap["senses"]}
+        self.assertEqual(by_key["phase"]["value"], "live")
+        self.assertEqual(by_key["pulse_mode"]["value"], "directed")
+        self.assertEqual(by_key["current_camera"]["label"], "CAMERA")
+        self.assertEqual(by_key["current_camera"]["value"], "close-up")
+        self.assertEqual(by_key["pending_cue"]["value"], "Switch cameras")
+        self.assertNotIn("session_config", snap)
 
 
 class CompanionBridgeStartTests(unittest.TestCase):

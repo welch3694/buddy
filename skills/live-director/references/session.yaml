@@ -28,6 +28,14 @@ cameras:
   - { id: 2, label: "close-up" }
   - { id: 3, label: "overhead" }
 
+# Companion SENSES HUD — declare which pulse fields / vars to show (see SESSION_YAML.md).
+panel:
+  senses:
+    - phase
+    - pulse_mode
+    - current_camera
+    - pending_cue
+
 rules:
   # Optional: tighten cadence after 30 minutes (uncomment to enable).
   # - id: tighten-pace

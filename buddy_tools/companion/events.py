@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -74,11 +75,135 @@ def speaking_progress_event(
     }
 
 
+# Default SENSES rows when session.yaml omits ``panel.senses``.
+_DEFAULT_SENSES: tuple[str, ...] = ("phase", "pulse_mode", "pending_cue")
+
+_SENSE_LABELS: dict[str, str] = {
+    "phase": "PHASE",
+    "pulse_mode": "MODE",
+    "pending_cue": "CUE",
+    "current_camera": "CAMERA",
+    "status": "STATUS",
+    "pulse_in_flight": "FLIGHT",
+    "narrator_muted": "MUTED",
+    "skill_name": "SKILL",
+}
+
+# Top-level PulseState fields resolvable by panel.senses paths.
+_TOP_LEVEL_SENSE_ATTRS: frozenset[str] = frozenset(
+    {
+        "skill_name",
+        "status",
+        "phase",
+        "pulse_mode",
+        "pending_cue",
+        "cue_priority",
+        "pulse_in_flight",
+        "narrator_muted",
+        "tick_count",
+        "started_at",
+        "last_tick_at",
+    }
+)
+
+
+def _sense_label(path: str) -> str:
+    mapped = _SENSE_LABELS.get(path)
+    if mapped:
+        return mapped
+    return path.replace("_", " ").upper()
+
+
+def _format_sense_value(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, str):
+        return value.strip() or "—"
+    if isinstance(value, (int, float)):
+        return str(value)
+    try:
+        return json.dumps(value, default=str)
+    except TypeError:
+        return str(value)
+
+
+def _camera_label_map(session_config: dict[str, Any] | None) -> dict[str, str]:
+    """Build id→label from session cameras (list or legacy dict)."""
+    if not isinstance(session_config, dict):
+        return {}
+    cameras = session_config.get("cameras")
+    labels: dict[str, str] = {}
+    if isinstance(cameras, list):
+        for entry in cameras:
+            if not isinstance(entry, dict):
+                continue
+            cam_id = entry.get("id")
+            if cam_id is None:
+                continue
+            label = entry.get("label")
+            if isinstance(label, str) and label.strip():
+                labels[str(cam_id)] = label.strip()
+    elif isinstance(cameras, dict):
+        for key, value in cameras.items():
+            if isinstance(value, dict):
+                label = value.get("label")
+                if isinstance(label, str) and label.strip():
+                    labels[str(key)] = label.strip()
+    return labels
+
+
+def _resolve_sense_raw(state: PulseState, path: str) -> Any:
+    if path in _TOP_LEVEL_SENSE_ATTRS:
+        return getattr(state, path, None)
+    return state.vars.get(path)
+
+
+def _resolve_sense_display(state: PulseState, path: str, camera_labels: dict[str, str]) -> str:
+    raw = _resolve_sense_raw(state, path)
+    if path == "current_camera" and raw is not None:
+        key = str(raw)
+        return camera_labels.get(key) or key
+    return _format_sense_value(raw)
+
+
+def _panel_sense_paths(state: PulseState) -> tuple[str, ...]:
+    session = state.session_config if isinstance(state.session_config, dict) else {}
+    panel = session.get("panel") if isinstance(session.get("panel"), dict) else {}
+    senses_raw = panel.get("senses") if isinstance(panel, dict) else None
+    if isinstance(senses_raw, list):
+        paths = [str(item).strip() for item in senses_raw if str(item).strip()]
+        if paths:
+            return tuple(paths)
+    return _DEFAULT_SENSES
+
+
+def build_senses_rows(state: PulseState) -> list[dict[str, str]]:
+    """Project ``panel.senses`` paths into HUD rows ``{key, label, value}``."""
+    camera_labels = _camera_label_map(
+        state.session_config if isinstance(state.session_config, dict) else None
+    )
+    rows: list[dict[str, str]] = []
+    for path in _panel_sense_paths(state):
+        rows.append(
+            {
+                "key": path,
+                "label": _sense_label(path),
+                "value": _resolve_sense_display(state, path, camera_labels),
+            }
+        )
+    return rows
+
+
 def salient_pulse_snapshot(state: PulseState | None) -> dict[str, Any]:
     """Return panel-safe pulse fields (no full ``session_config`` dump)."""
     if state is None:
         return {"type": "pulse_state", "active": False, "ts": _utc_now_iso()}
 
+    camera_labels = _camera_label_map(
+        state.session_config if isinstance(state.session_config, dict) else None
+    )
     payload: dict[str, Any] = {
         "type": "pulse_state",
         "active": True,
@@ -94,15 +219,11 @@ def salient_pulse_snapshot(state: PulseState | None) -> dict[str, Any]:
         "started_at": state.started_at,
         "last_tick_at": state.last_tick_at,
         "vars": dict(state.vars),
+        "senses": build_senses_rows(state),
         "ts": _utc_now_iso(),
     }
-    cameras = state.session_config.get("cameras") if isinstance(state.session_config, dict) else None
-    if isinstance(cameras, dict) and cameras:
-        # Labels only — keep the snapshot small for the HUD.
-        payload["camera_labels"] = {
-            str(key): (value.get("label") if isinstance(value, dict) else None)
-            for key, value in cameras.items()
-        }
+    if camera_labels:
+        payload["camera_labels"] = camera_labels
     return payload
 
 

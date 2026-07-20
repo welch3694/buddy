@@ -45,6 +45,13 @@ class ScheduleEntry:
 
 
 @dataclass(frozen=True)
+class PanelConfig:
+    """Companion panel hints (SENSES HUD, etc.)."""
+
+    senses: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class SessionConfig:
     name: str
     pulse: PulseTimingConfig
@@ -52,6 +59,7 @@ class SessionConfig:
     cameras: tuple[Any, ...] = ()
     rules: tuple[RuleDefinition, ...] = ()
     schedule: tuple[ScheduleEntry, ...] = ()
+    panel: PanelConfig = field(default_factory=PanelConfig)
 
 
 class SessionValidationError(ValueError):
@@ -214,6 +222,30 @@ def _parse_schedule(entry: Any, index: int) -> ScheduleEntry:
     )
 
 
+def _parse_panel_config(raw: dict[str, Any]) -> PanelConfig:
+    panel_raw = raw.get("panel")
+    if panel_raw is None:
+        return PanelConfig()
+    if not isinstance(panel_raw, dict):
+        raise SessionValidationError("panel must be a mapping")
+
+    senses_raw = panel_raw.get("senses", [])
+    if senses_raw is None:
+        senses_raw = []
+    if not isinstance(senses_raw, list):
+        raise SessionValidationError("panel.senses must be a list")
+
+    senses: list[str] = []
+    for index, entry in enumerate(senses_raw):
+        if not isinstance(entry, str) or not entry.strip():
+            raise SessionValidationError(
+                f"panel.senses[{index}] must be a non-empty string "
+                "(top-level pulse field or vars key)"
+            )
+        senses.append(entry.strip())
+    return PanelConfig(senses=tuple(senses))
+
+
 def parse_session_config(raw: dict[str, Any], *, skill_name: str = "") -> SessionConfig:
     if not isinstance(raw, dict):
         raise SessionValidationError("session.yaml root must be a mapping")
@@ -259,11 +291,12 @@ def parse_session_config(raw: dict[str, Any], *, skill_name: str = "") -> Sessio
         schedule=tuple(
             _parse_schedule(entry, index) for index, entry in enumerate(schedule_raw)
         ),
+        panel=_parse_panel_config(normalized),
     )
 
 
 def session_config_to_dict(config: SessionConfig) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "name": config.name,
         "pulse": {
             "tick_interval_s": config.pulse.tick_interval_s,
@@ -302,6 +335,9 @@ def session_config_to_dict(config: SessionConfig) -> dict[str, Any]:
             for entry in config.schedule
         ],
     }
+    if config.panel.senses:
+        payload["panel"] = {"senses": list(config.panel.senses)}
+    return payload
 
 
 def session_config_from_dict(data: dict[str, Any]) -> SessionConfig:

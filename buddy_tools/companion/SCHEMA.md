@@ -113,11 +113,17 @@ Active (fields may be null):
   "last_tick_at": "…",
   "vars": { "current_camera": "cam1" },
   "camera_labels": { "cam1": "Wide" },
+  "senses": [
+    { "key": "phase", "label": "PHASE", "value": "running" },
+    { "key": "pulse_mode", "label": "MODE", "value": "directed" },
+    { "key": "current_camera", "label": "CAMERA", "value": "Wide" },
+    { "key": "pending_cue", "label": "CUE", "value": "—" }
+  ],
   "ts": "…"
 }
 ```
 
-Full `session_config` is not broadcast.
+`senses` is projected from `session_config.panel.senses` (or a default of `phase` / `pulse_mode` / `pending_cue`). Full `session_config` is not broadcast.
 
 ## On connect
 

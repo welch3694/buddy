@@ -64,6 +64,7 @@ Conversational fill between mandatory cues is **not** a YAML rule — it is driv
 | `pulse` | no | Worker tick interval and injection gate overrides |
 | `init.set` | no | Initial runtime vars and `phase` |
 | `cameras` | no | List of `{ id, label }` for `$rotate(cameras)` and cue `{label}` |
+| `panel` | no | Companion panel hints (`panel.senses` for the SENSES HUD) |
 | `rules` | no | Declarative timed / conditional rules |
 | `schedule` | no | One-shot absolute cues at session seconds |
 
@@ -105,6 +106,30 @@ init:
 ```
 
 Use any anchor var names your rules need (e.g. `last_button_cue_at: "$now"`). The engine does **not** auto-seed timer anchors; omitted anchors mean `elapsed_since(...)` never passes until a rule sets them.
+
+---
+
+## `panel:` — companion SENSES HUD
+
+Optional. Declares which pulse fields appear in the companion panel SENSES readout.
+
+```yaml
+panel:
+  senses:
+    - phase
+    - pulse_mode
+    - current_camera   # resolved to camera label when cameras: is present
+    - pending_cue
+```
+
+| Path | Resolved from |
+|------|----------------|
+| `phase`, `pulse_mode`, `status`, `pending_cue`, `pulse_in_flight`, … | Top-level `PulseState` fields |
+| Any other string | `vars` (e.g. `current_camera`, `switch_interval_s`) |
+
+- When `panel.senses` is **omitted**, the HUD defaults to `phase`, `pulse_mode`, `pending_cue`.
+- Non-camera skills should omit `current_camera` (and usually omit `cameras:` entirely).
+- Changing `panel.senses` requires cancel + re-start of the skill (same as other `session.yaml` edits).
 
 ---
 

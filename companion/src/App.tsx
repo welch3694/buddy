@@ -12,6 +12,7 @@ export default function App() {
       persona={bridge.persona}
       captionText={bridge.captionText}
       speakingPlayback={bridge.speakingPlayback}
+      pulseState={bridge.pulseState}
       mock={bridge.mock}
     />
   );
