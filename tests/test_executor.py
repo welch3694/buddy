@@ -63,7 +63,9 @@ class ToolOutputChatRecordingTests(unittest.TestCase):
         with patch(
             "buddy_tools.core.executor.execute_tool",
             return_value=ToolExecutionResult(output='[{"name":"demo"}]'),
-        ):
+        ), patch(
+            "buddy_tools.core.executor._emit_tool_call_for_receipt",
+        ) as emit_receipt:
             self.assertTrue(executor._execute_pending_tools())
 
         outputs = [
@@ -82,6 +84,11 @@ class ToolOutputChatRecordingTests(unittest.TestCase):
         self.assertEqual(len(executor._turn_receipts), 1)
         self.assertEqual(executor._turn_receipts[0].tool, "list_skills")
         self.assertEqual(executor._turn_receipts[0].status, "ok")
+        emit_receipt.assert_called_once()
+        self.assertEqual(emit_receipt.call_args.kwargs["source"], "llm")
+        self.assertEqual(emit_receipt.call_args.kwargs["turn_id"], "turn_1")
+        self.assertEqual(emit_receipt.call_args.args[0].tool, "list_skills")
+        self.assertEqual(emit_receipt.call_args.args[0].status, "ok")
 
 
 class MaxToolRoundFallbackTests(unittest.TestCase):
@@ -122,7 +129,10 @@ class MaxToolRoundFallbackTests(unittest.TestCase):
             )
         ]
 
-        self.assertTrue(executor._execute_pending_tools())
+        with patch(
+            "buddy_tools.core.executor._emit_tool_call_for_receipt",
+        ) as emit_receipt:
+            self.assertTrue(executor._execute_pending_tools())
         self.assertEqual(executor._pending_tools, [])
         self.assertFalse(follow_up_queue.empty())
 
@@ -136,6 +146,9 @@ class MaxToolRoundFallbackTests(unittest.TestCase):
 
         self.assertEqual(len(executor._turn_receipts), 1)
         self.assertEqual(executor._turn_receipts[0].status, "skipped")
+        emit_receipt.assert_called_once()
+        self.assertEqual(emit_receipt.call_args.kwargs["source"], "llm")
+        self.assertEqual(emit_receipt.call_args.args[0].status, "skipped")
 
 
 class ClaimWithoutReceiptTtsGateTests(unittest.TestCase):
@@ -341,6 +354,7 @@ class SilentActionIntentFallbackTests(unittest.TestCase):
             patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse") as record_speech,
             patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
             patch("buddy_tools.companion.publisher.emit_assistant_text") as emit_text,
+            patch("buddy_tools.core.executor._emit_tool_call_for_receipt") as emit_receipt,
             patch(
                 "buddy_tools.core.executor.execute_tool",
                 return_value=ToolExecutionResult(
@@ -361,6 +375,8 @@ class SilentActionIntentFallbackTests(unittest.TestCase):
         self.assertFalse(follow_up.empty())
         self.assertEqual(len(executor._turn_receipts), 1)
         self.assertEqual(executor._turn_receipts[0].tool, "start_skill")
+        emit_receipt.assert_called_once()
+        self.assertEqual(emit_receipt.call_args.kwargs["source"], "silent")
         record_speech.assert_not_called()
         emit_text.assert_not_called()
 

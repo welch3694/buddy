@@ -18,10 +18,11 @@ from buddy_tools.companion.bridge import (
     reset_companion_bridge_for_tests,
 )
 from buddy_tools.companion.config import load_companion_bridge_config
-from buddy_tools.companion.events import salient_pulse_snapshot
+from buddy_tools.companion.events import format_tool_call_summary, salient_pulse_snapshot, tool_call_event
 from buddy_tools.companion.publisher import (
     CompanionEventPublisher,
     emit_assistant_text,
+    emit_tool_call,
     get_companion_publisher,
     reset_companion_publisher_for_tests,
     set_companion_publisher,
@@ -99,6 +100,63 @@ class CompanionPublisherTests(unittest.TestCase):
     def test_emit_assistant_text_no_op_without_publisher(self) -> None:
         reset_companion_publisher_for_tests()
         emit_assistant_text("hello")  # must not raise
+
+    def test_tool_call_event_shape(self) -> None:
+        event = tool_call_event(
+            tool="list_skills",
+            status="ok",
+            summary="list_skills · ok",
+            source="llm",
+            turn_id="turn_1",
+            ts="2026-07-20T00:00:00+00:00",
+        )
+        self.assertEqual(event["type"], "tool_call")
+        self.assertEqual(event["tool"], "list_skills")
+        self.assertEqual(event["status"], "ok")
+        self.assertEqual(event["summary"], "list_skills · ok")
+        self.assertEqual(event["source"], "llm")
+        self.assertEqual(event["turn_id"], "turn_1")
+        self.assertEqual(event["ts"], "2026-07-20T00:00:00+00:00")
+
+    def test_format_tool_call_summary_includes_safe_arg(self) -> None:
+        self.assertEqual(
+            format_tool_call_summary("list_skills", "ok"),
+            "list_skills · ok",
+        )
+        self.assertEqual(
+            format_tool_call_summary("read_memory", "ok", {"scope": "user"}),
+            "read_memory · ok · scope=user",
+        )
+
+    def test_emit_tool_call_no_op_without_publisher(self) -> None:
+        reset_companion_publisher_for_tests()
+        emit_tool_call(
+            tool="list_skills",
+            status="ok",
+            summary="list_skills · ok",
+        )  # must not raise
+
+    def test_emit_tool_call_with_publisher(self) -> None:
+        publisher = CompanionEventPublisher()
+        set_companion_publisher(publisher)
+        emit_tool_call(
+            tool="list_skills",
+            status="ok",
+            summary="list_skills · ok",
+            source="silent",
+            turn_id="turn_9",
+        )
+        events = publisher.drain()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "tool_call")
+        self.assertEqual(events[0]["tool"], "list_skills")
+        self.assertEqual(events[0]["source"], "silent")
+        self.assertEqual(events[0]["turn_id"], "turn_9")
+        # Ephemeral — not part of connect snapshots
+        self.assertEqual(
+            [e["type"] for e in publisher.snapshot_events()],
+            [],
+        )
 
     def test_snapshot_caches_latest(self) -> None:
         publisher = CompanionEventPublisher()
