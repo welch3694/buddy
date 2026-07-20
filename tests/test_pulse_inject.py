@@ -18,11 +18,16 @@ from buddy_tools.voice.listening_pause import get_listening_pause_controller
 from buddy_tools.pulse.gates import (
     conversational_pulse_gates_allow,
     directed_pulse_gates_allow,
+    get_last_user_speech_stopped_at,
+    install_speech_activity_queue_observer,
+    is_user_speech_active,
     mark_fold_on_speech_deferral,
+    observe_pipeline_event_for_speech_activity,
     reset_pulse_gates_for_tests,
     select_pulse_mode,
     set_last_user_speech_stopped_at,
     set_perf_counter_for_tests,
+    set_user_speech_active,
 )
 from buddy_tools.pulse.inject import (
     NO_OUTPUT_MARKER,
@@ -168,6 +173,45 @@ class PulseGateTests(unittest.TestCase):
         self.assertIsNone(
             select_pulse_mode(self.state, self.session, should_listen=self.should_listen)
         )
+
+    def test_active_vad_speech_blocks_directed_even_if_prior_stop_was_old(self) -> None:
+        """Reproduce live bug: mid-utterance while previous turn stopped long ago."""
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        set_last_user_speech_stopped_at(100.0)  # previous turn ended long ago
+        set_user_speech_active(True)
+        self.assertFalse(
+            directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
+        )
+        self.assertTrue(
+            mark_fold_on_speech_deferral(
+                self.state, self.session, should_listen=self.should_listen
+            )
+        )
+        self.assertTrue(self.state.fold_on_next_reply)
+
+    def test_vad_speech_events_toggle_activity_and_silence_clock(self) -> None:
+        from speech_to_speech.pipeline.events import SpeechStartedEvent, SpeechStoppedEvent
+
+        set_perf_counter_for_tests(lambda: 2000.0)
+        observe_pipeline_event_for_speech_activity(SpeechStartedEvent(audio_start_ms=0))
+        self.assertTrue(is_user_speech_active())
+        observe_pipeline_event_for_speech_activity(
+            SpeechStoppedEvent(duration_s=2.0, audio_end_ms=2000)
+        )
+        self.assertFalse(is_user_speech_active())
+        self.assertEqual(get_last_user_speech_stopped_at(), 2000.0)
+
+    def test_speech_activity_queue_observer_wraps_put(self) -> None:
+        from speech_to_speech.pipeline.events import SpeechStartedEvent
+
+        queue: Queue = Queue()
+        install_speech_activity_queue_observer(queue)
+        install_speech_activity_queue_observer(queue)  # idempotent
+        queue.put(SpeechStartedEvent(audio_start_ms=10))
+        self.assertTrue(is_user_speech_active())
+        self.assertFalse(queue.empty())
 
     def test_directed_skips_when_narrator_muted(self) -> None:
         self.state.pending_cue = "Switch camera."

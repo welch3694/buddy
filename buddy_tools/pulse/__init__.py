@@ -1,7 +1,10 @@
 """Pulse session runtime — worker tick loop and per-persona state."""
 
 from buddy_tools.pulse.config_merge import apply_pulse_config, merge_pulse_params
-from buddy_tools.pulse.gates import reset_pulse_gates_for_tests
+from buddy_tools.pulse.gates import (
+    install_speech_activity_queue_observer,
+    reset_pulse_gates_for_tests,
+)
 from buddy_tools.pulse.inject import (
     NO_OUTPUT_MARKER,
     PULSE_NUDGE_PREFIX,
@@ -64,6 +67,7 @@ __all__ = [
     "handle_pulse_response_chunk",
     "init_pulse_state_from_skill",
     "inject_pulse_turn",
+    "install_speech_activity_queue_observer",
     "is_no_output_text",
     "load_pulse_state",
     "load_session_config",

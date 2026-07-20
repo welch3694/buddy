@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Callable
+from queue import Queue
+from typing import Any, Callable
 
 from buddy_tools.voice.listening_pause import get_listening_pause_controller
 from buddy_tools.pulse.schema import SessionConfig
@@ -20,6 +21,10 @@ DEFAULT_MIN_SPEAK_INTERVAL_S = 45.0
 
 _perf_counter_fn: Callable[[], float] = time.perf_counter
 _last_user_speech_stopped_at_s: float | None = None
+# True between VAD SpeechStarted and SpeechStopped — mid-utterance, not just
+# "last stop was recent". Without this, cues inject while the user is talking
+# because last_user_speech_stopped still reflects the *previous* turn.
+_user_speech_active: bool = False
 
 
 def set_perf_counter_for_tests(fn: Callable[[], float] | None) -> None:
@@ -40,9 +45,58 @@ def get_last_user_speech_stopped_at() -> float | None:
     return _last_user_speech_stopped_at_s
 
 
+def set_user_speech_active(active: bool) -> None:
+    """Mark whether VAD currently has an open user speech segment."""
+    global _user_speech_active
+    was_active = _user_speech_active
+    _user_speech_active = bool(active)
+    if active and not was_active:
+        logger.debug("User speech activity: started")
+    elif not active and was_active:
+        logger.debug("User speech activity: stopped")
+        # Start the post-speech silence clock at soft-end, not only at commit.
+        set_last_user_speech_stopped_at(_perf_counter())
+
+
+def is_user_speech_active() -> bool:
+    return _user_speech_active
+
+
+def observe_pipeline_event_for_speech_activity(item: Any) -> None:
+    """Update speech-activity gates from VAD events on text_output_queue."""
+    try:
+        from speech_to_speech.pipeline.events import SpeechStartedEvent, SpeechStoppedEvent
+    except Exception:
+        return
+
+    if isinstance(item, SpeechStartedEvent):
+        set_user_speech_active(True)
+    elif isinstance(item, SpeechStoppedEvent):
+        set_user_speech_active(False)
+
+
+def install_speech_activity_queue_observer(text_output_queue: Queue[Any] | None) -> None:
+    """Wrap text_output_queue.put so VAD speech start/stop update pulse gates."""
+    if text_output_queue is None:
+        return
+    if getattr(text_output_queue, "_buddy_speech_activity_wrapped", False):
+        return
+
+    original_put = text_output_queue.put
+
+    def put_and_observe(item: Any, *args: Any, **kwargs: Any) -> None:
+        observe_pipeline_event_for_speech_activity(item)
+        original_put(item, *args, **kwargs)
+
+    text_output_queue.put = put_and_observe  # type: ignore[method-assign]
+    text_output_queue._buddy_speech_activity_wrapped = True  # type: ignore[attr-defined]
+    logger.info("Installed speech-activity observer on text_output_queue")
+
+
 def reset_pulse_gates_for_tests() -> None:
-    global _last_user_speech_stopped_at_s
+    global _last_user_speech_stopped_at_s, _user_speech_active
     _last_user_speech_stopped_at_s = None
+    _user_speech_active = False
     set_perf_counter_for_tests(None)
 
 
@@ -96,6 +150,8 @@ def _pipeline_busy(*, should_listen) -> bool:
 
 
 def _user_silent_for(*, silence_s: float) -> bool:
+    if _user_speech_active:
+        return False
     last_speech = _last_user_speech_stopped_at_s
     if last_speech is None:
         return True
@@ -137,17 +193,20 @@ def mark_fold_on_speech_deferral(
         return False
 
     silence_s = _mandatory_silence_s(session)
-    blocked_by_speech = _pipeline_busy(should_listen=should_listen) or not _user_silent_for(
-        silence_s=silence_s
+    blocked_by_speech = (
+        _user_speech_active
+        or _pipeline_busy(should_listen=should_listen)
+        or not _user_silent_for(silence_s=silence_s)
     )
     if not blocked_by_speech:
         return False
 
     state.fold_on_next_reply = True
     logger.info(
-        "Mandatory cue deferred for fold-into-next-reply skill=%r cue=%r",
+        "Mandatory cue deferred for fold-into-next-reply skill=%r cue=%r (speech_active=%s)",
         state.skill_name,
         (state.pending_cue or "")[:80],
+        _user_speech_active,
     )
     return True
 
@@ -171,6 +230,9 @@ def directed_pulse_gates_allow(
     if state.fold_on_next_reply and not session.pulse.silence_gated_only:
         if not _past_max_defer(state, session, now=now):
             return False
+
+    if _user_speech_active:
+        return False
 
     if _pipeline_busy(should_listen=should_listen):
         return False
@@ -198,6 +260,8 @@ def conversational_pulse_gates_allow(
     if state.pending_cue and state.cue_priority == "mandatory":
         return False
     if state.narrator_muted:
+        return False
+    if _user_speech_active:
         return False
     if _pipeline_busy(should_listen=should_listen):
         return False
