@@ -55,6 +55,25 @@ def assistant_text_event(
     return payload
 
 
+def speaking_progress_event(
+    *,
+    progress: float,
+    played_ms: int,
+    total_ms: int,
+    total_final: bool = False,
+    ts: str | None = None,
+) -> dict[str, Any]:
+    clamped = min(1.0, max(0.0, float(progress)))
+    return {
+        "type": "speaking_progress",
+        "progress": clamped,
+        "played_ms": max(0, int(played_ms)),
+        "total_ms": max(0, int(total_ms)),
+        "total_final": bool(total_final),
+        "ts": ts or _utc_now_iso(),
+    }
+
+
 def salient_pulse_snapshot(state: PulseState | None) -> dict[str, Any]:
     """Return panel-safe pulse fields (no full ``session_config`` dump)."""
     if state is None:

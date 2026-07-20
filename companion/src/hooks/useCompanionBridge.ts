@@ -1,19 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  isAssistantTextEvent,
   isPersonaEvent,
+  isSpeakingProgressEvent,
   isTurnState,
   isTurnStateEvent,
   personaFromEvent,
   TURN_STATES,
   type ConnectionStatus,
   type PersonaInfo,
+  type SpeakingPlayback,
   type TurnState,
 } from "../types/bridge";
 
 const DEFAULT_WS_URL = "ws://127.0.0.1:8766";
 const MIN_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 8000;
-const MOCK_INTERVAL_MS = 2200;
+const MOCK_INTERVAL_MS = 2800;
+const MOCK_PROGRESS_TICK_MS = 80;
+const MOCK_SPEAKING_DURATION_MS = 2200;
 
 const MOCK_PERSONA: PersonaInfo = {
   id: "mock",
@@ -21,6 +26,11 @@ const MOCK_PERSONA: PersonaInfo = {
   memoryNamespace: "mock",
   voiceId: null,
 };
+
+const MOCK_SPEAKING_CAPTION =
+  "Routing signal through the local lattice — presence confirmed.";
+
+const MOCK_GENERATING_CAPTION = "Routing signal through the local lattice";
 
 function resolveWsUrl(): string {
   return import.meta.env.VITE_COMPANION_WS_URL?.trim() || DEFAULT_WS_URL;
@@ -31,11 +41,28 @@ function useMockMode(): boolean {
   return new URLSearchParams(window.location.search).get("mock") === "1";
 }
 
+function appendCaptionChunk(existing: string, chunk: string): string {
+  if (!chunk) return existing;
+  if (!existing) return chunk;
+  // Chunks are usually contiguous stream pieces; avoid double spaces.
+  if (existing.endsWith(" ") || chunk.startsWith(" ")) {
+    return existing + chunk;
+  }
+  // If chunk looks like a fresh sentence start after whitespace-stripped prior, join with space
+  if (/^[A-Z0-9"']/.test(chunk) && /[.?!:]$/.test(existing.trimEnd())) {
+    return `${existing.trimEnd()} ${chunk}`;
+  }
+  return existing + chunk;
+}
+
 export type CompanionBridgeState = {
   connection: ConnectionStatus;
   turnState: TurnState | null;
   reason: string | null;
   persona: PersonaInfo | null;
+  captionText: string;
+  /** PCM playback timing from the bridge; null until first sample / mock tick. */
+  speakingPlayback: SpeakingPlayback | null;
   mock: boolean;
 };
 
@@ -49,26 +76,77 @@ export function useCompanionBridge(): CompanionBridgeState {
   );
   const [reason, setReason] = useState<string | null>(mock ? "mock" : null);
   const [persona, setPersona] = useState<PersonaInfo | null>(mock ? MOCK_PERSONA : null);
+  const [captionText, setCaptionText] = useState("");
+  const [speakingPlayback, setSpeakingPlayback] = useState<SpeakingPlayback | null>(null);
   const backoffRef = useRef(MIN_BACKOFF_MS);
   const wsRef = useRef<WebSocket | null>(null);
   const closedRef = useRef(false);
+  const captionTurnRef = useRef<{ turnId: string | null; revision: number | null }>({
+    turnId: null,
+    revision: null,
+  });
 
   useEffect(() => {
     if (!mock) return;
 
     let index = 0;
+    let progressTimer: number | undefined;
     setConnection("connected");
     setTurnState(TURN_STATES[0]);
     setReason("mock");
     setPersona(MOCK_PERSONA);
+    setCaptionText("");
+    setSpeakingPlayback(null);
+
+    const clearProgressTimer = () => {
+      if (progressTimer !== undefined) {
+        window.clearInterval(progressTimer);
+        progressTimer = undefined;
+      }
+    };
 
     const id = window.setInterval(() => {
       index = (index + 1) % TURN_STATES.length;
-      setTurnState(TURN_STATES[index]);
+      const next = TURN_STATES[index];
+      setTurnState(next);
       setReason("mock");
+      clearProgressTimer();
+
+      if (next === "generating") {
+        setCaptionText(MOCK_GENERATING_CAPTION);
+        setSpeakingPlayback(null);
+      } else if (next === "speaking") {
+        setCaptionText(MOCK_SPEAKING_CAPTION);
+        // Simulate TTS filling the queue gradually (frontier ahead of playhead).
+        const started = performance.now();
+        progressTimer = window.setInterval(() => {
+          const elapsed = performance.now() - started;
+          const playedMs = Math.min(MOCK_SPEAKING_DURATION_MS, elapsed);
+          // Enqueued grows ahead of played, then locks when synth "finishes".
+          const synthDone = elapsed >= MOCK_SPEAKING_DURATION_MS * 0.75;
+          const totalMs = synthDone
+            ? MOCK_SPEAKING_DURATION_MS
+            : Math.min(
+                MOCK_SPEAKING_DURATION_MS,
+                Math.max(playedMs + 400, elapsed * 1.25),
+              );
+          setSpeakingPlayback({
+            playedMs,
+            totalMs,
+            totalFinal: synthDone,
+          });
+        }, MOCK_PROGRESS_TICK_MS);
+      } else if (next === "paused") {
+        setCaptionText(MOCK_SPEAKING_CAPTION);
+      } else {
+        setSpeakingPlayback(null);
+      }
     }, MOCK_INTERVAL_MS);
 
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      clearProgressTimer();
+    };
   }, [mock]);
 
   useEffect(() => {
@@ -111,11 +189,48 @@ export function useCompanionBridge(): CompanionBridgeState {
           return;
         }
 
+        if (isAssistantTextEvent(payload)) {
+          const turnId = typeof payload.turn_id === "string" ? payload.turn_id : null;
+          const revision =
+            typeof payload.turn_revision === "number" ? payload.turn_revision : null;
+          const sameTurn =
+            captionTurnRef.current.turnId === turnId &&
+            captionTurnRef.current.revision === revision;
+
+          captionTurnRef.current = { turnId, revision };
+          setCaptionText((prev) =>
+            sameTurn ? appendCaptionChunk(prev, payload.text) : payload.text,
+          );
+          return;
+        }
+
+        if (isSpeakingProgressEvent(payload)) {
+          setSpeakingPlayback({
+            playedMs: Math.max(0, payload.played_ms),
+            totalMs: Math.max(0, payload.total_ms),
+            totalFinal: payload.total_final === true,
+          });
+          return;
+        }
+
         if (!isTurnStateEvent(payload)) return;
         if (!isTurnState(payload.state)) return;
 
         setTurnState(payload.state);
         setReason(typeof payload.reason === "string" ? payload.reason : null);
+
+        // Fresh generate cycle — clear prior caption buffer for the new turn
+        if (payload.state === "generating") {
+          captionTurnRef.current = {
+            turnId: typeof payload.turn_id === "string" ? payload.turn_id : null,
+            revision:
+              typeof payload.turn_revision === "number" ? payload.turn_revision : null,
+          };
+          setCaptionText("");
+          setSpeakingPlayback(null);
+        } else if (payload.state === "listening" || payload.state === "holding") {
+          setSpeakingPlayback(null);
+        }
       };
 
       ws.onerror = () => {
@@ -154,5 +269,5 @@ export function useCompanionBridge(): CompanionBridgeState {
     };
   }, [mock]);
 
-  return { connection, turnState, reason, persona, mock };
+  return { connection, turnState, reason, persona, captionText, speakingPlayback, mock };
 }

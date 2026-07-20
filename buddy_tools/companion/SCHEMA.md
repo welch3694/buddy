@@ -67,6 +67,23 @@ Caption chunks for what Buddy is saying (post pulse-suppress filter).
 }
 ```
 
+### `speaking_progress`
+
+Audible PCM playback progress from the local audio streamer (sample counts at 16 kHz). Used by live captions for word highlight. Not included in connect snapshots.
+
+```json
+{
+  "type": "speaking_progress",
+  "progress": 0.42,
+  "played_ms": 1260,
+  "total_ms": 3000,
+  "total_final": false,
+  "ts": "2026-07-19T16:00:00+00:00"
+}
+```
+
+`progress` is `played / max(enqueued, played)` for the current response. `total_ms` grows as TTS fills the output queue. `total_final` flips to `true` when `AUDIO_RESPONSE_DONE` is **enqueued** (synth finished; total audio length locked) — the companion then drops the text-duration floor and tracks remaining PCM through the last words. Emits ~20 Hz max while audio is playing; forces `progress: 1` when the done sentinel is **played**.
+
 ### `pulse_state`
 
 Salient snapshot from `{memory}/{persona}/pulse_state.json` (polled ~0.5s; change-only).

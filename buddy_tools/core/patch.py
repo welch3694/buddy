@@ -273,6 +273,14 @@ def _patch_response_complete_turn_state() -> None:
 
         def run_with_turn_state(self: Any) -> None:
             _wrap_should_listen_for_turn_state(self.should_listen)
+            try:
+                from buddy_tools.companion.playback_progress import (
+                    install_playback_progress_tracking,
+                )
+
+                install_playback_progress_tracking(self)
+            except Exception:
+                logger.exception("Failed to install companion playback progress tracking")
             original_run(self)
 
         LocalAudioStreamer.run = run_with_turn_state  # type: ignore[method-assign]

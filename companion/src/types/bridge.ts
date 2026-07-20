@@ -35,7 +35,38 @@ export type PersonaEvent = {
   ts: string;
 };
 
-export type BridgeEvent = TurnStateEvent | PersonaEvent | { type: string; [key: string]: unknown };
+export type AssistantTextEvent = {
+  type: "assistant_text";
+  text: string;
+  turn_id?: string | null;
+  turn_revision?: number | null;
+  ts: string;
+};
+
+export type SpeakingProgressEvent = {
+  type: "speaking_progress";
+  progress: number;
+  played_ms: number;
+  total_ms: number;
+  /** True once TTS has enqueued AUDIO_RESPONSE_DONE (total audio length locked). */
+  total_final?: boolean;
+  ts: string;
+};
+
+/** Live PCM playback sample for caption sync (not the raw bridge ratio). */
+export type SpeakingPlayback = {
+  playedMs: number;
+  totalMs: number;
+  /** True when synth finished; denominator should be real audio ms only. */
+  totalFinal: boolean;
+};
+
+export type BridgeEvent =
+  | TurnStateEvent
+  | PersonaEvent
+  | AssistantTextEvent
+  | SpeakingProgressEvent
+  | { type: string; [key: string]: unknown };
 
 export function isTurnState(value: unknown): value is TurnState {
   return typeof value === "string" && (TURN_STATES as readonly string[]).includes(value);
@@ -65,4 +96,22 @@ export function personaFromEvent(event: PersonaEvent): PersonaInfo {
     memoryNamespace: event.memory_namespace,
     voiceId: typeof event.voice_id === "string" ? event.voice_id : null,
   };
+}
+
+export function isAssistantTextEvent(value: unknown): value is AssistantTextEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  return event.type === "assistant_text" && typeof event.text === "string";
+}
+
+export function isSpeakingProgressEvent(value: unknown): value is SpeakingProgressEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  return (
+    event.type === "speaking_progress" &&
+    typeof event.progress === "number" &&
+    Number.isFinite(event.progress) &&
+    typeof event.played_ms === "number" &&
+    typeof event.total_ms === "number"
+  );
 }
