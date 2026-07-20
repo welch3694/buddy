@@ -46,4 +46,8 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
     "-NoProfile", "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$voicePs1`""
 ) -WorkingDirectory $root
 
-Write-Host "Done. Close the llama-server and voice windows to stop Buddy."
+Write-Host "Starting companion panel..."
+$companionPs1 = Join-Path $root "start-companion.ps1"
+& $companionPs1 -LaunchOnly
+
+Write-Host "Done. Close the llama-server, voice, and companion windows to stop Buddy."
