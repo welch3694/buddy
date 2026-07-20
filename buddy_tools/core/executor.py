@@ -328,6 +328,37 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         logger.info("Queued LLM follow-up after tool execution (round %d)", self._tool_rounds)
         return True
 
+    def _coerce_pending_tools_from_stash(self, turn_id: str | None) -> None:
+        """Replace LLM tool args with stashed intent args when the tool name matches."""
+        intent = peek_action_intent(turn_id)
+        if intent is None or not self._pending_tools:
+            return
+        desired = json.dumps(intent.arguments)
+        coerced: list[ResponseFunctionToolCall] = []
+        for tool in self._pending_tools:
+            if tool.name != intent.tool_name:
+                coerced.append(tool)
+                continue
+            raw = tool.arguments if isinstance(tool.arguments, str) else None
+            if raw == desired:
+                coerced.append(tool)
+                continue
+            logger.warning(
+                "Coercing %s arguments to stashed intent (was %s, turn=%s)",
+                intent.tool_name,
+                raw,
+                turn_id,
+            )
+            coerced.append(tool.model_copy(update={"arguments": desired}))
+        self._pending_tools = coerced
+
+    def _required_tool_unmet(self, turn_id: str | None) -> bool:
+        """True when a stashed action intent still lacks a successful receipt."""
+        intent = peek_action_intent(turn_id)
+        if intent is None:
+            return False
+        return not has_matching_receipt(self._turn_receipts, intent.tool_name)
+
     def _clear_action_intent_if_matched(self, turn_id: str | None) -> None:
         """Clear stashed intent only when a matching tool receipt exists (or no stash)."""
         intent = peek_action_intent(turn_id)
@@ -471,8 +502,12 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             if pulse_chunk is None:
                 return
             full_text = "".join(self._turn_text_buffer)
-            if claims_without_receipt(full_text, self._turn_receipts) and not self._pending_tools:
-                # Hold fabricated action claims until receipts exist (or EOR fallback).
+            # Hold speech while a routed required tool has not succeeded yet,
+            # and while claim heuristics fire with no receipts.
+            if not self._pending_tools and (
+                self._required_tool_unmet(lm_output.turn_id)
+                or claims_without_receipt(full_text, self._turn_receipts)
+            ):
                 return
             if pulse_chunk.text:
                 from buddy_tools.companion.publisher import emit_assistant_text
@@ -489,10 +524,12 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             if not self._turn_output_allowed(lm_output.turn_id, lm_output.turn_revision):
                 return
 
-            if self._pending_tools and self._execute_pending_tools():
-                self._clear_action_intent_if_matched(lm_output.turn_id)
-                self._turn_text_buffer.clear()
-                return
+            if self._pending_tools:
+                self._coerce_pending_tools_from_stash(lm_output.turn_id)
+                if self._execute_pending_tools():
+                    self._clear_action_intent_if_matched(lm_output.turn_id)
+                    self._turn_text_buffer.clear()
+                    return
 
             if self._retry_required_tool(lm_output.turn_id):
                 return

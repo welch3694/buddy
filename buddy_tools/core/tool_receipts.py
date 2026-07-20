@@ -23,6 +23,8 @@ _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bstarting\b", "starting"),
         (r"\bsaved\b", "saved"),
         (r"\bremembered\b", "remembered"),
+        (r"\bi['’]?ll remember\b", "i'll remember"),
+        (r"\bmake sure to remember\b", "make sure to remember"),
         (r"\bcancelled\b", "cancelled"),
         (r"\bcanceled\b", "canceled"),
         (r"\bupdated\b", "updated"),
@@ -75,8 +77,12 @@ def find_action_claims(text: str) -> list[str]:
 
 
 def has_matching_receipt(receipts: Sequence[ToolReceipt], tool_name: str) -> bool:
-    """True when any receipt is for the named tool (ok, error, or skipped)."""
-    return any(receipt.tool == tool_name for receipt in receipts)
+    """True when any successful (ok) receipt is for the named tool.
+
+    Error/skipped receipts do not satisfy a required tool — the stashed intent
+    must still run (or be retried) with correct arguments.
+    """
+    return any(receipt.tool == tool_name and receipt.status == "ok" for receipt in receipts)
 
 
 def claims_without_receipt(text: str, receipts: Sequence[ToolReceipt]) -> bool:

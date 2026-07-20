@@ -546,6 +546,137 @@ class SilentActionIntentFallbackTests(unittest.TestCase):
         self.assertIsNone(pop_action_intent("turn_matched"))
         self.assertEqual(executor._required_tool_retries, 0)
 
+    def test_error_receipt_does_not_block_silent_fallback(self) -> None:
+        from buddy_tools.core.tool_receipts import ToolReceipt
+        from buddy_tools.voice.action_intents import ActionIntent, stash_action_intent
+
+        follow_up: Queue = Queue()
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=follow_up)
+        executor._required_tool_retries = MAX_REQUIRED_TOOL_RETRIES
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(4)
+        pending_context = GenerateResponseRequest(
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            language_code="en",
+            turn_id="turn_err",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        executor._pending_context = pending_context
+        executor._turn_receipts = [
+            ToolReceipt(tool="start_skill", args_summary={"name": "none"}, status="error"),
+        ]
+        stash_action_intent(
+            "turn_err",
+            ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+        )
+
+        end = EndOfResponse(turn_id="turn_err", turn_revision=0)
+        with patch(
+            "buddy_tools.core.executor.execute_tool",
+            return_value=ToolExecutionResult(output="Started remember."),
+        ) as execute_tool:
+            outputs = list(executor.process(end))
+
+        self.assertEqual(outputs, [])
+        execute_tool.assert_called_once()
+        self.assertEqual(execute_tool.call_args.args[2], '{"name": "remember"}')
+
+    def test_stashed_intent_holds_soft_remember_claim(self) -> None:
+        from buddy_tools.voice.action_intents import ActionIntent, stash_action_intent
+
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=Queue())
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(2)
+        stash_action_intent(
+            "turn_soft",
+            ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+        )
+        chunk = LLMResponseChunk(
+            text="Got it. I'll make sure to remember that you're living in Belmont, Massachusetts.",
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_soft",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch("buddy_tools.companion.publisher.emit_assistant_text") as emit_text,
+        ):
+            outputs = list(executor.process(chunk))
+
+        self.assertEqual(outputs, [])
+        emit_text.assert_not_called()
+
+    def test_coerce_wrong_tool_args_from_stash(self) -> None:
+        from buddy_tools.voice.action_intents import ActionIntent, stash_action_intent
+
+        follow_up: Queue = Queue()
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=follow_up)
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(4)
+        runtime_config.chat.add_item(
+            RealtimeConversationItemFunctionCall(
+                type="function_call",
+                name="start_skill",
+                arguments='{"name":"none"}',
+                call_id="call_bad",
+            )
+        )
+        pending_context = GenerateResponseRequest(
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            language_code="en",
+            turn_id="turn_coerce",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        executor._pending_context = pending_context
+        stash_action_intent(
+            "turn_coerce",
+            ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+        )
+        tool_chunk = LLMResponseChunk(
+            text="",
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_coerce",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+            tools=[
+                ResponseFunctionToolCall(
+                    type="function_call",
+                    name="start_skill",
+                    arguments='{"name":"none"}',
+                    call_id="call_bad",
+                    id="fc_bad",
+                )
+            ],
+        )
+        end = EndOfResponse(turn_id="turn_coerce", turn_revision=0)
+
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch(
+                "buddy_tools.core.executor.execute_tool",
+                return_value=ToolExecutionResult(output="Started remember."),
+            ) as execute_tool,
+        ):
+            list(executor.process(tool_chunk))
+            outputs = list(executor.process(end))
+
+        self.assertEqual(outputs, [])
+        execute_tool.assert_called_once()
+        self.assertEqual(execute_tool.call_args.args[1], "start_skill")
+        self.assertEqual(execute_tool.call_args.args[2], '{"name": "remember"}')
+
     def test_llm_tools_clear_stash_without_double_execute(self) -> None:
         from buddy_tools.voice.action_intents import ActionIntent, pop_action_intent, stash_action_intent
 

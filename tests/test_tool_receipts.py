@@ -83,6 +83,27 @@ class HasMatchingReceiptTests(unittest.TestCase):
         self.assertFalse(has_matching_receipt(receipts, "cancel_skill"))
         self.assertFalse(has_matching_receipt([], "start_skill"))
 
+    def test_error_and_skipped_do_not_match(self) -> None:
+        self.assertFalse(
+            has_matching_receipt(
+                [ToolReceipt(tool="start_skill", args_summary={"name": "none"}, status="error")],
+                "start_skill",
+            )
+        )
+        self.assertFalse(
+            has_matching_receipt(
+                [ToolReceipt(tool="start_skill", args_summary=None, status="skipped")],
+                "start_skill",
+            )
+        )
+
+    def test_soft_remember_phrases(self) -> None:
+        self.assertIn(
+            "make sure to remember",
+            find_action_claims("I'll make sure to remember that you're living in Belmont."),
+        )
+        self.assertIn("i'll remember", find_action_claims("I'll remember that."))
+
 
 class MakeToolReceiptTests(unittest.TestCase):
     def test_status_from_result(self) -> None:
