@@ -46,6 +46,7 @@ _lock = Lock()
 _active_pulse_turn: ActivePulseTurn | None = None
 _pulse_turn_text: list[str] = []
 _pulse_cancel_scope: Any | None = None
+_pulse_audio_out_queue: Any | None = None
 
 
 def set_pulse_cancel_scope(cancel_scope: Any | None) -> None:
@@ -54,8 +55,38 @@ def set_pulse_cancel_scope(cancel_scope: Any | None) -> None:
     _pulse_cancel_scope = cancel_scope
 
 
+def set_pulse_audio_out_queue(audio_out_queue: Any | None) -> None:
+    """Local playback queue — drained when aborting a directed pulse over user speech."""
+    global _pulse_audio_out_queue
+    _pulse_audio_out_queue = audio_out_queue
+
+
 def get_pulse_cancel_scope() -> Any | None:
     return _pulse_cancel_scope
+
+
+def _drain_local_audio_output() -> None:
+    """Drop queued PCM and signal response-done so listening can resume."""
+    from queue import Empty
+
+    from speech_to_speech.pipeline.messages import AUDIO_RESPONSE_DONE
+
+    queue = _pulse_audio_out_queue
+    if queue is None:
+        return
+    drained = 0
+    while True:
+        try:
+            queue.get_nowait()
+            drained += 1
+        except Empty:
+            break
+    try:
+        queue.put_nowait(AUDIO_RESPONSE_DONE)
+    except Exception:
+        logger.debug("Could not enqueue AUDIO_RESPONSE_DONE after pulse abort", exc_info=True)
+    if drained:
+        logger.info("Drained %d queued audio chunk(s) after pulse abort", drained)
 
 
 def _utc_now_iso() -> str:
@@ -377,6 +408,8 @@ def abort_in_flight_pulse_for_user_speech() -> bool:
         except Exception:
             logger.exception("Failed to cancel pipeline after user speech during pulse")
 
+    _drain_local_audio_output()
+
     state = load_pulse_state(memory_root, persona_namespace)
     if state is None:
         return True
@@ -545,8 +578,9 @@ def record_assistant_speech_for_active_pulse(full_text: str) -> None:
 
 
 def reset_pulse_inject_for_tests() -> None:
-    global _active_pulse_turn, _pulse_turn_text, _pulse_cancel_scope
+    global _active_pulse_turn, _pulse_turn_text, _pulse_cancel_scope, _pulse_audio_out_queue
     with _lock:
         _active_pulse_turn = None
         _pulse_turn_text = []
     _pulse_cancel_scope = None
+    _pulse_audio_out_queue = None
