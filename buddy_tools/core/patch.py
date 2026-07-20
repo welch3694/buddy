@@ -179,6 +179,33 @@ def _patch_transcription_notifier_listening_pause() -> None:
     TranscriptionNotifier._buddy_listening_pause_patch_applied = True
 
 
+def _log_offered_tools(request: Any, tools: Any, tool_choice: Any) -> None:
+    """Log tools offered to the model this turn (distinct from returned tool calls)."""
+    count = len(tools) if tools else 0
+    choice_repr = tool_choice
+    if tool_choice is not None and not isinstance(tool_choice, (str, dict)):
+        try:
+            choice_repr = tool_choice.model_dump(exclude_none=True)
+        except Exception:
+            choice_repr = repr(tool_choice)
+    logger.info(
+        "Offered tools: count=%d tool_choice=%r turn=%s rev=%s",
+        count,
+        choice_repr,
+        getattr(request, "turn_id", None),
+        getattr(request, "turn_revision", None),
+    )
+
+
+# Appended after s2s voice rules so Buddy anti-fabrication wins over "just speak".
+_BUDDY_VOICE_PROMPT_OVERRIDE = """\
+## Buddy Tool Rules
+- Never claim you started a skill, saved or remembered something, cancelled a skill, or updated config until a tool result confirms it.
+- If the user asked for an action that needs a tool, call the tool. Do not narrate completion without calling it.
+- If unsure whether a tool is needed for an action request, call the tool or ask to confirm — do not just speak a success claim.\
+"""
+
+
 def _iter_llm_outputs_with_context_budget(
     original_process: Any,
     handler: Any,
@@ -201,6 +228,10 @@ def _iter_llm_outputs_with_context_budget(
         response.instructions if response and response.instructions else runtime_config.session.instructions
     ) or ""
     tools = response.tools if response and response.tools else runtime_config.session.tools
+    tool_choice = (
+        response.tool_choice if response and response.tool_choice else runtime_config.session.tool_choice
+    )
+    _log_offered_tools(request, tools, tool_choice)
     budget = ContextBudget.from_env()
 
     try:
@@ -319,6 +350,23 @@ def _patch_llm_context_budget() -> None:
     BaseOpenAICompatibleHandler._buddy_context_budget_patch_applied = True
 
 
+def _patch_voice_prompt_anti_fabrication() -> None:
+    """Append Buddy tool rules after s2s voice tail so anti-fabrication wins over 'just speak'."""
+    import speech_to_speech.LLM.voice_prompt as voice_prompt
+
+    if getattr(voice_prompt, "_buddy_anti_fabrication_patch_applied", False):
+        return
+
+    original_build = voice_prompt.build_voice_system_prompt
+
+    def build_with_buddy_tool_rules(session_prompt: str, *, tool_section: str = "") -> str:
+        base = original_build(session_prompt, tool_section=tool_section)
+        return f"{base.rstrip()}\n\n{_BUDDY_VOICE_PROMPT_OVERRIDE.strip()}"
+
+    voice_prompt.build_voice_system_prompt = build_with_buddy_tool_rules  # type: ignore[assignment]
+    voice_prompt._buddy_anti_fabrication_patch_applied = True
+
+
 def _configure_listening_pause_from_handlers(
     handlers: list[Any],
     *,
@@ -413,6 +461,7 @@ def apply_patches() -> None:
     _patch_pocket_tts_voice_logging()
     _patch_transcription_notifier_listening_pause()
     _patch_llm_context_budget()
+    _patch_voice_prompt_anti_fabrication()
     _patch_response_complete_turn_state()
     _patch_graceful_shutdown()
 

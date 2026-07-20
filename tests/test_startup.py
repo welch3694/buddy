@@ -57,6 +57,12 @@ class StartupConfigTests(unittest.TestCase):
         self.assertIn("You are Buddy.", result)
         self.assertIn(FIXED_VOICE_INSTRUCTIONS.splitlines()[0], result)
 
+    def test_fixed_voice_instructions_forbid_success_without_tool_result(self) -> None:
+        rules = FIXED_VOICE_INSTRUCTIONS.lower()
+        self.assertIn("never claim an action is complete", rules)
+        self.assertIn("until a tool result confirms it", rules)
+        self.assertIn("do not narrate success without calling the tool", rules)
+
     def test_build_init_instructions_uses_active_personality(self) -> None:
         create_personality("buddy", "Buddy", "You are Buddy.", voice_id="cliff")
         create_personality("coach", "Coach", "You are Coach.", voice_id="narrator")
