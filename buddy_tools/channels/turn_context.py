@@ -14,6 +14,7 @@ class TurnReplyContext:
     channel: ChannelKind
     telegram_chat_id: int | None = None
     telegram_message_thread_id: int | None = None
+    suppress_default_telegram_reply: bool = False
 
 
 _lock = Lock()
@@ -37,6 +38,22 @@ def clear_turn(turn_id: str | None) -> None:
         return
     with _lock:
         _turn_contexts.pop(turn_id, None)
+
+
+def suppress_default_telegram_reply(turn_id: str | None) -> None:
+    """Mark a turn so ChannelReplyRouter skips its default Telegram send."""
+    if turn_id is None:
+        return
+    with _lock:
+        ctx = _turn_contexts.get(turn_id)
+        if ctx is None:
+            return
+        _turn_contexts[turn_id] = TurnReplyContext(
+            channel=ctx.channel,
+            telegram_chat_id=ctx.telegram_chat_id,
+            telegram_message_thread_id=ctx.telegram_message_thread_id,
+            suppress_default_telegram_reply=True,
+        )
 
 
 def reset_turn_contexts() -> None:

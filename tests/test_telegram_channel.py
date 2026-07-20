@@ -193,6 +193,20 @@ class ChannelReplyRouterTests(unittest.TestCase):
         self.assertEqual(len(self.sent[0][1]), 4096)
         self.assertEqual(len(self.sent[1][1]), 5000 - 4096)
 
+    def test_suppressed_telegram_turn_skips_default_send(self) -> None:
+        register_turn(
+            "tg-suppress",
+            TurnReplyContext(
+                channel="telegram",
+                telegram_chat_id=99,
+                suppress_default_telegram_reply=True,
+            ),
+        )
+        list(self.router.process(LLMResponseChunk(text="Should not send", turn_id="tg-suppress", turn_revision=0)))
+        list(self.router.process(EndOfResponse(turn_id="tg-suppress", turn_revision=0)))
+        self.assertEqual(self.sent, [])
+        self.assertIsNone(get_turn("tg-suppress"))
+
 
 class ToolRoundModalityTests(unittest.TestCase):
     def test_executor_remembers_text_only_response_for_tool_follow_up(self) -> None:

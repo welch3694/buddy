@@ -51,6 +51,7 @@ class ToolGroupRegistrationTests(unittest.TestCase):
                 "skills",
                 "timers",
                 "vision",
+                "channels",
             },
         )
 
@@ -71,12 +72,14 @@ class ToolRoutingInstructionTests(unittest.TestCase):
         text = build_tool_instructions("Base prompt.", "(no memory saved yet)")
         self.assertIn("## Tool routing", text)
         lowered = text.lower()
-        for needle in ("persona", "memory", "episodic", "skills", "vision", "timers"):
+        for needle in ("persona", "memory", "episodic", "skills", "vision", "timers", "channels"):
             self.assertIn(needle, lowered)
         self.assertIn("switch_personality", text)
         self.assertIn("Identity rule", text)
         self.assertIn("Never impersonate", text)
         self.assertIn("update_personality", text)
+        self.assertIn("send_telegram_message", text)
+        self.assertIn("speak_aloud", text)
         self.assertNotIn("create_personality", text)
 
     def test_active_context_and_admin_for_buddy(self) -> None:

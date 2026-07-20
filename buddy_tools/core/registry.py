@@ -62,6 +62,11 @@ from buddy_tools.themes import (
     THEME_TOOL_NAMES,
     execute_theme_tool,
 )
+from buddy_tools.channels.tools import (
+    CHANNEL_TOOL_GROUP,
+    CHANNEL_TOOL_NAMES,
+    execute_channel_tool,
+)
 
 # Re-export for bootstrap and other callers.
 __all__ = [
@@ -85,6 +90,7 @@ TOOL_GROUPS: tuple[ToolGroup, ...] = (
     SKILL_TOOL_GROUP,
     TIMER_TOOL_GROUP,
     VISION_TOOL_GROUP,
+    CHANNEL_TOOL_GROUP,
 )
 
 ALL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = flatten_tool_definitions(TOOL_GROUPS)
@@ -214,6 +220,8 @@ def execute_tool(
     arguments_json: str,
     *,
     persona_namespace: str,
+    turn_id: str | None = None,
+    turn_revision: int | None = None,
 ) -> ToolExecutionResult:
     try:
         args: dict[str, Any] = json.loads(arguments_json or "{}")
@@ -249,6 +257,14 @@ def execute_tool(
 
         if tool_name in TIMER_TOOL_NAMES:
             return execute_timer_tool(tool_name, args)
+
+        if tool_name in CHANNEL_TOOL_NAMES:
+            return execute_channel_tool(
+                tool_name,
+                args,
+                turn_id=turn_id,
+                turn_revision=turn_revision,
+            )
 
         return tool_error(tool_name, f"unknown tool {tool_name!r}")
     except ValueError as exc:
