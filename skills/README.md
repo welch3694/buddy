@@ -82,6 +82,12 @@ The **remember** skill auto-starts when the user says "remember that", "don't fo
 
 Start with `start_skill` and name `live-director` when the user says "go live" or "start director".
 
+## Skill authoring: tool results
+
+**Do not claim success without a tool result.** After calling a tool (`start_skill`, `update_personality`, `append_memory`, `cancel_skill`, etc.), confirm what happened only once the tool returns. Narrating “I’ve started…”, “saved…”, or “cancelled…” before a tool result is a bypass — voice users hear a false completion.
+
+The runtime backs this rule: turn receipts, a claim TTS gate, deterministic intent routing with forced `tool_choice`, and a short required-tool nudge retry before silent fallback. Skill steps should still state the rule explicitly (see `edit-personality` apply-update).
+
 ### Manual test plan (live-director)
 
 1. Start llama-server and speech-to-speech (`start-llama-server-speech.ps1`, `start-speech-to-speech.ps1`).

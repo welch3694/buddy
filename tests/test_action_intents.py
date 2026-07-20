@@ -8,6 +8,7 @@ from buddy_tools.voice.action_intents import (
     ActionIntent,
     clear_action_intent,
     match_action_intent,
+    peek_action_intent,
     pop_action_intent,
     reset_action_intent_stash_for_tests,
     stash_action_intent,
@@ -155,6 +156,13 @@ class ActionIntentStashTests(unittest.TestCase):
         stash_action_intent("turn_1", intent)
         self.assertEqual(pop_action_intent("turn_1"), intent)
         self.assertIsNone(pop_action_intent("turn_1"))
+
+    def test_peek_does_not_remove(self) -> None:
+        intent = ActionIntent(tool_name="start_skill", arguments={"name": "live-director"})
+        stash_action_intent("turn_peek", intent)
+        self.assertEqual(peek_action_intent("turn_peek"), intent)
+        self.assertEqual(peek_action_intent("turn_peek"), intent)
+        self.assertEqual(pop_action_intent("turn_peek"), intent)
 
     def test_clear_drops_without_returning(self) -> None:
         intent = ActionIntent(tool_name="cancel_skill", arguments={})

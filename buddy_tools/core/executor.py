@@ -38,6 +38,7 @@ from buddy_tools.core.tool_receipts import (
     ToolReceipt,
     claims_without_receipt,
     find_action_claims,
+    has_matching_receipt,
     make_tool_receipt,
 )
 from buddy_tools.timers import cancel_all_timers
@@ -49,11 +50,20 @@ from buddy_tools.episodic import (
 from buddy_tools.episodic.turns import truncate_tool_output
 from buddy_tools.channels.turn_context import get_turn
 from buddy_tools.voice.session import apply_voice
-from buddy_tools.voice.action_intents import clear_action_intent, pop_action_intent
+from buddy_tools.voice.action_intents import (
+    clear_action_intent,
+    peek_action_intent,
+    pop_action_intent,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 5
+MAX_REQUIRED_TOOL_RETRIES = 2
+REQUIRED_TOOL_NUDGE_PREFIX = (
+    "[Required tool — internal nudge, not user speech]: "
+    "Call {tool_name} now; do not claim success without a tool result."
+)
 _SKIPPED_TOOL_OUTPUT = (
     "Error: tool round limit reached; this tool was not executed. "
     "Summarize what you have and tell the user you could not finish looking up memory."
@@ -147,6 +157,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools: list[ResponseFunctionToolCall] = []
         self._pending_context: GenerateResponseRequest | None = None
         self._tool_rounds = 0
+        self._required_tool_retries = 0
         self._turn_text_buffer: list[str] = []
         self._turn_receipts: list[ToolReceipt] = []
 
@@ -317,9 +328,111 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         logger.info("Queued LLM follow-up after tool execution (round %d)", self._tool_rounds)
         return True
 
+    def _coerce_pending_tools_from_stash(self, turn_id: str | None) -> None:
+        """Replace LLM tool args with stashed intent args when the tool name matches."""
+        intent = peek_action_intent(turn_id)
+        if intent is None or not self._pending_tools:
+            return
+        desired = json.dumps(intent.arguments)
+        coerced: list[ResponseFunctionToolCall] = []
+        for tool in self._pending_tools:
+            if tool.name != intent.tool_name:
+                coerced.append(tool)
+                continue
+            raw = tool.arguments if isinstance(tool.arguments, str) else None
+            if raw == desired:
+                coerced.append(tool)
+                continue
+            logger.warning(
+                "Coercing %s arguments to stashed intent (was %s, turn=%s)",
+                intent.tool_name,
+                raw,
+                turn_id,
+            )
+            coerced.append(tool.model_copy(update={"arguments": desired}))
+        self._pending_tools = coerced
+
+    def _required_tool_unmet(self, turn_id: str | None) -> bool:
+        """True when a stashed action intent still lacks a successful receipt."""
+        intent = peek_action_intent(turn_id)
+        if intent is None:
+            return False
+        return not has_matching_receipt(self._turn_receipts, intent.tool_name)
+
+    def _clear_action_intent_if_matched(self, turn_id: str | None) -> None:
+        """Clear stashed intent only when a matching tool receipt exists (or no stash)."""
+        intent = peek_action_intent(turn_id)
+        if intent is None:
+            return
+        if has_matching_receipt(self._turn_receipts, intent.tool_name):
+            clear_action_intent(turn_id)
+
+    def _retry_required_tool(self, turn_id: str | None) -> bool:
+        """Nudge + re-queue with forced tool_choice when a required tool has no receipt."""
+        if self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
+            return False
+        intent = peek_action_intent(turn_id)
+        if intent is None:
+            return False
+        if has_matching_receipt(self._turn_receipts, intent.tool_name):
+            return False
+        if self._required_tool_retries >= MAX_REQUIRED_TOOL_RETRIES:
+            return False
+
+        from openai.types.realtime.realtime_response_create_params import RealtimeResponseCreateParams
+        from openai.types.responses.tool_choice_function import ToolChoiceFunction
+
+        nudge_text = REQUIRED_TOOL_NUDGE_PREFIX.format(tool_name=intent.tool_name)
+        chat = self._pending_context.runtime_config.chat
+        try:
+            chat.add_item(
+                RealtimeConversationItemUserMessage(
+                    type="message",
+                    role="user",
+                    content=[UserContent(type="input_text", text=nudge_text)],
+                )
+            )
+        except ChatItemError as exc:
+            logger.error(
+                "Could not inject required-tool nudge for %s: %s",
+                intent.tool_name,
+                exc,
+            )
+            return False
+
+        ctx = self._pending_context
+        self.text_prompt_queue.put(
+            GenerateResponseRequest(
+                runtime_config=ctx.runtime_config,
+                language_code=ctx.language_code,
+                turn_id=ctx.turn_id,
+                turn_revision=ctx.turn_revision,
+                speech_stopped_at_s=ctx.speech_stopped_at_s,
+                response=RealtimeResponseCreateParams(
+                    tool_choice=ToolChoiceFunction(type="function", name=intent.tool_name),
+                ),
+            )
+        )
+        self._required_tool_retries += 1
+        self._turn_text_buffer.clear()
+        logger.warning(
+            "Required tool %s missing receipt; nudge retry %d/%d (turn=%s)",
+            intent.tool_name,
+            self._required_tool_retries,
+            MAX_REQUIRED_TOOL_RETRIES,
+            turn_id,
+        )
+        return True
+
     def _silent_execute_stashed_intent(self, turn_id: str | None) -> bool:
         """If forced tool_choice was ignored, execute the stashed ActionIntent."""
         if self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
+            return False
+        intent = peek_action_intent(turn_id)
+        if intent is None:
+            return False
+        if has_matching_receipt(self._turn_receipts, intent.tool_name):
+            clear_action_intent(turn_id)
             return False
         intent = pop_action_intent(turn_id)
         if intent is None:
@@ -389,8 +502,12 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             if pulse_chunk is None:
                 return
             full_text = "".join(self._turn_text_buffer)
-            if claims_without_receipt(full_text, self._turn_receipts) and not self._pending_tools:
-                # Hold fabricated action claims until receipts exist (or EOR fallback).
+            # Hold speech while a routed required tool has not succeeded yet,
+            # and while claim heuristics fire with no receipts.
+            if not self._pending_tools and (
+                self._required_tool_unmet(lm_output.turn_id)
+                or claims_without_receipt(full_text, self._turn_receipts)
+            ):
                 return
             if pulse_chunk.text:
                 from buddy_tools.companion.publisher import emit_assistant_text
@@ -407,9 +524,14 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             if not self._turn_output_allowed(lm_output.turn_id, lm_output.turn_revision):
                 return
 
-            if self._pending_tools and self._execute_pending_tools():
-                clear_action_intent(lm_output.turn_id)
-                self._turn_text_buffer.clear()
+            if self._pending_tools:
+                self._coerce_pending_tools_from_stash(lm_output.turn_id)
+                if self._execute_pending_tools():
+                    self._clear_action_intent_if_matched(lm_output.turn_id)
+                    self._turn_text_buffer.clear()
+                    return
+
+            if self._retry_required_tool(lm_output.turn_id):
                 return
 
             if self._silent_execute_stashed_intent(lm_output.turn_id):
@@ -439,6 +561,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             _log_episodic_assistant_turn(lm_output.turn_id, spoken_text)
 
             self._tool_rounds = 0
+            self._required_tool_retries = 0
             self._pending_context = None
             self._turn_receipts.clear()
             if fallback_chunk is not None:
@@ -463,6 +586,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0
+        self._required_tool_retries = 0
         self._turn_receipts.clear()
 
     def cleanup(self) -> None:
