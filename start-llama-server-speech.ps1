@@ -67,6 +67,7 @@ try {
         --min-p 0.1 `
         --host 0.0.0.0 --port 8080 `
         --flash-attn on `
+        --jinja `
         --log-colors on
 
     if ($LASTEXITCODE -ne 0) {

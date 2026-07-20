@@ -10,6 +10,8 @@ from unittest.mock import Mock, patch
 from buddy_tools.core.patch import _ensure_speculative_turns
 from buddy_tools.voice.turn_completion_heuristic import HeuristicConfig, reset_heuristic_config_for_tests
 from buddy_tools.voice.endpointing import (
+    PendingUtterance,
+    build_commit_request,
     configure_endpointing,
     get_endpointing_gate,
     merge_transcripts,
@@ -152,6 +154,50 @@ class EndpointingGateTests(unittest.TestCase):
         self.assertEqual(len(outputs), 1)
         self.assertIsInstance(outputs[0], GenerateResponseRequest)
         self.runtime_config.chat.add_item.assert_called_once()
+        self.assertIsNone(outputs[0].response)
+
+    def test_action_intent_forces_tool_choice_on_commit(self) -> None:
+        from buddy_tools.voice.action_intents import pop_action_intent, reset_action_intent_stash_for_tests
+
+        reset_action_intent_stash_for_tests()
+        request = build_commit_request(
+            self.runtime_config,
+            PendingUtterance(
+                transcript="start director",
+                language_code=None,
+                speech_stopped_at_s=1.0,
+                turn_id="t1",
+                turn_revision=0,
+            ),
+        )
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertIsNotNone(request.response)
+        assert request.response is not None
+        tool_choice = request.response.tool_choice
+        self.assertIsNotNone(tool_choice)
+        self.assertEqual(tool_choice.name, "start_skill")
+        self.assertEqual(tool_choice.type, "function")
+        stashed = pop_action_intent("t1")
+        self.assertIsNotNone(stashed)
+        assert stashed is not None
+        self.assertEqual(stashed.arguments, {"name": "live-director"})
+        reset_action_intent_stash_for_tests()
+
+    def test_unmatched_commit_leaves_response_none(self) -> None:
+        request = build_commit_request(
+            self.runtime_config,
+            PendingUtterance(
+                transcript="hello there",
+                language_code=None,
+                speech_stopped_at_s=1.0,
+                turn_id="t1",
+                turn_revision=0,
+            ),
+        )
+        self.assertIsNotNone(request)
+        assert request is not None
+        self.assertIsNone(request.response)
 
     def test_listening_pause_still_blocks_before_endpointing(self) -> None:
         controller = ListeningPauseController(should_listen=Event())
