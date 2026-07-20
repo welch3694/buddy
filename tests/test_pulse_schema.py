@@ -68,6 +68,34 @@ class PulseSchemaTests(unittest.TestCase):
         self.assertEqual(len(config.cameras), 2)
         self.assertEqual(config.rules[0].id, "camera-switch")
         self.assertEqual(config.schedule[0].entry_id, "t30")
+        self.assertEqual(config.panel.senses, ())
+
+    def test_panel_senses_round_trip(self) -> None:
+        import yaml
+        from buddy_tools.pulse.schema import session_config_to_dict
+
+        raw = yaml.safe_load(VALID_SESSION)
+        raw["panel"] = {"senses": ["phase", "pulse_mode", "current_camera", "pending_cue"]}
+        config = parse_session_config(raw, skill_name="live-director")
+        self.assertEqual(
+            config.panel.senses,
+            ("phase", "pulse_mode", "current_camera", "pending_cue"),
+        )
+        dumped = session_config_to_dict(config)
+        self.assertEqual(
+            dumped["panel"]["senses"],
+            ["phase", "pulse_mode", "current_camera", "pending_cue"],
+        )
+        again = parse_session_config(dumped, skill_name="live-director")
+        self.assertEqual(again.panel.senses, config.panel.senses)
+
+    def test_rejects_invalid_panel_senses_entry(self) -> None:
+        import yaml
+
+        raw = yaml.safe_load(VALID_SESSION)
+        raw["panel"] = {"senses": ["phase", 42]}
+        with self.assertRaises(SessionValidationError):
+            parse_session_config(raw, skill_name="live-director")
 
     def test_rejects_invalid_rule_without_when(self) -> None:
         import yaml

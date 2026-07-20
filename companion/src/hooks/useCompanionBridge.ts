@@ -53,6 +53,12 @@ const MOCK_PULSE_ACTIVE: PulseStateActive = {
   pulse_in_flight: false,
   vars: { current_camera: "cam1", beat: 2 },
   camera_labels: { cam1: "Wide", cam2: "Close" },
+  senses: [
+    { key: "phase", label: "PHASE", value: "running" },
+    { key: "pulse_mode", label: "MODE", value: "directed" },
+    { key: "current_camera", label: "CAMERA", value: "Wide" },
+    { key: "pending_cue", label: "CUE", value: "advance_camera" },
+  ],
   ts: new Date(0).toISOString(),
 };
 
@@ -146,21 +152,32 @@ export function useCompanionBridge(): CompanionBridgeState {
       const pulseActive = index % 2 === 1;
       const now = new Date().toISOString();
       if (pulseActive) {
+        const phase = next === "paused" ? "paused" : "running";
+        const cue = next === "holding" ? "advance_camera" : null;
+        const camId = next === "speaking" ? "cam2" : "cam1";
+        const camLabel =
+          MOCK_PULSE_ACTIVE.camera_labels?.[camId] ?? camId;
         const active: PulseStateEvent = {
           type: "pulse_state",
           active: true,
           skill_name: MOCK_PULSE_ACTIVE.skill_name,
           status: MOCK_PULSE_ACTIVE.status,
-          phase: next === "paused" ? "paused" : "running",
+          phase,
           pulse_mode: MOCK_PULSE_ACTIVE.pulse_mode,
-          pending_cue: next === "holding" ? "advance_camera" : null,
+          pending_cue: cue,
           cue_priority: MOCK_PULSE_ACTIVE.cue_priority,
           pulse_in_flight: next === "generating" || next === "speaking",
           vars: {
-            current_camera: next === "speaking" ? "cam2" : "cam1",
+            current_camera: camId,
             beat: index,
           },
           camera_labels: MOCK_PULSE_ACTIVE.camera_labels,
+          senses: [
+            { key: "phase", label: "PHASE", value: phase },
+            { key: "pulse_mode", label: "MODE", value: MOCK_PULSE_ACTIVE.pulse_mode },
+            { key: "current_camera", label: "CAMERA", value: camLabel },
+            { key: "pending_cue", label: "CUE", value: cue ?? "—" },
+          ],
           ts: now,
         };
         setPulseState(active);

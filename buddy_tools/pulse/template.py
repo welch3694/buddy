@@ -33,6 +33,14 @@ cameras:
   - {{ id: 2, label: "close-up" }}
   - {{ id: 3, label: "overhead" }}
 
+# Companion SENSES HUD — which pulse fields / vars to surface (omit or customize per skill).
+panel:
+  senses:
+    - phase
+    - pulse_mode
+    - current_camera
+    - pending_cue
+
 rules:
   - id: camera-switch
     when: elapsed_since(last_camera_switch_at) >= switch_interval_s

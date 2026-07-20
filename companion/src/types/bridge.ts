@@ -61,6 +61,13 @@ export type SpeakingPlayback = {
   totalFinal: boolean;
 };
 
+/** One SENSES HUD row projected from ``panel.senses``. */
+export type SenseRow = {
+  key: string;
+  label: string;
+  value: string;
+};
+
 /** Inactive pulse session (or cleared state). */
 export type PulseStateInactive = {
   type: "pulse_state";
@@ -85,6 +92,8 @@ export type PulseStateActive = {
   last_tick_at?: string | null;
   vars: Record<string, unknown>;
   camera_labels?: Record<string, string | null>;
+  /** Rows from session ``panel.senses`` (bridge-projected). */
+  senses?: SenseRow[];
   ts: string;
 };
 
@@ -151,24 +160,61 @@ export function isPulseStateEvent(value: unknown): value is PulseStateEvent {
   const event = value as Record<string, unknown>;
   if (event.type !== "pulse_state" || typeof event.active !== "boolean") return false;
   if (!event.active) return true;
-  return (
-    typeof event.skill_name === "string" &&
-    typeof event.status === "string" &&
-    typeof event.phase === "string" &&
-    typeof event.pulse_mode === "string" &&
-    typeof event.pulse_in_flight === "boolean" &&
-    event.vars !== null &&
-    typeof event.vars === "object" &&
-    !Array.isArray(event.vars) &&
-    (event.pending_cue === null || typeof event.pending_cue === "string")
-  );
+  if (
+    typeof event.skill_name !== "string" ||
+    typeof event.status !== "string" ||
+    typeof event.phase !== "string" ||
+    typeof event.pulse_mode !== "string" ||
+    typeof event.pulse_in_flight !== "boolean" ||
+    event.vars === null ||
+    typeof event.vars !== "object" ||
+    Array.isArray(event.vars) ||
+    !(event.pending_cue === null || typeof event.pending_cue === "string")
+  ) {
+    return false;
+  }
+  if (event.senses !== undefined) {
+    if (!Array.isArray(event.senses)) return false;
+    for (const row of event.senses) {
+      if (!row || typeof row !== "object") return false;
+      const sense = row as Record<string, unknown>;
+      if (
+        typeof sense.key !== "string" ||
+        typeof sense.label !== "string" ||
+        typeof sense.value !== "string"
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /** Resolve active camera id → label from bridge vars + camera_labels. */
 export function resolveActiveCamera(event: PulseStateActive): string | null {
   const raw = event.vars.current_camera;
-  if (typeof raw !== "string" || !raw) return null;
-  const label = event.camera_labels?.[raw];
+  if (raw === null || raw === undefined) return null;
+  const key = String(raw);
+  if (!key) return null;
+  const label = event.camera_labels?.[key];
   if (typeof label === "string" && label.trim()) return label;
-  return raw;
+  return key;
+}
+
+/** Fallback rows when an older bridge omits ``senses``. */
+export function fallbackSenseRows(event: PulseStateActive): SenseRow[] {
+  const rows: SenseRow[] = [
+    { key: "phase", label: "PHASE", value: event.phase || "—" },
+    { key: "pulse_mode", label: "MODE", value: event.pulse_mode || "—" },
+  ];
+  const camera = resolveActiveCamera(event);
+  if (camera) {
+    rows.push({ key: "current_camera", label: "CAMERA", value: camera });
+  }
+  rows.push({
+    key: "pending_cue",
+    label: "CUE",
+    value: event.pending_cue?.trim() || "—",
+  });
+  return rows;
 }

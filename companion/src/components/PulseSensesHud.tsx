@@ -1,9 +1,16 @@
-import { resolveActiveCamera, type PulseStateEvent } from "../types/bridge";
+import { fallbackSenseRows, type PulseStateEvent, type SenseRow } from "../types/bridge";
 
 type PulseSensesHudProps = {
   pulseState: PulseStateEvent | null;
   connected: boolean;
 };
+
+function senseRows(pulseState: Extract<PulseStateEvent, { active: true }>): SenseRow[] {
+  if (pulseState.senses && pulseState.senses.length > 0) {
+    return pulseState.senses;
+  }
+  return fallbackSenseRows(pulseState);
+}
 
 export function PulseSensesHud({ pulseState, connected }: PulseSensesHudProps) {
   const idle =
@@ -18,8 +25,7 @@ export function PulseSensesHud({ pulseState, connected }: PulseSensesHudProps) {
     );
   }
 
-  const camera = resolveActiveCamera(pulseState);
-  const cue = pulseState.pending_cue?.trim() || "—";
+  const rows = senseRows(pulseState);
 
   return (
     <div
@@ -29,22 +35,20 @@ export function PulseSensesHud({ pulseState, connected }: PulseSensesHudProps) {
     >
       <span className="shell__tele-key">SENSES</span>
       <div className="senses-hud__grid">
-        <span className="senses-hud__row">
-          <span className="senses-hud__k">PHASE</span>
-          <span className="senses-hud__v">{pulseState.phase}</span>
-        </span>
-        <span className="senses-hud__row">
-          <span className="senses-hud__k">MODE</span>
-          <span className="senses-hud__v">{pulseState.pulse_mode}</span>
-        </span>
-        <span className="senses-hud__row">
-          <span className="senses-hud__k">CAMERA</span>
-          <span className="senses-hud__v">{camera ?? "—"}</span>
-        </span>
-        <span className="senses-hud__row">
-          <span className="senses-hud__k">CUE</span>
-          <span className="senses-hud__v senses-hud__v--cue">{cue}</span>
-        </span>
+        {rows.map((row) => (
+          <span className="senses-hud__row" key={row.key}>
+            <span className="senses-hud__k">{row.label}</span>
+            <span
+              className={
+                row.key === "pending_cue"
+                  ? "senses-hud__v senses-hud__v--cue"
+                  : "senses-hud__v"
+              }
+            >
+              {row.value}
+            </span>
+          </span>
+        ))}
       </div>
     </div>
   );
