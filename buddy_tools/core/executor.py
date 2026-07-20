@@ -260,6 +260,8 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 tool.name,
                 tool.arguments,
                 persona_namespace=self.persona_namespace,
+                turn_id=turn_id,
+                turn_revision=self._pending_context.turn_revision,
             )
             raw_args = tool.arguments if isinstance(tool.arguments, str) else None
             receipt = make_tool_receipt(

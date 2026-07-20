@@ -58,8 +58,9 @@ class ChannelReplyRouter(BaseHandler[LLMOut, LLMOut]):
             return
 
         text = self._pop_accumulated(turn_id)
+        suppress = context.suppress_default_telegram_reply
         clear_turn(turn_id)
-        if not text:
+        if suppress or not text:
             return
 
         chat_id = context.telegram_chat_id

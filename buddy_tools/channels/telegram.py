@@ -150,6 +150,62 @@ def _log_telegram_user_turn(
     )
 
 
+def _record_inbound_chat(chat_id: int, message_thread_id: int | None = None) -> None:
+    bridge = get_telegram_bridge()
+    if bridge is not None:
+        bridge.record_inbound(chat_id, message_thread_id)
+
+
+def resolve_outbound_chat(
+    *,
+    turn_id: str | None = None,
+    chat_id: int | None = None,
+) -> tuple[int, int | None]:
+    """Resolve (chat_id, thread_id) for an outbound Telegram send.
+
+    Order: explicit allowlisted chat_id → current turn → last inbound → sole allowlist entry.
+    Raises ValueError when unresolved or not allowlisted.
+    """
+    from buddy_tools.channels.turn_context import get_turn
+
+    bridge = get_telegram_bridge()
+    if bridge is None:
+        raise ValueError("Telegram bridge is not configured")
+
+    allowed = bridge.config.allowed_chat_ids
+    thread_id: int | None = None
+
+    if chat_id is not None:
+        if not is_chat_allowed(chat_id, allowed):
+            raise ValueError(f"chat_id {chat_id} is not allowlisted")
+        turn = get_turn(turn_id)
+        if turn is not None and turn.telegram_chat_id == chat_id:
+            thread_id = turn.telegram_message_thread_id
+        elif bridge.last_inbound_chat_id == chat_id:
+            thread_id = bridge.last_inbound_message_thread_id
+        return chat_id, thread_id
+
+    turn = get_turn(turn_id)
+    if turn is not None and turn.telegram_chat_id is not None:
+        if not is_chat_allowed(turn.telegram_chat_id, allowed):
+            raise ValueError(f"chat_id {turn.telegram_chat_id} is not allowlisted")
+        return turn.telegram_chat_id, turn.telegram_message_thread_id
+
+    if bridge.last_inbound_chat_id is not None:
+        if not is_chat_allowed(bridge.last_inbound_chat_id, allowed):
+            raise ValueError(f"chat_id {bridge.last_inbound_chat_id} is not allowlisted")
+        return bridge.last_inbound_chat_id, bridge.last_inbound_message_thread_id
+
+    if len(allowed) == 1:
+        sole = next(iter(allowed))
+        return sole, None
+
+    raise ValueError(
+        "Could not resolve Telegram chat_id: provide chat_id, or ensure a prior "
+        "inbound message / single allowlisted chat"
+    )
+
+
 def enqueue_telegram_text_turn(
     *,
     runtime_config: Any,
@@ -168,6 +224,7 @@ def enqueue_telegram_text_turn(
             telegram_message_thread_id=message_thread_id,
         ),
     )
+    _record_inbound_chat(chat_id, message_thread_id)
     _log_telegram_user_turn(turn_id=turn_id, text=text)
     runtime_config.chat.add_item(make_user_message(text))
     text_prompt_queue.put(
@@ -194,6 +251,7 @@ def enqueue_telegram_photo_turn(
             telegram_message_thread_id=message_thread_id,
         ),
     )
+    _record_inbound_chat(chat_id, message_thread_id)
     caption_text = (caption or "").strip() or DEFAULT_PHOTO_CAPTION
     _log_telegram_user_turn(
         turn_id=turn_id,
@@ -234,9 +292,15 @@ class TelegramBridge:
         self.runtime_config = runtime_config
         self.text_prompt_queue = text_prompt_queue
         self.stop_event = stop_event
+        self.last_inbound_chat_id: int | None = None
+        self.last_inbound_message_thread_id: int | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._application: Any = None
         self._thread: threading.Thread | None = None
+
+    def record_inbound(self, chat_id: int, message_thread_id: int | None = None) -> None:
+        self.last_inbound_chat_id = chat_id
+        self.last_inbound_message_thread_id = message_thread_id
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
