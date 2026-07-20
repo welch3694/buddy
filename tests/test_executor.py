@@ -11,7 +11,7 @@ from openai.types.realtime import RealtimeConversationItemFunctionCall
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 
 from buddy_tools.channels.telegram import text_only_response_params
-from buddy_tools.core.executor import LocalToolExecutor, MAX_TOOL_ROUNDS
+from buddy_tools.core.executor import CLAIM_TTS_FALLBACK, LocalToolExecutor, MAX_TOOL_ROUNDS
 from buddy_tools.core.result import ToolExecutionResult
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.LLM.chat import Chat
@@ -133,8 +133,8 @@ class MaxToolRoundFallbackTests(unittest.TestCase):
         self.assertEqual(executor._turn_receipts[0].status, "skipped")
 
 
-class ClaimWithoutReceiptWarningTests(unittest.TestCase):
-    def test_fabricated_claim_logs_warning_and_still_yields_end(self) -> None:
+class ClaimWithoutReceiptTtsGateTests(unittest.TestCase):
+    def test_fabricated_claim_is_held_and_fallback_spoken(self) -> None:
         executor = LocalToolExecutor(Event(), Queue(), Queue())
         executor.setup(text_prompt_queue=Queue())
         runtime_config = RuntimeConfig()
@@ -155,17 +155,63 @@ class ClaimWithoutReceiptWarningTests(unittest.TestCase):
         with (
             patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
             patch("buddy_tools.core.executor.handle_pulse_end_of_response"),
-            patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse"),
-            patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
+            patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse") as record_speech,
+            patch("buddy_tools.core.executor._log_episodic_assistant_turn") as log_episodic,
+            patch("buddy_tools.companion.publisher.emit_assistant_text") as emit_text,
             self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured,
         ):
-            list(executor.process(chunk))
+            chunk_outputs = list(executor.process(chunk))
             outputs = list(executor.process(end))
 
-        self.assertEqual(len(outputs), 1)
-        self.assertIsInstance(outputs[0], EndOfResponse)
+        self.assertEqual(chunk_outputs, [])
+        self.assertEqual(len(outputs), 2)
+        self.assertIsInstance(outputs[0], LLMResponseChunk)
+        self.assertEqual(outputs[0].text, CLAIM_TTS_FALLBACK)
+        self.assertIsInstance(outputs[1], EndOfResponse)
         self.assertTrue(any("tool_bypass" in line for line in captured.output))
         self.assertEqual(executor._turn_receipts, [])
+        record_speech.assert_called_once_with(CLAIM_TTS_FALLBACK)
+        log_episodic.assert_called_once_with("turn_bypass", CLAIM_TTS_FALLBACK)
+        emit_text.assert_called_once()
+        self.assertEqual(emit_text.call_args.args[0], CLAIM_TTS_FALLBACK)
+
+    def test_non_claim_speech_still_flows(self) -> None:
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=Queue())
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(2)
+
+        text = "The weather looks nice today."
+        chunk = LLMResponseChunk(
+            text=text,
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_chat",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        end = EndOfResponse(turn_id="turn_chat", turn_revision=0)
+
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch("buddy_tools.core.executor.handle_pulse_end_of_response"),
+            patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse") as record_speech,
+            patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
+            patch("buddy_tools.companion.publisher.emit_assistant_text") as emit_text,
+        ):
+            chunk_outputs = list(executor.process(chunk))
+            with self.assertNoLogs("buddy_tools.core.tool_logging", level="WARNING"):
+                outputs = list(executor.process(end))
+
+        self.assertEqual(len(chunk_outputs), 1)
+        self.assertIsInstance(chunk_outputs[0], LLMResponseChunk)
+        self.assertEqual(chunk_outputs[0].text, text)
+        self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], EndOfResponse)
+        record_speech.assert_called_once_with(text)
+        emit_text.assert_called_once()
+        self.assertEqual(emit_text.call_args.args[0], text)
 
     def test_claim_with_receipt_does_not_warn(self) -> None:
         executor = LocalToolExecutor(Event(), Queue(), Queue())
@@ -207,8 +253,9 @@ class ClaimWithoutReceiptWarningTests(unittest.TestCase):
         ):
             self.assertTrue(executor._execute_pending_tools())
 
+        claim = "I'm starting the live-director skill now."
         chunk = LLMResponseChunk(
-            text="I'm starting the live-director skill now.",
+            text=claim,
             language_code="en",
             runtime_config=runtime_config,
             response=text_only_response_params(),
@@ -223,12 +270,18 @@ class ClaimWithoutReceiptWarningTests(unittest.TestCase):
             patch("buddy_tools.core.executor.handle_pulse_end_of_response"),
             patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse"),
             patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
+            patch("buddy_tools.companion.publisher.emit_assistant_text") as emit_text,
         ):
-            list(executor.process(chunk))
+            chunk_outputs = list(executor.process(chunk))
             with self.assertNoLogs("buddy_tools.core.tool_logging", level="WARNING"):
                 outputs = list(executor.process(end))
 
+        self.assertEqual(len(chunk_outputs), 1)
+        self.assertEqual(chunk_outputs[0].text, claim)
         self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], EndOfResponse)
+        emit_text.assert_called_once()
+        self.assertEqual(emit_text.call_args.args[0], claim)
 
 
 if __name__ == "__main__":
