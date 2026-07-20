@@ -481,8 +481,8 @@ class PulseInjectTests(unittest.TestCase):
         instructions = build_fold_cue_instructions(self.state, "Base.")
         self.assertIn("Switch to camera 2.", instructions)
         self.assertIn("fold-into-reply", instructions.lower())
-        self.assertIn("weave", instructions.lower())
-
+        self.assertIn("MUST speak", instructions)
+        self.assertIn("REQUIRED", instructions)
     def test_fold_delivery_clears_pending_and_fold_flag(self) -> None:
         self.state.pending_cue = "Switch cameras."
         self.state.cue_priority = "mandatory"

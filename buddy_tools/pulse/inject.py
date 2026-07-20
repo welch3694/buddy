@@ -82,14 +82,18 @@ def build_directed_pulse_instructions(state: PulseState, base_instructions: str)
 def build_fold_cue_instructions(state: PulseState, base_instructions: str) -> str:
     """Instructions for weaving a speech-deferred mandatory cue into a reactive reply."""
     snapshot = json.dumps(_state_snapshot(state), indent=2, sort_keys=True)
+    cue = (state.pending_cue or "").strip()
     return (
         f"{base_instructions}\n\n"
-        "Pulse fold-into-reply turn — respond to the user naturally, and weave all "
-        "pending cues into the same spoken reply (do not make the cue the whole response).\n"
-        f"Pending cue(s): {state.pending_cue}\n"
-        "Answer the user first, then briefly include every directive above mid-reply "
-        "(e.g. acknowledge them, mention the cue in passing, continue the conversation). "
-        "Cover every directive. Do not invent cues beyond the pending cues.\n"
+        "## REQUIRED — Pulse fold-into-reply (overrides waiting / stay-quiet guidance)\n"
+        "This turn MUST deliver every pending mandatory cue in spoken words. "
+        "Respond to the user, and weave the cue(s) into the same reply — "
+        "do not make the cue the entire response, but do not omit it.\n"
+        f"Pending cue(s) you MUST speak this turn: {cue}\n"
+        "Example shape: acknowledge the user → deliver the cue naturally "
+        '(e.g. "by the way, switch to camera two for the close-up") → continue.\n'
+        "Do not invent cues beyond the pending cues. Do not claim you will deliver "
+        "the cue later — speak it now.\n"
         f"Pulse state snapshot:\n{snapshot}"
     )
 
@@ -363,6 +367,13 @@ def prepare_fold_cue_commit_instructions(runtime_config: RuntimeConfig) -> str |
         state=state,
     ):
         return None
+
+    # Mirror directed inject: put the cue in chat history so the model cannot miss it.
+    nudge = f"Fold into this reply — deliver all pending cues: {state.pending_cue}"
+    try:
+        runtime_config.chat.add_item(_make_pulse_nudge_message(nudge))
+    except Exception:
+        logger.exception("Fold cue failed to add nudge message to chat")
 
     base_instructions = runtime_config.session.instructions or ""
     return build_fold_cue_instructions(state, base_instructions)
