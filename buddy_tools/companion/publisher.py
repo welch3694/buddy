@@ -16,6 +16,7 @@ from buddy_tools.companion.events import (
     persona_event,
     pulse_state_event,
     speaking_progress_event,
+    tool_call_event,
     turn_state_event,
 )
 from buddy_tools.pulse.state import PulseState
@@ -127,6 +128,25 @@ class CompanionEventPublisher:
                 name=name,
                 memory_namespace=memory_namespace,
                 voice_id=voice_id,
+            )
+        )
+
+    def emit_tool_call(
+        self,
+        *,
+        tool: str,
+        status: str,
+        summary: str,
+        source: str = "llm",
+        turn_id: str | None = None,
+    ) -> None:
+        self.emit(
+            tool_call_event(
+                tool=tool,
+                status=status,
+                summary=summary,
+                source=source,
+                turn_id=turn_id,
             )
         )
 
@@ -249,4 +269,24 @@ def emit_persona(
         name=name,
         memory_namespace=memory_namespace,
         voice_id=voice_id,
+    )
+
+
+def emit_tool_call(
+    *,
+    tool: str,
+    status: str,
+    summary: str,
+    source: str = "llm",
+    turn_id: str | None = None,
+) -> None:
+    publisher = get_companion_publisher()
+    if publisher is None:
+        return
+    publisher.emit_tool_call(
+        tool=tool,
+        status=status,
+        summary=summary,
+        source=source,
+        turn_id=turn_id,
     )

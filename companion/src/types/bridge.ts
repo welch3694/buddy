@@ -99,12 +99,37 @@ export type PulseStateActive = {
 
 export type PulseStateEvent = PulseStateInactive | PulseStateActive;
 
+export type ToolCallStatus = "ok" | "error" | "skipped";
+
+export type ToolCallSource = "llm" | "silent";
+
+export type ToolCallEvent = {
+  type: "tool_call";
+  tool: string;
+  status: ToolCallStatus;
+  summary: string;
+  source?: ToolCallSource;
+  turn_id?: string | null;
+  ts: string;
+};
+
+/** Visible toast entry for the tool-call stack (#152). */
+export type ToolCallToast = {
+  id: string;
+  tool: string;
+  status: ToolCallStatus;
+  summary: string;
+  source: ToolCallSource;
+  receivedAt: number;
+};
+
 export type BridgeEvent =
   | TurnStateEvent
   | PersonaEvent
   | AssistantTextEvent
   | SpeakingProgressEvent
   | PulseStateEvent
+  | ToolCallEvent
   | { type: string; [key: string]: unknown };
 
 export function isTurnState(value: unknown): value is TurnState {
@@ -188,6 +213,20 @@ export function isPulseStateEvent(value: unknown): value is PulseStateEvent {
     }
   }
   return true;
+}
+
+const TOOL_CALL_STATUSES: readonly ToolCallStatus[] = ["ok", "error", "skipped"];
+
+export function isToolCallEvent(value: unknown): value is ToolCallEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  return (
+    event.type === "tool_call" &&
+    typeof event.tool === "string" &&
+    typeof event.summary === "string" &&
+    typeof event.status === "string" &&
+    (TOOL_CALL_STATUSES as readonly string[]).includes(event.status)
+  );
 }
 
 /** Resolve active camera id → label from bridge vars + camera_labels. */

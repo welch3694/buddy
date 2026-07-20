@@ -71,6 +71,28 @@ _SKIPPED_TOOL_OUTPUT = (
 CLAIM_TTS_FALLBACK = "I didn't actually run that — say it again and I'll try."
 
 
+def _emit_tool_call_for_receipt(
+    receipt: ToolReceipt,
+    *,
+    source: str,
+    turn_id: str | None,
+) -> None:
+    from buddy_tools.companion.events import format_tool_call_summary
+    from buddy_tools.companion.publisher import emit_tool_call
+
+    emit_tool_call(
+        tool=receipt.tool,
+        status=receipt.status,
+        summary=format_tool_call_summary(
+            receipt.tool,
+            receipt.status,
+            receipt.args_summary,
+        ),
+        source=source,
+        turn_id=turn_id,
+    )
+
+
 def _log_tool_result(tool_name: str, result: ToolExecutionResult) -> None:
     if is_tool_error(result):
         logger.error("Tool %s failed: %s", tool_name, result.output)
@@ -176,7 +198,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
             speech_stopped_at_s=chunk.speech_stopped_at_s,
         )
 
-    def _inject_skipped_tool_errors_and_follow_up(self) -> bool:
+    def _inject_skipped_tool_errors_and_follow_up(self, *, source: str = "llm") -> bool:
         if not self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
             return False
 
@@ -184,6 +206,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         chat = runtime_config.chat
         pending = list(self._pending_tools)
         pending_names = [tool.name for tool in pending]
+        turn_id = self._pending_context.turn_id
         logger.warning(
             "Max tool rounds (%d) reached; skipping %d tools: %s",
             MAX_TOOL_ROUNDS,
@@ -193,13 +216,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
 
         for tool in pending:
             raw_args = tool.arguments if isinstance(tool.arguments, str) else None
-            self._turn_receipts.append(
-                make_tool_receipt(
-                    tool.name,
-                    _parse_tool_arguments(raw_args),
-                    status="skipped",
-                )
+            receipt = make_tool_receipt(
+                tool.name,
+                _parse_tool_arguments(raw_args),
+                status="skipped",
             )
+            self._turn_receipts.append(receipt)
+            _emit_tool_call_for_receipt(receipt, source=source, turn_id=turn_id)
             output_item = RealtimeConversationItemFunctionCallOutput(
                 type="function_call_output",
                 call_id=tool.call_id,
@@ -219,15 +242,16 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         )
         return True
 
-    def _execute_pending_tools(self) -> bool:
+    def _execute_pending_tools(self, *, source: str = "llm") -> bool:
         if not self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
             return False
 
         if self._tool_rounds >= MAX_TOOL_ROUNDS:
-            return self._inject_skipped_tool_errors_and_follow_up()
+            return self._inject_skipped_tool_errors_and_follow_up(source=source)
 
         runtime_config: RuntimeConfig = self._pending_context.runtime_config
         chat = runtime_config.chat
+        turn_id = self._pending_context.turn_id
 
         for tool in self._pending_tools:
             result = execute_tool(
@@ -237,13 +261,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 persona_namespace=self.persona_namespace,
             )
             raw_args = tool.arguments if isinstance(tool.arguments, str) else None
-            self._turn_receipts.append(
-                make_tool_receipt(
-                    tool.name,
-                    _parse_tool_arguments(raw_args),
-                    result=result,
-                )
+            receipt = make_tool_receipt(
+                tool.name,
+                _parse_tool_arguments(raw_args),
+                result=result,
             )
+            self._turn_receipts.append(receipt)
+            _emit_tool_call_for_receipt(receipt, source=source, turn_id=turn_id)
             _log_tool_result(tool.name, result)
             _log_episodic_tool_turn(self._pending_context.turn_id, tool, result)
             skip_chat_record = False
@@ -472,7 +496,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 id=f"fc_{call_id}",
             )
         ]
-        return self._execute_pending_tools()
+        return self._execute_pending_tools(source="silent")
 
     def _claim_tts_fallback_chunk(self) -> LLMResponseChunk | None:
         """Build a spoken fallback chunk from the last remembered turn context."""

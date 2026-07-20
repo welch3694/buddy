@@ -125,6 +125,26 @@ Active (fields may be null):
 
 `senses` is projected from `session_config.panel.senses` (or a default of `phase` / `pulse_mode` / `pending_cue`). Full `session_config` is not broadcast.
 
+### `tool_call`
+
+Emitted when the local tool executor finishes (or skips) a tool — including conversational, forced/`tool_choice`, and silent Buddy-initiated runs. Not included in connect snapshots.
+
+```json
+{
+  "type": "tool_call",
+  "tool": "list_skills",
+  "status": "ok",
+  "summary": "list_skills · ok",
+  "source": "llm",
+  "turn_id": "optional",
+  "ts": "…"
+}
+```
+
+`status` is one of: `ok` | `error` | `skipped`.  
+`source` is `llm` (model or forced tool_choice) or `silent` (Buddy-initiated silent fallback).  
+`summary` is a short HUD string (`tool · status`, optionally with one safe arg).
+
 ## On connect
 
 The server immediately sends the latest cached `persona`, `turn_state`, and `pulse_state` snapshots (if any), then streams live events.

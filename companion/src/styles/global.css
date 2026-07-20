@@ -257,6 +257,92 @@ body {
   color: var(--amber);
 }
 
+/* ---- Tool call stack (#152) ---- */
+
+.tool-call-stack {
+  position: absolute;
+  top: clamp(4.5rem, 10vh, 5.5rem);
+  right: clamp(1rem, 3vw, 2rem);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: min(22rem, 42vw);
+  pointer-events: none;
+}
+
+.tool-call-stack__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+
+.tool-call-stack__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.tool-call-stack__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.28rem 0.45rem;
+  border-left: 2px solid rgba(94, 231, 255, 0.35);
+  background: rgba(6, 20, 40, 0.55);
+  animation: tool-call-enter 0.28s ease-out;
+}
+
+.tool-call-stack__row--ok {
+  border-left-color: var(--teal);
+}
+
+.tool-call-stack__row--error {
+  border-left-color: var(--amber);
+}
+
+.tool-call-stack__row--skipped {
+  border-left-color: var(--muted);
+}
+
+.tool-call-stack__summary {
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--ice);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-call-stack__status {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+}
+
+.tool-call-stack__row--error .tool-call-stack__status {
+  color: var(--amber);
+}
+
+.tool-call-stack__row--skipped .tool-call-stack__status {
+  color: var(--muted);
+}
+
+@keyframes tool-call-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 720px) {
   .shell__telemetry {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -264,6 +350,11 @@ body {
 
   .senses-hud--live {
     grid-column: 1 / -1;
+  }
+
+  .tool-call-stack {
+    max-width: min(18rem, 55vw);
+    top: clamp(4rem, 9vh, 5rem);
   }
 }
 
@@ -588,7 +679,8 @@ body {
   .orb__shimmer,
   .shell__scanlines,
   .bridge-status__dot,
-  .captions--settled {
+  .captions--settled,
+  .tool-call-stack__row {
     animation: none !important;
   }
 

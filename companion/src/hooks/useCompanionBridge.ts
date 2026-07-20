@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   isAssistantTextEvent,
   isPersonaEvent,
   isPulseStateEvent,
   isSpeakingProgressEvent,
+  isToolCallEvent,
   isTurnState,
   isTurnStateEvent,
   personaFromEvent,
@@ -13,6 +14,8 @@ import {
   type PulseStateActive,
   type PulseStateEvent,
   type SpeakingPlayback,
+  type ToolCallEvent,
+  type ToolCallToast,
   type TurnState,
 } from "../types/bridge";
 
@@ -22,6 +25,7 @@ const MAX_BACKOFF_MS = 8000;
 const MOCK_INTERVAL_MS = 2800;
 const MOCK_PROGRESS_TICK_MS = 80;
 const MOCK_SPEAKING_DURATION_MS = 2200;
+const TOOL_CALL_STACK_CAP = 12;
 
 const MOCK_PERSONA: PersonaInfo = {
   id: "mock",
@@ -62,6 +66,23 @@ const MOCK_PULSE_ACTIVE: PulseStateActive = {
   ts: new Date(0).toISOString(),
 };
 
+const MOCK_TOOL_EVENTS: Omit<ToolCallEvent, "ts">[] = [
+  {
+    type: "tool_call",
+    tool: "list_skills",
+    status: "ok",
+    summary: "list_skills · ok",
+    source: "llm",
+  },
+  {
+    type: "tool_call",
+    tool: "read_memory",
+    status: "ok",
+    summary: "read_memory · ok · scope=user",
+    source: "silent",
+  },
+];
+
 function resolveWsUrl(): string {
   return import.meta.env.VITE_COMPANION_WS_URL?.trim() || DEFAULT_WS_URL;
 }
@@ -85,6 +106,25 @@ function appendCaptionChunk(existing: string, chunk: string): string {
   return existing + chunk;
 }
 
+function toastFromToolCallEvent(event: ToolCallEvent): ToolCallToast {
+  const source = event.source === "silent" ? "silent" : "llm";
+  return {
+    id: `${event.ts}-${event.tool}-${Math.random().toString(36).slice(2, 8)}`,
+    tool: event.tool,
+    status: event.status,
+    summary: event.summary,
+    source,
+    receivedAt: Date.now(),
+  };
+}
+
+function prependToolCall(
+  prev: ToolCallToast[],
+  event: ToolCallEvent,
+): ToolCallToast[] {
+  return [toastFromToolCallEvent(event), ...prev].slice(0, TOOL_CALL_STACK_CAP);
+}
+
 export type CompanionBridgeState = {
   connection: ConnectionStatus;
   turnState: TurnState | null;
@@ -95,6 +135,9 @@ export type CompanionBridgeState = {
   speakingPlayback: SpeakingPlayback | null;
   /** Latest pulse_state from the bridge; null until first event. */
   pulseState: PulseStateEvent | null;
+  /** Recent tool-call summaries for the HUD stack (#152). */
+  toolCalls: ToolCallToast[];
+  expireToolCall: (id: string) => void;
   mock: boolean;
 };
 
@@ -113,6 +156,7 @@ export function useCompanionBridge(): CompanionBridgeState {
   const [pulseState, setPulseState] = useState<PulseStateEvent | null>(
     mock ? MOCK_PULSE_INACTIVE : null,
   );
+  const [toolCalls, setToolCalls] = useState<ToolCallToast[]>([]);
   const backoffRef = useRef(MIN_BACKOFF_MS);
   const wsRef = useRef<WebSocket | null>(null);
   const closedRef = useRef(false);
@@ -120,6 +164,11 @@ export function useCompanionBridge(): CompanionBridgeState {
     turnId: null,
     revision: null,
   });
+  const mockToolIndexRef = useRef(0);
+
+  const expireToolCall = useCallback((id: string) => {
+    setToolCalls((prev) => prev.filter((entry) => entry.id !== id));
+  }, []);
 
   useEffect(() => {
     if (!mock) return;
@@ -133,6 +182,8 @@ export function useCompanionBridge(): CompanionBridgeState {
     setCaptionText("");
     setSpeakingPlayback(null);
     setPulseState(MOCK_PULSE_INACTIVE);
+    setToolCalls([]);
+    mockToolIndexRef.current = 0;
 
     const clearProgressTimer = () => {
       if (progressTimer !== undefined) {
@@ -183,6 +234,15 @@ export function useCompanionBridge(): CompanionBridgeState {
         setPulseState(active);
       } else {
         setPulseState({ type: "pulse_state", active: false, ts: now });
+      }
+
+      // Inject tool-call toasts while generating / speaking so the stack is visible in mock.
+      if (next === "generating" || next === "speaking") {
+        const mockEvent = MOCK_TOOL_EVENTS[mockToolIndexRef.current % MOCK_TOOL_EVENTS.length];
+        mockToolIndexRef.current += 1;
+        setToolCalls((prev) =>
+          prependToolCall(prev, { ...mockEvent, ts: now }),
+        );
       }
 
       if (next === "generating") {
@@ -291,6 +351,11 @@ export function useCompanionBridge(): CompanionBridgeState {
           return;
         }
 
+        if (isToolCallEvent(payload)) {
+          setToolCalls((prev) => prependToolCall(prev, payload));
+          return;
+        }
+
         if (!isTurnStateEvent(payload)) return;
         if (!isTurnState(payload.state)) return;
 
@@ -355,6 +420,8 @@ export function useCompanionBridge(): CompanionBridgeState {
     captionText,
     speakingPlayback,
     pulseState,
+    toolCalls,
+    expireToolCall,
     mock,
   };
 }

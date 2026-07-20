@@ -2,12 +2,14 @@ import { BridgeStatus } from "./BridgeStatus";
 import { CentralOrb } from "./CentralOrb";
 import { LiveCaptions } from "./LiveCaptions";
 import { PulseSensesHud } from "./PulseSensesHud";
+import { ToolCallStack } from "./ToolCallStack";
 import { useCaptionHighlight } from "../hooks/useCaptionHighlight";
 import type {
   ConnectionStatus,
   PersonaInfo,
   PulseStateEvent,
   SpeakingPlayback,
+  ToolCallToast,
   TurnState,
 } from "../types/bridge";
 
@@ -19,6 +21,8 @@ type CompanionShellProps = {
   captionText: string;
   speakingPlayback: SpeakingPlayback | null;
   pulseState: PulseStateEvent | null;
+  toolCalls: ToolCallToast[];
+  onExpireToolCall: (id: string) => void;
   mock: boolean;
 };
 
@@ -30,6 +34,8 @@ export function CompanionShell({
   captionText,
   speakingPlayback,
   pulseState,
+  toolCalls,
+  onExpireToolCall,
   mock,
 }: CompanionShellProps) {
   const captions = useCaptionHighlight(captionText, turnState, speakingPlayback);
@@ -69,6 +75,8 @@ export function CompanionShell({
         </div>
         <BridgeStatus connection={connection} mock={mock} />
       </header>
+
+      <ToolCallStack toolCalls={toolCalls} onExpire={onExpireToolCall} />
 
       <main className="shell__stage">
         <CentralOrb turnState={turnState} connection={connection} />

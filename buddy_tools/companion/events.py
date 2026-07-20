@@ -75,6 +75,53 @@ def speaking_progress_event(
     }
 
 
+TOOL_CALL_STATUSES = frozenset({"ok", "error", "skipped"})
+TOOL_CALL_SOURCES = frozenset({"llm", "silent"})
+
+
+def format_tool_call_summary(
+    tool: str,
+    status: str,
+    args_summary: dict[str, Any] | None = None,
+) -> str:
+    """Short HUD line: ``tool · status`` plus one safe arg when present."""
+    base = f"{tool} · {status}"
+    if not args_summary:
+        return base
+    for key, value in args_summary.items():
+        if value is None:
+            continue
+        text = str(value).strip()
+        if not text:
+            continue
+        if len(text) > 40:
+            text = text[:37] + "..."
+        return f"{base} · {key}={text}"
+    return base
+
+
+def tool_call_event(
+    *,
+    tool: str,
+    status: str,
+    summary: str,
+    source: str = "llm",
+    turn_id: str | None = None,
+    ts: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "type": "tool_call",
+        "tool": tool,
+        "status": status,
+        "summary": summary,
+        "source": source if source in TOOL_CALL_SOURCES else "llm",
+        "ts": ts or _utc_now_iso(),
+    }
+    if turn_id is not None:
+        payload["turn_id"] = turn_id
+    return payload
+
+
 # Default SENSES rows when session.yaml omits ``panel.senses``.
 _DEFAULT_SENSES: tuple[str, ...] = ("phase", "pulse_mode", "pending_cue")
 
