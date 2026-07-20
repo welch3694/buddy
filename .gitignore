@@ -76,3 +76,4 @@ personalities/active.json
 # Companion panel (Vite / React)
 companion/node_modules/
 companion/dist/
+companion/.vite/
