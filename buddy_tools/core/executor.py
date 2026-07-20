@@ -29,7 +29,13 @@ from buddy_tools.personality import get_active_personality
 from buddy_tools.personality.session import apply_personality_switch
 from buddy_tools.core.registry import execute_tool, refresh_session_instructions
 from buddy_tools.core.result import ToolExecutionResult
-from buddy_tools.core.tool_logging import is_tool_error, safe_tool_context
+from buddy_tools.core.tool_logging import is_tool_error, log_tool_bypass, safe_tool_context
+from buddy_tools.core.tool_receipts import (
+    ToolReceipt,
+    claims_without_receipt,
+    find_action_claims,
+    make_tool_receipt,
+)
 from buddy_tools.timers import cancel_all_timers
 from buddy_tools.episodic import (
     EpisodicTurnRecord,
@@ -136,6 +142,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_context: GenerateResponseRequest | None = None
         self._tool_rounds = 0
         self._turn_text_buffer: list[str] = []
+        self._turn_receipts: list[ToolReceipt] = []
 
     def _turn_output_allowed(self, turn_id: str | None, turn_revision: int | None) -> bool:
         if self.speculative_turns is None:
@@ -168,6 +175,14 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         )
 
         for tool in pending:
+            raw_args = tool.arguments if isinstance(tool.arguments, str) else None
+            self._turn_receipts.append(
+                make_tool_receipt(
+                    tool.name,
+                    _parse_tool_arguments(raw_args),
+                    status="skipped",
+                )
+            )
             output_item = RealtimeConversationItemFunctionCallOutput(
                 type="function_call_output",
                 call_id=tool.call_id,
@@ -203,6 +218,14 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 tool.name,
                 tool.arguments,
                 persona_namespace=self.persona_namespace,
+            )
+            raw_args = tool.arguments if isinstance(tool.arguments, str) else None
+            self._turn_receipts.append(
+                make_tool_receipt(
+                    tool.name,
+                    _parse_tool_arguments(raw_args),
+                    result=result,
+                )
             )
             _log_tool_result(tool.name, result)
             _log_episodic_tool_turn(self._pending_context.turn_id, tool, result)
@@ -321,12 +344,25 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
 
             full_text = "".join(self._turn_text_buffer).strip()
             self._turn_text_buffer.clear()
+            if claims_without_receipt(full_text, self._turn_receipts):
+                claims = find_action_claims(full_text)
+                preview = full_text if len(full_text) <= 80 else full_text[:80] + "..."
+                log_tool_bypass(
+                    "assistant claimed action without tool receipt",
+                    context={
+                        "turn_id": lm_output.turn_id,
+                        "claims": claims,
+                        "receipt_count": len(self._turn_receipts),
+                        "text_preview": preview,
+                    },
+                )
             handle_pulse_end_of_response()
             record_assistant_speech_for_active_pulse(full_text)
             _log_episodic_assistant_turn(lm_output.turn_id, full_text)
 
             self._tool_rounds = 0
             self._pending_context = None
+            self._turn_receipts.clear()
             yield lm_output
             return
 
@@ -340,6 +376,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         self._pending_tools.clear()
         self._pending_context = None
         self._tool_rounds = 0
+        self._turn_receipts.clear()
 
     def cleanup(self) -> None:
         if getattr(self, "_buddy_shutdown_done", False):

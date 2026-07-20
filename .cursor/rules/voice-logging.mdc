@@ -16,13 +16,14 @@ Buddy ships a localhost companion panel for turn state, captions, and pulse sens
   - **safe context** (ids, scopes, short argument summaries — not full prompts or memory content)
 - Unexpected exceptions use `logger.exception` (via `log_tool_failure(..., exc=exc)`).
 - Do not return `"Error: …"` to the LLM without logging on the server side.
+- When assistant text matches action-completion claims (starting / saved / remembered / cancelled / updated / done, etc.) and the executor has **no turn receipts**, log **WARNING** via `log_tool_bypass` with `tool_bypass`, reason, and safe context (`turn_id`, matched claims, receipt count, short text preview). TTS gating of those claims is a separate concern — this rule requires the WARNING even if speech still goes out.
 
 ## Pattern
 
 Use helpers from `buddy_tools.core.tool_logging`:
 
 ```python
-from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
+from buddy_tools.core.tool_logging import log_tool_bypass, log_tool_failure, safe_tool_context, tool_error
 
 # Expected validation / business-rule failure:
 return tool_error("my_tool", "reason here", context=safe_tool_context(args))
@@ -31,6 +32,12 @@ return tool_error("my_tool", "reason here", context=safe_tool_context(args))
 except Exception as exc:
     log_tool_failure("my_tool", f"operation failed: {exc}", exc=exc, context=safe_tool_context(args))
     return ToolExecutionResult(output=f"Error: operation failed: {exc}")
+
+# Claim without tool receipt (executor-owned ground truth):
+log_tool_bypass(
+    "assistant claimed action without tool receipt",
+    context={"turn_id": turn_id, "claims": claims, "receipt_count": 0},
+)
 ```
 
 The executor logs failures again at ERROR as a safety net; tool-level logs should still include argument context the executor does not have.

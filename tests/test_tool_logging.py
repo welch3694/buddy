@@ -14,6 +14,7 @@ from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import (
     is_tool_error,
     is_tool_error_output,
+    log_tool_bypass,
     log_tool_failure,
     safe_tool_context,
     tool_error,
@@ -53,6 +54,18 @@ class ToolLoggingHelperTests(unittest.TestCase):
             log_tool_failure("capture_camera", "camera capture failed: boom", exc=exc)
         self.assertIn("capture_camera", captured.output[0])
         self.assertIn("boom", captured.output[0])
+
+    def test_log_tool_bypass_warns_with_reason_and_context(self) -> None:
+        with self.assertLogs("buddy_tools.core.tool_logging", level="WARNING") as captured:
+            log_tool_bypass(
+                "assistant claimed action without tool receipt",
+                context={"turn_id": "turn_1", "claims": ["i'm starting"], "receipt_count": 0},
+            )
+        line = captured.output[0]
+        self.assertIn("tool_bypass", line)
+        self.assertIn("assistant claimed action without tool receipt", line)
+        self.assertIn("turn_1", line)
+        self.assertIn("i'm starting", line)
 
 
 class RegistryToolLoggingTests(unittest.TestCase):
