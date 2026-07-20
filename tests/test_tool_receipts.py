@@ -9,6 +9,7 @@ from buddy_tools.core.tool_receipts import (
     ToolReceipt,
     claims_without_receipt,
     find_action_claims,
+    has_matching_receipt,
     make_tool_receipt,
 )
 
@@ -70,6 +71,17 @@ class ClaimsWithoutReceiptTests(unittest.TestCase):
 
     def test_neutral_text_is_not_bypass(self) -> None:
         self.assertFalse(claims_without_receipt("That sounds good.", []))
+
+
+class HasMatchingReceiptTests(unittest.TestCase):
+    def test_matches_by_tool_name(self) -> None:
+        receipts = [
+            ToolReceipt(tool="list_skills", args_summary=None, status="ok"),
+            ToolReceipt(tool="start_skill", args_summary={"name": "remember"}, status="ok"),
+        ]
+        self.assertTrue(has_matching_receipt(receipts, "start_skill"))
+        self.assertFalse(has_matching_receipt(receipts, "cancel_skill"))
+        self.assertFalse(has_matching_receipt([], "start_skill"))
 
 
 class MakeToolReceiptTests(unittest.TestCase):

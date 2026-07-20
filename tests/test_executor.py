@@ -11,7 +11,12 @@ from openai.types.realtime import RealtimeConversationItemFunctionCall
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 
 from buddy_tools.channels.telegram import text_only_response_params
-from buddy_tools.core.executor import CLAIM_TTS_FALLBACK, LocalToolExecutor, MAX_TOOL_ROUNDS
+from buddy_tools.core.executor import (
+    CLAIM_TTS_FALLBACK,
+    LocalToolExecutor,
+    MAX_REQUIRED_TOOL_RETRIES,
+    MAX_TOOL_ROUNDS,
+)
 from buddy_tools.core.result import ToolExecutionResult
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.LLM.chat import Chat
@@ -301,6 +306,7 @@ class SilentActionIntentFallbackTests(unittest.TestCase):
         follow_up: Queue = Queue()
         executor = LocalToolExecutor(Event(), Queue(), Queue())
         executor.setup(text_prompt_queue=follow_up)
+        executor._required_tool_retries = MAX_REQUIRED_TOOL_RETRIES
         runtime_config = RuntimeConfig()
         runtime_config.chat = Chat(2)
         pending_context = GenerateResponseRequest(
@@ -361,6 +367,184 @@ class SilentActionIntentFallbackTests(unittest.TestCase):
         types = [getattr(item, "type", None) for item in runtime_config.chat.buffer]
         self.assertIn("function_call", types)
         self.assertIn("function_call_output", types)
+
+    def test_required_tool_nudge_retry_before_silent(self) -> None:
+        from buddy_tools.voice.action_intents import (
+            ActionIntent,
+            peek_action_intent,
+            stash_action_intent,
+        )
+
+        follow_up: Queue = Queue()
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=follow_up)
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(4)
+        pending_context = GenerateResponseRequest(
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            language_code="en",
+            turn_id="turn_retry",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        executor._pending_context = pending_context
+        stash_action_intent(
+            "turn_retry",
+            ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+        )
+
+        claim = "I've remembered your preference."
+        chunk = LLMResponseChunk(
+            text=claim,
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_retry",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        end = EndOfResponse(turn_id="turn_retry", turn_revision=0)
+
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch("buddy_tools.core.executor.execute_tool") as execute_tool,
+        ):
+            list(executor.process(chunk))
+            outputs = list(executor.process(end))
+
+        self.assertEqual(outputs, [])
+        execute_tool.assert_not_called()
+        self.assertEqual(executor._required_tool_retries, 1)
+        self.assertIsNotNone(peek_action_intent("turn_retry"))
+        self.assertFalse(follow_up.empty())
+        queued = follow_up.get_nowait()
+        self.assertIsInstance(queued, GenerateResponseRequest)
+        self.assertIsNotNone(queued.response)
+        tool_choice = queued.response.tool_choice
+        self.assertEqual(getattr(tool_choice, "name", None), "start_skill")
+        nudge_texts = [
+            c.text
+            for item in runtime_config.chat.buffer
+            if getattr(item, "type", None) == "message"
+            for c in getattr(item, "content", []) or []
+            if getattr(c, "type", None) == "input_text"
+        ]
+        self.assertTrue(any("Required tool" in t and "start_skill" in t for t in nudge_texts))
+
+    def test_required_tool_retries_then_silent(self) -> None:
+        from buddy_tools.voice.action_intents import ActionIntent, stash_action_intent
+
+        follow_up: Queue = Queue()
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=follow_up)
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(8)
+        pending_context = GenerateResponseRequest(
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            language_code="en",
+            turn_id="turn_cap",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        executor._pending_context = pending_context
+        stash_action_intent(
+            "turn_cap",
+            ActionIntent(tool_name="cancel_skill", arguments={}),
+        )
+
+        chunk = LLMResponseChunk(
+            text="Skill cancelled.",
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_cap",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch("buddy_tools.core.executor.handle_pulse_end_of_response"),
+            patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse"),
+            patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
+            patch("buddy_tools.companion.publisher.emit_assistant_text"),
+            patch(
+                "buddy_tools.core.executor.execute_tool",
+                return_value=ToolExecutionResult(output="Cancelled."),
+            ) as execute_tool,
+        ):
+            list(executor.process(chunk))
+            for _ in range(MAX_REQUIRED_TOOL_RETRIES):
+                outputs = list(executor.process(EndOfResponse(turn_id="turn_cap", turn_revision=0)))
+                self.assertEqual(outputs, [])
+                execute_tool.assert_not_called()
+            self.assertEqual(executor._required_tool_retries, MAX_REQUIRED_TOOL_RETRIES)
+            outputs = list(executor.process(EndOfResponse(turn_id="turn_cap", turn_revision=0)))
+
+        self.assertEqual(outputs, [])
+        execute_tool.assert_called_once()
+        self.assertEqual(execute_tool.call_args.args[1], "cancel_skill")
+
+    def test_matching_receipt_skips_retry_and_silent(self) -> None:
+        from buddy_tools.core.tool_receipts import ToolReceipt
+        from buddy_tools.voice.action_intents import (
+            ActionIntent,
+            pop_action_intent,
+            stash_action_intent,
+        )
+
+        follow_up: Queue = Queue()
+        executor = LocalToolExecutor(Event(), Queue(), Queue())
+        executor.setup(text_prompt_queue=follow_up)
+        runtime_config = RuntimeConfig()
+        runtime_config.chat = Chat(2)
+        pending_context = GenerateResponseRequest(
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            language_code="en",
+            turn_id="turn_matched",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        executor._pending_context = pending_context
+        executor._turn_receipts = [
+            ToolReceipt(tool="start_skill", args_summary={"name": "remember"}, status="ok"),
+        ]
+        stash_action_intent(
+            "turn_matched",
+            ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+        )
+
+        chunk = LLMResponseChunk(
+            text="I've started the remember skill.",
+            language_code="en",
+            runtime_config=runtime_config,
+            response=text_only_response_params(),
+            turn_id="turn_matched",
+            turn_revision=0,
+            speech_stopped_at_s=0.0,
+        )
+        end = EndOfResponse(turn_id="turn_matched", turn_revision=0)
+
+        with (
+            patch("buddy_tools.core.executor.handle_pulse_response_chunk", side_effect=lambda c: c),
+            patch("buddy_tools.core.executor.handle_pulse_end_of_response"),
+            patch("buddy_tools.core.executor.record_assistant_speech_for_active_pulse"),
+            patch("buddy_tools.core.executor._log_episodic_assistant_turn"),
+            patch("buddy_tools.companion.publisher.emit_assistant_text"),
+            patch("buddy_tools.core.executor.execute_tool") as execute_tool,
+        ):
+            list(executor.process(chunk))
+            outputs = list(executor.process(end))
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], EndOfResponse)
+        execute_tool.assert_not_called()
+        self.assertTrue(follow_up.empty())
+        self.assertIsNone(pop_action_intent("turn_matched"))
+        self.assertEqual(executor._required_tool_retries, 0)
 
     def test_llm_tools_clear_stash_without_double_execute(self) -> None:
         from buddy_tools.voice.action_intents import ActionIntent, pop_action_intent, stash_action_intent

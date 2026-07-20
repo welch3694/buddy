@@ -74,6 +74,11 @@ def find_action_claims(text: str) -> list[str]:
     return found
 
 
+def has_matching_receipt(receipts: Sequence[ToolReceipt], tool_name: str) -> bool:
+    """True when any receipt is for the named tool (ok, error, or skipped)."""
+    return any(receipt.tool == tool_name for receipt in receipts)
+
+
 def claims_without_receipt(text: str, receipts: Sequence[ToolReceipt]) -> bool:
     """True when text claims an action and no tool ran (or was skipped) this turn."""
     if receipts:

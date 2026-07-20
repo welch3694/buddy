@@ -62,6 +62,14 @@ def stash_action_intent(turn_id: str | None, intent: ActionIntent) -> None:
         _stashed_intents[turn_id] = intent
 
 
+def peek_action_intent(turn_id: str | None) -> ActionIntent | None:
+    """Return the stashed intent for this turn without removing it."""
+    if not turn_id:
+        return None
+    with _intent_lock:
+        return _stashed_intents.get(turn_id)
+
+
 def pop_action_intent(turn_id: str | None) -> ActionIntent | None:
     """Take and clear a stashed intent for this turn (or None)."""
     if not turn_id:
