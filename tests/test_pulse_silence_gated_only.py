@@ -161,6 +161,20 @@ class SilenceGatedOnlyPulsePathTests(unittest.TestCase):
             directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
         )
 
+    def test_silence_gated_only_does_not_mark_fold_on_speech(self) -> None:
+        from buddy_tools.pulse.gates import mark_fold_on_speech_deferral
+
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        set_last_user_speech_stopped_at(999.0)
+        self.assertFalse(
+            mark_fold_on_speech_deferral(
+                self.state, self.session, should_listen=self.should_listen
+            )
+        )
+        self.assertFalse(self.state.fold_on_next_reply)
+
 
 class SilenceGatedOnlyIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:

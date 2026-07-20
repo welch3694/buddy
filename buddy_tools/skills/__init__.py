@@ -1052,7 +1052,15 @@ def build_pulse_context(
     if pulse.last_tick_at:
         lines.append(f"- Last worker tick: {pulse.last_tick_at}.")
     if pulse.pending_cue:
-        lines.append(f"- Pending cue ({pulse.cue_priority or 'mandatory'}): {pulse.pending_cue}")
+        if pulse.fold_on_next_reply:
+            lines.append(
+                f"- Pending cue ({pulse.cue_priority or 'mandatory'}): {pulse.pending_cue} "
+                "(deferred while user was speaking — weave into the next reply)."
+            )
+        else:
+            lines.append(
+                f"- Pending cue ({pulse.cue_priority or 'mandatory'}): {pulse.pending_cue}"
+            )
     session = pulse.get_session_config()
     if session is not None and session.pulse.silence_gated_only:
         lines.append(

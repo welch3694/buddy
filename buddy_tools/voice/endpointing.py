@@ -564,6 +564,7 @@ def build_commit_request(
     from openai.types.responses.tool_choice_function import ToolChoiceFunction
     from speech_to_speech.LLM.chat import make_user_message
 
+    from buddy_tools.pulse.inject import prepare_fold_cue_commit_instructions
     from buddy_tools.voice.action_intents import (
         clear_action_intent,
         match_action_intent,
@@ -586,6 +587,14 @@ def build_commit_request(
         )
     else:
         clear_action_intent(utterance.turn_id)
+        fold_instructions = prepare_fold_cue_commit_instructions(runtime_config)
+        if fold_instructions is not None:
+            response = RealtimeResponseCreateParams(instructions=fold_instructions)
+            logger.info(
+                "Fold pending mandatory cue into voice commit (turn=%s rev=%s)",
+                utterance.turn_id,
+                utterance.turn_revision,
+            )
     return GenerateResponseRequest(
         runtime_config=runtime_config,
         language_code=utterance.language_code,

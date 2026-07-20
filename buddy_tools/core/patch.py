@@ -409,6 +409,7 @@ def _patch_graceful_shutdown() -> None:
                 for handler in manager.handlers:
                     if handler.__class__.__name__ == "LocalAudioStreamer":
                         handler.stop_event = stop_event
+        _wire_pulse_cancel_scope_from_handlers(manager.handlers)
         return manager
 
     def stop_with_unblock(self: ThreadManager) -> None:
@@ -446,6 +447,51 @@ def _patch_graceful_shutdown() -> None:
     ThreadManager._buddy_shutdown_patch_applied = True
 
 
+def _wire_pulse_cancel_scope_from_handlers(handlers: list[Any]) -> None:
+    """Use an existing CancelScope if the pipeline already has one (e.g. realtime).
+
+    Do **not** invent and assign a new CancelScope onto local-mode LLM/TTS handlers —
+    that path previously left TTS stuck after ``tts_start`` with no audible output.
+    """
+    from buddy_tools.pulse.inject import set_pulse_audio_out_queue, set_pulse_cancel_scope
+
+    scope = None
+    for handler in handlers:
+        existing = getattr(handler, "cancel_scope", None)
+        if existing is not None:
+            scope = existing
+            break
+    set_pulse_cancel_scope(scope)
+
+    for handler in handlers:
+        if handler.__class__.__name__ == "LocalAudioStreamer":
+            set_pulse_audio_out_queue(getattr(handler, "output_queue", None))
+            break
+
+
+def _wire_vad_speech_activity_from_handlers(handlers: list[Any]) -> None:
+    """Local mode leaves text_output_queue=None, so VAD logs speech start but never emits events.
+
+    Attach a queue to the live VADHandler and observe SpeechStarted/Stopped for pulse gates.
+    """
+    from queue import Queue
+
+    from buddy_tools.pulse.gates import install_speech_activity_queue_observer
+
+    for handler in handlers:
+        if handler.__class__.__name__ != "VADHandler":
+            continue
+        queue = getattr(handler, "text_output_queue", None)
+        if queue is None:
+            queue = Queue()
+            handler.text_output_queue = queue
+            logger.info(
+                "Attached text_output_queue to VADHandler for speech-activity pulse gates"
+            )
+        install_speech_activity_queue_observer(queue)
+        return
+
+
 def apply_patches() -> None:
     import speech_to_speech.s2s_pipeline as pipeline
 
@@ -470,6 +516,9 @@ def apply_patches() -> None:
     def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
         speculative_turns = _ensure_speculative_turns(kwargs)
         handlers = original_build(*args, **kwargs)
+        # LocalAudioStreamer is a comms handler — only available after full build_pipeline.
+        # Cancel scope / audio drain are wired there; VAD speech activity is wired here.
+        _wire_vad_speech_activity_from_handlers(handlers)
         _configure_listening_pause_from_handlers(
             handlers,
             should_listen=kwargs.get("should_listen"),

@@ -103,6 +103,9 @@ def insert_local_tool_executor(
     text_output_queue = transcription_notifier_setup.get("text_output_queue")
     if text_output_queue is not None:
         configure_turn_state(text_output_queue=text_output_queue)
+        from buddy_tools.pulse.gates import install_speech_activity_queue_observer
+
+        install_speech_activity_queue_observer(text_output_queue)
     configure_pulse(
         text_prompt_queue=text_prompt_queue,
         runtime_config=runtime_config,

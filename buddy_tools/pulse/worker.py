@@ -179,6 +179,13 @@ class PulseWorkerManager:
                 should_listen=self.should_listen,
             )
 
+        # Fold delivery may have started on the commit path with a separate state
+        # load; do not clobber pulse_in_flight=True when saving this tick snapshot.
+        from buddy_tools.pulse.inject import is_active_pulse_turn
+
+        if is_active_pulse_turn():
+            state.pulse_in_flight = True
+
         save_pulse_state(worker.memory_root, worker.persona_namespace, state)
         logger.info(
             "Pulse tick namespace=%r skill=%r count=%d phase=%r pending_cue=%r",

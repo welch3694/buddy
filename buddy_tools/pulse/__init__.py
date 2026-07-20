@@ -1,17 +1,22 @@
 """Pulse session runtime — worker tick loop and per-persona state."""
 
 from buddy_tools.pulse.config_merge import apply_pulse_config, merge_pulse_params
-from buddy_tools.pulse.gates import reset_pulse_gates_for_tests
+from buddy_tools.pulse.gates import (
+    install_speech_activity_queue_observer,
+    reset_pulse_gates_for_tests,
+)
 from buddy_tools.pulse.inject import (
     NO_OUTPUT_MARKER,
     PULSE_NUDGE_PREFIX,
     build_conversational_pulse_instructions,
     build_directed_pulse_instructions,
+    build_fold_cue_instructions,
     evaluate_and_maybe_inject_pulse,
     handle_pulse_end_of_response,
     handle_pulse_response_chunk,
     inject_pulse_turn,
     is_no_output_text,
+    prepare_fold_cue_commit_instructions,
     record_assistant_speech_for_active_pulse,
     record_user_speech,
     reset_pulse_inject_for_tests,
@@ -51,6 +56,7 @@ __all__ = [
     "apply_pulse_config",
     "build_conversational_pulse_instructions",
     "build_directed_pulse_instructions",
+    "build_fold_cue_instructions",
     "build_pulse_state_from_session",
     "clear_pulse_state",
     "configure_pulse",
@@ -61,11 +67,13 @@ __all__ = [
     "handle_pulse_response_chunk",
     "init_pulse_state_from_skill",
     "inject_pulse_turn",
+    "install_speech_activity_queue_observer",
     "is_no_output_text",
     "load_pulse_state",
     "load_session_config",
     "merge_pulse_params",
     "parse_session_config",
+    "prepare_fold_cue_commit_instructions",
     "pulse_state_path",
     "record_assistant_speech_for_active_pulse",
     "record_user_speech",
