@@ -61,11 +61,41 @@ export type SpeakingPlayback = {
   totalFinal: boolean;
 };
 
+/** Inactive pulse session (or cleared state). */
+export type PulseStateInactive = {
+  type: "pulse_state";
+  active: false;
+  ts: string;
+};
+
+/** Salient active pulse snapshot from the companion bridge (#118). */
+export type PulseStateActive = {
+  type: "pulse_state";
+  active: true;
+  skill_name: string;
+  status: string;
+  phase: string;
+  pulse_mode: string;
+  pending_cue: string | null;
+  cue_priority?: string | null;
+  pulse_in_flight: boolean;
+  narrator_muted?: boolean;
+  tick_count?: number;
+  started_at?: string;
+  last_tick_at?: string | null;
+  vars: Record<string, unknown>;
+  camera_labels?: Record<string, string | null>;
+  ts: string;
+};
+
+export type PulseStateEvent = PulseStateInactive | PulseStateActive;
+
 export type BridgeEvent =
   | TurnStateEvent
   | PersonaEvent
   | AssistantTextEvent
   | SpeakingProgressEvent
+  | PulseStateEvent
   | { type: string; [key: string]: unknown };
 
 export function isTurnState(value: unknown): value is TurnState {
@@ -114,4 +144,31 @@ export function isSpeakingProgressEvent(value: unknown): value is SpeakingProgre
     typeof event.played_ms === "number" &&
     typeof event.total_ms === "number"
   );
+}
+
+export function isPulseStateEvent(value: unknown): value is PulseStateEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  if (event.type !== "pulse_state" || typeof event.active !== "boolean") return false;
+  if (!event.active) return true;
+  return (
+    typeof event.skill_name === "string" &&
+    typeof event.status === "string" &&
+    typeof event.phase === "string" &&
+    typeof event.pulse_mode === "string" &&
+    typeof event.pulse_in_flight === "boolean" &&
+    event.vars !== null &&
+    typeof event.vars === "object" &&
+    !Array.isArray(event.vars) &&
+    (event.pending_cue === null || typeof event.pending_cue === "string")
+  );
+}
+
+/** Resolve active camera id → label from bridge vars + camera_labels. */
+export function resolveActiveCamera(event: PulseStateActive): string | null {
+  const raw = event.vars.current_camera;
+  if (typeof raw !== "string" || !raw) return null;
+  const label = event.camera_labels?.[raw];
+  if (typeof label === "string" && label.trim()) return label;
+  return raw;
 }

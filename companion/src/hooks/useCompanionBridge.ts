@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   isAssistantTextEvent,
   isPersonaEvent,
+  isPulseStateEvent,
   isSpeakingProgressEvent,
   isTurnState,
   isTurnStateEvent,
@@ -9,6 +10,8 @@ import {
   TURN_STATES,
   type ConnectionStatus,
   type PersonaInfo,
+  type PulseStateActive,
+  type PulseStateEvent,
   type SpeakingPlayback,
   type TurnState,
 } from "../types/bridge";
@@ -31,6 +34,27 @@ const MOCK_SPEAKING_CAPTION =
   "Routing signal through the local lattice — presence confirmed.";
 
 const MOCK_GENERATING_CAPTION = "Routing signal through the local lattice";
+
+const MOCK_PULSE_INACTIVE: PulseStateEvent = {
+  type: "pulse_state",
+  active: false,
+  ts: new Date(0).toISOString(),
+};
+
+const MOCK_PULSE_ACTIVE: PulseStateActive = {
+  type: "pulse_state",
+  active: true,
+  skill_name: "live-director",
+  status: "active",
+  phase: "running",
+  pulse_mode: "directed",
+  pending_cue: "advance_camera",
+  cue_priority: "conversational",
+  pulse_in_flight: false,
+  vars: { current_camera: "cam1", beat: 2 },
+  camera_labels: { cam1: "Wide", cam2: "Close" },
+  ts: new Date(0).toISOString(),
+};
 
 function resolveWsUrl(): string {
   return import.meta.env.VITE_COMPANION_WS_URL?.trim() || DEFAULT_WS_URL;
@@ -63,6 +87,8 @@ export type CompanionBridgeState = {
   captionText: string;
   /** PCM playback timing from the bridge; null until first sample / mock tick. */
   speakingPlayback: SpeakingPlayback | null;
+  /** Latest pulse_state from the bridge; null until first event. */
+  pulseState: PulseStateEvent | null;
   mock: boolean;
 };
 
@@ -78,6 +104,9 @@ export function useCompanionBridge(): CompanionBridgeState {
   const [persona, setPersona] = useState<PersonaInfo | null>(mock ? MOCK_PERSONA : null);
   const [captionText, setCaptionText] = useState("");
   const [speakingPlayback, setSpeakingPlayback] = useState<SpeakingPlayback | null>(null);
+  const [pulseState, setPulseState] = useState<PulseStateEvent | null>(
+    mock ? MOCK_PULSE_INACTIVE : null,
+  );
   const backoffRef = useRef(MIN_BACKOFF_MS);
   const wsRef = useRef<WebSocket | null>(null);
   const closedRef = useRef(false);
@@ -97,6 +126,7 @@ export function useCompanionBridge(): CompanionBridgeState {
     setPersona(MOCK_PERSONA);
     setCaptionText("");
     setSpeakingPlayback(null);
+    setPulseState(MOCK_PULSE_INACTIVE);
 
     const clearProgressTimer = () => {
       if (progressTimer !== undefined) {
@@ -111,6 +141,32 @@ export function useCompanionBridge(): CompanionBridgeState {
       setTurnState(next);
       setReason("mock");
       clearProgressTimer();
+
+      // Alternate idle / active pulse so SENSES HUD can be exercised without voice.
+      const pulseActive = index % 2 === 1;
+      const now = new Date().toISOString();
+      if (pulseActive) {
+        const active: PulseStateEvent = {
+          type: "pulse_state",
+          active: true,
+          skill_name: MOCK_PULSE_ACTIVE.skill_name,
+          status: MOCK_PULSE_ACTIVE.status,
+          phase: next === "paused" ? "paused" : "running",
+          pulse_mode: MOCK_PULSE_ACTIVE.pulse_mode,
+          pending_cue: next === "holding" ? "advance_camera" : null,
+          cue_priority: MOCK_PULSE_ACTIVE.cue_priority,
+          pulse_in_flight: next === "generating" || next === "speaking",
+          vars: {
+            current_camera: next === "speaking" ? "cam2" : "cam1",
+            beat: index,
+          },
+          camera_labels: MOCK_PULSE_ACTIVE.camera_labels,
+          ts: now,
+        };
+        setPulseState(active);
+      } else {
+        setPulseState({ type: "pulse_state", active: false, ts: now });
+      }
 
       if (next === "generating") {
         setCaptionText(MOCK_GENERATING_CAPTION);
@@ -213,6 +269,11 @@ export function useCompanionBridge(): CompanionBridgeState {
           return;
         }
 
+        if (isPulseStateEvent(payload)) {
+          setPulseState(payload);
+          return;
+        }
+
         if (!isTurnStateEvent(payload)) return;
         if (!isTurnState(payload.state)) return;
 
@@ -269,5 +330,14 @@ export function useCompanionBridge(): CompanionBridgeState {
     };
   }, [mock]);
 
-  return { connection, turnState, reason, persona, captionText, speakingPlayback, mock };
+  return {
+    connection,
+    turnState,
+    reason,
+    persona,
+    captionText,
+    speakingPlayback,
+    pulseState,
+    mock,
+  };
 }

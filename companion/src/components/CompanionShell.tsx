@@ -1,8 +1,15 @@
 import { BridgeStatus } from "./BridgeStatus";
 import { CentralOrb } from "./CentralOrb";
 import { LiveCaptions } from "./LiveCaptions";
+import { PulseSensesHud } from "./PulseSensesHud";
 import { useCaptionHighlight } from "../hooks/useCaptionHighlight";
-import type { ConnectionStatus, PersonaInfo, SpeakingPlayback, TurnState } from "../types/bridge";
+import type {
+  ConnectionStatus,
+  PersonaInfo,
+  PulseStateEvent,
+  SpeakingPlayback,
+  TurnState,
+} from "../types/bridge";
 
 type CompanionShellProps = {
   connection: ConnectionStatus;
@@ -11,6 +18,7 @@ type CompanionShellProps = {
   persona: PersonaInfo | null;
   captionText: string;
   speakingPlayback: SpeakingPlayback | null;
+  pulseState: PulseStateEvent | null;
   mock: boolean;
 };
 
@@ -21,6 +29,7 @@ export function CompanionShell({
   persona,
   captionText,
   speakingPlayback,
+  pulseState,
   mock,
 }: CompanionShellProps) {
   const captions = useCaptionHighlight(captionText, turnState, speakingPlayback);
@@ -93,10 +102,10 @@ export function CompanionShell({
             {captionStatus}
           </span>
         </div>
-        <div className="shell__tele-block shell__tele-block--reserve">
-          <span className="shell__tele-key">SENSES</span>
-          <span className="shell__tele-val shell__tele-val--dim">STANDBY</span>
-        </div>
+        <PulseSensesHud
+          pulseState={pulseState}
+          connected={connection === "connected"}
+        />
       </footer>
     </div>
   );
