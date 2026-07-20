@@ -7,6 +7,35 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+function Import-BuddyDotEnv {
+    $envPath = Join-Path $PSScriptRoot ".env"
+    if (-not (Test-Path $envPath)) {
+        return
+    }
+    Get-Content -LiteralPath $envPath | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            return
+        }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) {
+            return
+        }
+        $key = $line.Substring(0, $eq).Trim()
+        $value = $line.Substring($eq + 1).Trim()
+        if (
+            ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'"))
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        $existing = [System.Environment]::GetEnvironmentVariable($key, "Process")
+        if ([string]::IsNullOrEmpty($existing)) {
+            [System.Environment]::SetEnvironmentVariable($key, $value, "Process")
+        }
+    }
+}
+
 function Wait-IfStartupFailed {
     if ($Host.Name -ne "ConsoleHost") {
         return
@@ -17,6 +46,8 @@ function Wait-IfStartupFailed {
 }
 
 try {
+    Import-BuddyDotEnv
+
     if (-not (Test-Path ".\.venv\Scripts\Activate.ps1")) {
         throw "Virtual environment not found. Run setup-venv.ps1 first."
     }
@@ -24,6 +55,16 @@ try {
     .\.venv\Scripts\Activate.ps1
 
     $env:OPENAI_API_KEY = "not-needed"
+
+    # Companion panel bridge — enabled by voice launchers unless already set in .env / shell.
+    if ([string]::IsNullOrWhiteSpace($env:BUDDY_COMPANION_BRIDGE)) {
+        $env:BUDDY_COMPANION_BRIDGE = "1"
+    }
+
+    $companionPs1 = Join-Path $PSScriptRoot "start-companion.ps1"
+    if (Test-Path $companionPs1) {
+        & $companionPs1 -LaunchOnly
+    }
 
     # TTS backend: "pocket" (voice clone from voices/audio.wav) or "qwen3" (ref audio + ref text).
     $ttsBackend = "pocket"

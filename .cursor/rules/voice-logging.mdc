@@ -1,12 +1,12 @@
 ---
-description: Require clear logging when Buddy tools fail or stop (voice-only debugging)
+description: Require clear logging when Buddy tools fail or stop (voice + companion panel)
 globs: buddy_tools/**/*.py
 alwaysApply: false
 ---
 
-# Voice-only tool failure logging
+# Tool failure logging (voice + companion panel)
 
-Buddy has no UI — application logs are the primary operator feedback channel.
+Buddy ships a localhost companion panel for turn state, captions, and pulse senses. Application logs remain the primary channel for tool failures, stops, and debugging — especially when the panel is closed or the bridge is down.
 
 ## Requirements
 
