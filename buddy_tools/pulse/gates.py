@@ -71,6 +71,14 @@ def observe_pipeline_event_for_speech_activity(item: Any) -> None:
 
     if isinstance(item, SpeechStartedEvent):
         set_user_speech_active(True)
+        # Directed inject may have started in the brief silence before VAD
+        # confirmed speech — cancel it and fold the cue into the next reply.
+        try:
+            from buddy_tools.pulse.inject import abort_in_flight_pulse_for_user_speech
+
+            abort_in_flight_pulse_for_user_speech()
+        except Exception:
+            logger.exception("Failed to abort in-flight pulse on user speech start")
     elif isinstance(item, SpeechStoppedEvent):
         set_user_speech_active(False)
 

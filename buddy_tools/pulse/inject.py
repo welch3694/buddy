@@ -45,6 +45,17 @@ class ActivePulseTurn:
 _lock = Lock()
 _active_pulse_turn: ActivePulseTurn | None = None
 _pulse_turn_text: list[str] = []
+_pulse_cancel_scope: Any | None = None
+
+
+def set_pulse_cancel_scope(cancel_scope: Any | None) -> None:
+    """Share pipeline CancelScope so in-flight pulse turns can be interrupted."""
+    global _pulse_cancel_scope
+    _pulse_cancel_scope = cancel_scope
+
+
+def get_pulse_cancel_scope() -> Any | None:
+    return _pulse_cancel_scope
 
 
 def _utc_now_iso() -> str:
@@ -341,6 +352,50 @@ def is_active_pulse_turn() -> bool:
         return _active_pulse_turn is not None
 
 
+def abort_in_flight_pulse_for_user_speech() -> bool:
+    """Cancel a directed/conversational pulse that would talk over the user.
+
+    Converts a mandatory pending cue to fold-into-next-reply so it rides the
+    user's next natural answer instead of finishing as a separate inject.
+    Returns True when an in-flight pulse was aborted.
+    """
+    global _active_pulse_turn, _pulse_turn_text
+
+    with _lock:
+        active = _active_pulse_turn
+        if active is None or active.mode not in ("directed", "conversational"):
+            return False
+        memory_root = active.memory_root
+        persona_namespace = active.persona_namespace
+        mode = active.mode
+        _active_pulse_turn = None
+        _pulse_turn_text = []
+
+    if _pulse_cancel_scope is not None:
+        try:
+            _pulse_cancel_scope.cancel()
+        except Exception:
+            logger.exception("Failed to cancel pipeline after user speech during pulse")
+
+    state = load_pulse_state(memory_root, persona_namespace)
+    if state is None:
+        return True
+
+    state.pulse_in_flight = False
+    if mode == "directed" and state.pending_cue and state.pending_cue.strip():
+        state.fold_on_next_reply = True
+        state.cue_priority = "mandatory"
+        logger.info(
+            "Aborted directed pulse for user speech; cue will fold into next reply cue=%r",
+            state.pending_cue[:80],
+        )
+    else:
+        logger.info("Aborted %s pulse for user speech skill=%r", mode, state.skill_name)
+
+    save_pulse_state(memory_root, persona_namespace, state)
+    return True
+
+
 def prepare_fold_cue_commit_instructions(runtime_config: RuntimeConfig) -> str | None:
     """If a speech-deferred mandatory cue should fold into this commit, begin delivery.
 
@@ -490,7 +545,8 @@ def record_assistant_speech_for_active_pulse(full_text: str) -> None:
 
 
 def reset_pulse_inject_for_tests() -> None:
-    global _active_pulse_turn, _pulse_turn_text
+    global _active_pulse_turn, _pulse_turn_text, _pulse_cancel_scope
     with _lock:
         _active_pulse_turn = None
         _pulse_turn_text = []
+    _pulse_cancel_scope = None

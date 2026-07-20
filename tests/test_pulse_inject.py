@@ -512,6 +512,50 @@ class PulseInjectTests(unittest.TestCase):
         self.assertFalse(loaded.fold_on_next_reply)
         self.assertFalse(loaded.pulse_in_flight)
 
+    def test_abort_directed_pulse_on_user_speech_converts_to_fold(self) -> None:
+        from speech_to_speech.pipeline.cancel_scope import CancelScope
+
+        from buddy_tools.pulse.inject import (
+            abort_in_flight_pulse_for_user_speech,
+            set_pulse_cancel_scope,
+        )
+
+        scope = CancelScope()
+        gen = scope.generation
+        set_pulse_cancel_scope(scope)
+
+        self.state.pending_cue = "Switch to camera 2."
+        self.state.cue_priority = "mandatory"
+        self.state.fold_on_next_reply = False
+        save_pulse_state(self.memory_root, "coach", self.state)
+        inject_pulse_turn(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            mode="directed",
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+        )
+        self.queue.get_nowait()
+        self.assertTrue(self.state.pulse_in_flight)
+
+        aborted = abort_in_flight_pulse_for_user_speech()
+        self.assertTrue(aborted)
+        self.assertTrue(scope.is_stale(gen))
+
+        loaded = load_pulse_state(self.memory_root, "coach")
+        assert loaded is not None
+        self.assertEqual(loaded.pending_cue, "Switch to camera 2.")
+        self.assertTrue(loaded.fold_on_next_reply)
+        self.assertFalse(loaded.pulse_in_flight)
+
+        # End-of-response after abort must not clear the cue.
+        handle_pulse_end_of_response()
+        loaded = load_pulse_state(self.memory_root, "coach")
+        assert loaded is not None
+        self.assertEqual(loaded.pending_cue, "Switch to camera 2.")
+        self.assertTrue(loaded.fold_on_next_reply)
+
     def test_evaluate_marks_fold_and_skips_inject_while_speaking(self) -> None:
         reset_pulse_gates_for_tests()
         set_perf_counter_for_tests(lambda: 1000.0)

@@ -52,7 +52,8 @@ Rules **do not speak directly**. A non-empty `cue:` queues text; the injection l
 
 1. **User already silent** — directed pulse inject immediately (after the short silence gate).
 2. **User mid-speech / pipeline busy** — defer and set `fold_on_next_reply`; the cue is **woven into Buddy’s next natural reply** instead of interrupting.
-3. **Speech-deferred fallback** — if no reactive reply delivers the cue before `mandatory_cue_max_defer_s`, directed inject runs once the user is silent again (never while they are still talking).
+3. **Speech starts just after a directed inject began** — the in-flight directed turn is cancelled and the cue converts to fold-into-next-reply (avoids talking over a late barge-in).
+4. **Speech-deferred fallback** — if no reactive reply delivers the cue before `mandatory_cue_max_defer_s`, directed inject runs once the user is silent again (never while they are still talking).
 
 See `buddy_tools/pulse/gates.py` and `inject.py`.
 

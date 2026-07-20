@@ -446,6 +446,30 @@ def _patch_graceful_shutdown() -> None:
     ThreadManager._buddy_shutdown_patch_applied = True
 
 
+def _ensure_shared_cancel_scope(handlers: list[Any]) -> Any | None:
+    """Local mode often leaves cancel_scope unset on LLM/TTS; share one for barge-in."""
+    from speech_to_speech.pipeline.cancel_scope import CancelScope
+
+    from buddy_tools.pulse.inject import set_pulse_cancel_scope
+
+    scope = None
+    for handler in handlers:
+        existing = getattr(handler, "cancel_scope", None)
+        if existing is not None:
+            scope = existing
+            break
+    if scope is None:
+        scope = CancelScope()
+        logger.info("Created shared CancelScope for local-mode pulse barge-in")
+
+    for handler in handlers:
+        if hasattr(handler, "cancel_scope"):
+            handler.cancel_scope = scope
+
+    set_pulse_cancel_scope(scope)
+    return scope
+
+
 def _wire_vad_speech_activity_from_handlers(handlers: list[Any]) -> None:
     """Local mode leaves text_output_queue=None, so VAD logs speech start but never emits events.
 
@@ -493,6 +517,7 @@ def apply_patches() -> None:
     def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
         speculative_turns = _ensure_speculative_turns(kwargs)
         handlers = original_build(*args, **kwargs)
+        _ensure_shared_cancel_scope(handlers)
         _wire_vad_speech_activity_from_handlers(handlers)
         _configure_listening_pause_from_handlers(
             handlers,
