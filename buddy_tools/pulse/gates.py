@@ -51,9 +51,9 @@ def set_user_speech_active(active: bool) -> None:
     was_active = _user_speech_active
     _user_speech_active = bool(active)
     if active and not was_active:
-        logger.debug("User speech activity: started")
+        logger.info("User speech activity: started (pulse cues will defer/fold)")
     elif not active and was_active:
-        logger.debug("User speech activity: stopped")
+        logger.info("User speech activity: stopped")
         # Start the post-speech silence clock at soft-end, not only at commit.
         set_last_user_speech_stopped_at(_perf_counter())
 

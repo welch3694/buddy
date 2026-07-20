@@ -446,6 +446,29 @@ def _patch_graceful_shutdown() -> None:
     ThreadManager._buddy_shutdown_patch_applied = True
 
 
+def _wire_vad_speech_activity_from_handlers(handlers: list[Any]) -> None:
+    """Local mode leaves text_output_queue=None, so VAD logs speech start but never emits events.
+
+    Attach a queue to the live VADHandler and observe SpeechStarted/Stopped for pulse gates.
+    """
+    from queue import Queue
+
+    from buddy_tools.pulse.gates import install_speech_activity_queue_observer
+
+    for handler in handlers:
+        if handler.__class__.__name__ != "VADHandler":
+            continue
+        queue = getattr(handler, "text_output_queue", None)
+        if queue is None:
+            queue = Queue()
+            handler.text_output_queue = queue
+            logger.info(
+                "Attached text_output_queue to VADHandler for speech-activity pulse gates"
+            )
+        install_speech_activity_queue_observer(queue)
+        return
+
+
 def apply_patches() -> None:
     import speech_to_speech.s2s_pipeline as pipeline
 
@@ -470,6 +493,7 @@ def apply_patches() -> None:
     def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
         speculative_turns = _ensure_speculative_turns(kwargs)
         handlers = original_build(*args, **kwargs)
+        _wire_vad_speech_activity_from_handlers(handlers)
         _configure_listening_pause_from_handlers(
             handlers,
             should_listen=kwargs.get("should_listen"),

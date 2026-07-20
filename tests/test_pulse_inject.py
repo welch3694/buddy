@@ -213,6 +213,19 @@ class PulseGateTests(unittest.TestCase):
         self.assertTrue(is_user_speech_active())
         self.assertFalse(queue.empty())
 
+    def test_wire_vad_attaches_queue_when_local_mode_left_none(self) -> None:
+        from buddy_tools.core.patch import _wire_vad_speech_activity_from_handlers
+        from speech_to_speech.pipeline.events import SpeechStartedEvent
+
+        class VADHandler:
+            text_output_queue = None
+
+        handler = VADHandler()
+        _wire_vad_speech_activity_from_handlers([handler])
+        self.assertIsNotNone(handler.text_output_queue)
+        handler.text_output_queue.put(SpeechStartedEvent(audio_start_ms=0))
+        self.assertTrue(is_user_speech_active())
+
     def test_directed_skips_when_narrator_muted(self) -> None:
         self.state.pending_cue = "Switch camera."
         self.state.cue_priority = "mandatory"
