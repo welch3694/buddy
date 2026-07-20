@@ -11,6 +11,7 @@ export default function App() {
       reason={bridge.reason}
       persona={bridge.persona}
       captionText={bridge.captionText}
+      speakingPlayback={bridge.speakingPlayback}
       mock={bridge.mock}
     />
   );

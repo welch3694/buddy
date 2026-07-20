@@ -15,6 +15,7 @@ from buddy_tools.companion.events import (
     assistant_text_event,
     persona_event,
     pulse_state_event,
+    speaking_progress_event,
     turn_state_event,
 )
 from buddy_tools.pulse.state import PulseState
@@ -89,6 +90,23 @@ class CompanionEventPublisher:
                 text,
                 turn_id=turn_id,
                 turn_revision=turn_revision,
+            )
+        )
+
+    def emit_speaking_progress(
+        self,
+        *,
+        progress: float,
+        played_ms: int,
+        total_ms: int,
+        total_final: bool = False,
+    ) -> None:
+        self.emit(
+            speaking_progress_event(
+                progress=progress,
+                played_ms=played_ms,
+                total_ms=total_ms,
+                total_final=total_final,
             )
         )
 
@@ -188,6 +206,24 @@ def emit_assistant_text(
         text,
         turn_id=turn_id,
         turn_revision=turn_revision,
+    )
+
+
+def emit_speaking_progress(
+    *,
+    progress: float,
+    played_ms: int,
+    total_ms: int,
+    total_final: bool = False,
+) -> None:
+    publisher = get_companion_publisher()
+    if publisher is None:
+        return
+    publisher.emit_speaking_progress(
+        progress=progress,
+        played_ms=played_ms,
+        total_ms=total_ms,
+        total_final=total_final,
     )
 
 

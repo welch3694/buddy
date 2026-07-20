@@ -296,6 +296,7 @@ class SchemaDocTests(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIn("turn_state", text)
         self.assertIn("assistant_text", text)
+        self.assertIn("speaking_progress", text)
         self.assertIn("pulse_state", text)
         self.assertIn("persona", text)
         self.assertIn("ws://127.0.0.1:8766", text)

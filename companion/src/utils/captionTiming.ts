@@ -16,6 +16,34 @@ export function estimateSpeakingDurationMs(text: string): number {
 }
 
 /**
+ * Map playback samples onto full caption text.
+ *
+ * While TTS is still filling the queue, floor the denominator with a
+ * text-length estimate so ``played/enqueued`` cannot race to 1.0 at the
+ * synth frontier. Once ``totalFinal`` is set (RESPONSE_DONE enqueued), trust
+ * the real audio length so the last words track remaining PCM instead of
+ * snapping when playback ends.
+ */
+export function captionProgressFromPlayback(
+  playedMs: number,
+  enqueuedMs: number,
+  captionText: string,
+  totalFinal: boolean = false,
+): number {
+  const played = Math.max(0, playedMs);
+  const enqueued = Math.max(0, enqueuedMs);
+
+  if (totalFinal) {
+    const total = Math.max(enqueued, played, 1);
+    return Math.min(1, played / total);
+  }
+
+  const estimate = estimateSpeakingDurationMs(captionText);
+  const total = Math.max(enqueued, estimate, played, 1);
+  return Math.min(1, played / total);
+}
+
+/**
  * Map 0..1 progress across words weighted by character length
  * so longer words hold the highlight longer.
  */

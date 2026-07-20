@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  estimateSpeakingDurationMs,
+  captionProgressFromPlayback,
   SETTLE_CLEAR_MS,
   tokenizeCaption,
   wordIndexAtProgress,
 } from "../utils/captionTiming";
-import type { TurnState } from "../types/bridge";
+import type { SpeakingPlayback, TurnState } from "../types/bridge";
 
 export type CaptionPhase = "idle" | "buffering" | "speaking" | "settled";
 
@@ -17,13 +17,14 @@ export type CaptionHighlightState = {
 };
 
 /**
- * Drive caption visibility + estimated word highlight from turn state.
- * Text accumulates during generating; highlight runs while speaking;
- * settles then clears when returning to listening/holding.
+ * Drive caption visibility + word highlight from turn state.
+ * Uses PCM played/enqueued ms floored by a text-duration estimate so highlight
+ * does not race ahead when the playhead catches the TTS frontier early.
  */
 export function useCaptionHighlight(
   captionText: string,
   turnState: TurnState | null,
+  speakingPlayback: SpeakingPlayback | null = null,
 ): CaptionHighlightState {
   const [displayText, setDisplayText] = useState("");
   const [activeWordIndex, setActiveWordIndex] = useState(-1);
@@ -31,8 +32,8 @@ export function useCaptionHighlight(
 
   const bufferRef = useRef("");
   const phaseRef = useRef<CaptionPhase>("idle");
-  const startMsRef = useRef<number | null>(null);
   const prevTurnRef = useRef<TurnState | null>(null);
+  const progressPeakRef = useRef(0);
 
   phaseRef.current = phase;
 
@@ -61,7 +62,7 @@ export function useCaptionHighlight(
 
       setDisplayText(text);
       if (prev !== "speaking") {
-        startMsRef.current = performance.now();
+        progressPeakRef.current = 0;
         setActiveWordIndex(0);
         setPhase("speaking");
       }
@@ -89,11 +90,11 @@ export function useCaptionHighlight(
       setDisplayText(captionText || "");
       setActiveWordIndex(-1);
       setPhase(captionText ? "buffering" : "idle");
-      startMsRef.current = null;
+      progressPeakRef.current = 0;
     }
   }, [turnState, captionText]);
 
-  // rAF word highlight while speaking
+  // PCM playback → word highlight (estimate-floored progress)
   useEffect(() => {
     if (phase !== "speaking") return;
 
@@ -101,24 +102,23 @@ export function useCaptionHighlight(
     const words = tokenizeCaption(text);
     if (words.length === 0) return;
 
-    const duration = estimateSpeakingDurationMs(text);
-    if (startMsRef.current == null) {
-      startMsRef.current = performance.now();
+    // Hold first word until audible samples arrive (avoid TTFA race).
+    if (speakingPlayback == null) {
+      setActiveWordIndex(0);
+      return;
     }
 
-    let raf = 0;
-    const tick = (now: number) => {
-      const start = startMsRef.current ?? now;
-      const progress = Math.min(1, (now - start) / duration);
-      setActiveWordIndex(wordIndexAtProgress(words, progress));
-      if (progress < 1) {
-        raf = requestAnimationFrame(tick);
-      }
-    };
-
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [phase, displayText]);
+    const raw = captionProgressFromPlayback(
+      speakingPlayback.playedMs,
+      speakingPlayback.totalMs,
+      text,
+      speakingPlayback.totalFinal,
+    );
+    // Monotonic on the *floored* progress only — prevents tiny dips when
+    // enqueued audio grows, without locking to a premature raw ratio spike.
+    progressPeakRef.current = Math.max(progressPeakRef.current, raw);
+    setActiveWordIndex(wordIndexAtProgress(words, progressPeakRef.current));
+  }, [phase, displayText, speakingPlayback]);
 
   // Clear after settle window (playback complete / return to listening)
   useEffect(() => {
@@ -130,7 +130,7 @@ export function useCaptionHighlight(
       setDisplayText("");
       setActiveWordIndex(-1);
       setPhase("idle");
-      startMsRef.current = null;
+      progressPeakRef.current = 0;
     }, SETTLE_CLEAR_MS);
 
     return () => window.clearTimeout(id);
