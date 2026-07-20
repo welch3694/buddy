@@ -9,7 +9,11 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from openai.types.realtime import RealtimeConversationItemFunctionCallOutput, RealtimeConversationItemUserMessage
+from openai.types.realtime import (
+    RealtimeConversationItemFunctionCall,
+    RealtimeConversationItemFunctionCallOutput,
+    RealtimeConversationItemUserMessage,
+)
 from openai.types.realtime.realtime_conversation_item_user_message import Content as UserContent
 from openai.types.responses.response_function_tool_call import ResponseFunctionToolCall
 
@@ -45,6 +49,7 @@ from buddy_tools.episodic import (
 from buddy_tools.episodic.turns import truncate_tool_output
 from buddy_tools.channels.turn_context import get_turn
 from buddy_tools.voice.session import apply_voice
+from buddy_tools.voice.action_intents import clear_action_intent, pop_action_intent
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +317,50 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
         logger.info("Queued LLM follow-up after tool execution (round %d)", self._tool_rounds)
         return True
 
+    def _silent_execute_stashed_intent(self, turn_id: str | None) -> bool:
+        """If forced tool_choice was ignored, execute the stashed ActionIntent."""
+        if self._pending_tools or self._pending_context is None or self.text_prompt_queue is None:
+            return False
+        intent = pop_action_intent(turn_id)
+        if intent is None:
+            return False
+
+        call_id = f"call_silent_{turn_id or 'unknown'}"
+        arguments_json = json.dumps(intent.arguments)
+        chat = self._pending_context.runtime_config.chat
+        try:
+            chat.add_item(
+                RealtimeConversationItemFunctionCall(
+                    type="function_call",
+                    name=intent.tool_name,
+                    arguments=arguments_json,
+                    call_id=call_id,
+                )
+            )
+        except ChatItemError as exc:
+            logger.error(
+                "Could not record silent function_call for %s: %s",
+                intent.tool_name,
+                exc,
+            )
+            return False
+
+        logger.warning(
+            "Forced tool_choice ignored; silently executing %s (turn=%s)",
+            intent.tool_name,
+            turn_id,
+        )
+        self._pending_tools = [
+            ResponseFunctionToolCall(
+                type="function_call",
+                name=intent.tool_name,
+                arguments=arguments_json,
+                call_id=call_id,
+                id=f"fc_{call_id}",
+            )
+        ]
+        return self._execute_pending_tools()
+
     def _claim_tts_fallback_chunk(self) -> LLMResponseChunk | None:
         """Build a spoken fallback chunk from the last remembered turn context."""
         ctx = self._pending_context
@@ -359,6 +408,11 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 return
 
             if self._pending_tools and self._execute_pending_tools():
+                clear_action_intent(lm_output.turn_id)
+                self._turn_text_buffer.clear()
+                return
+
+            if self._silent_execute_stashed_intent(lm_output.turn_id):
                 self._turn_text_buffer.clear()
                 return
 

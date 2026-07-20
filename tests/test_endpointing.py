@@ -157,6 +157,9 @@ class EndpointingGateTests(unittest.TestCase):
         self.assertIsNone(outputs[0].response)
 
     def test_action_intent_forces_tool_choice_on_commit(self) -> None:
+        from buddy_tools.voice.action_intents import pop_action_intent, reset_action_intent_stash_for_tests
+
+        reset_action_intent_stash_for_tests()
         request = build_commit_request(
             self.runtime_config,
             PendingUtterance(
@@ -175,6 +178,11 @@ class EndpointingGateTests(unittest.TestCase):
         self.assertIsNotNone(tool_choice)
         self.assertEqual(tool_choice.name, "start_skill")
         self.assertEqual(tool_choice.type, "function")
+        stashed = pop_action_intent("t1")
+        self.assertIsNotNone(stashed)
+        assert stashed is not None
+        self.assertEqual(stashed.arguments, {"name": "live-director"})
+        reset_action_intent_stash_for_tests()
 
     def test_unmatched_commit_leaves_response_none(self) -> None:
         request = build_commit_request(

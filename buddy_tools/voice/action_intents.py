@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,6 +48,40 @@ class ActionIntent:
 
     tool_name: str
     arguments: dict[str, Any]
+
+
+_intent_lock = threading.Lock()
+_stashed_intents: dict[str, ActionIntent] = {}
+
+
+def stash_action_intent(turn_id: str | None, intent: ActionIntent) -> None:
+    """Remember a matched intent for silent fallback if the LLM ignores tool_choice."""
+    if not turn_id:
+        return
+    with _intent_lock:
+        _stashed_intents[turn_id] = intent
+
+
+def pop_action_intent(turn_id: str | None) -> ActionIntent | None:
+    """Take and clear a stashed intent for this turn (or None)."""
+    if not turn_id:
+        return None
+    with _intent_lock:
+        return _stashed_intents.pop(turn_id, None)
+
+
+def clear_action_intent(turn_id: str | None) -> None:
+    """Drop a stashed intent without executing (LLM already called tools)."""
+    if not turn_id:
+        return
+    with _intent_lock:
+        _stashed_intents.pop(turn_id, None)
+
+
+def reset_action_intent_stash_for_tests() -> None:
+    """Clear all stashed intents (test helper)."""
+    with _intent_lock:
+        _stashed_intents.clear()
 
 
 def _sanitize_personality_id(raw: str) -> str | None:

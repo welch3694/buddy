@@ -534,7 +534,11 @@ def build_commit_request(
     from openai.types.responses.tool_choice_function import ToolChoiceFunction
     from speech_to_speech.LLM.chat import make_user_message
 
-    from buddy_tools.voice.action_intents import match_action_intent
+    from buddy_tools.voice.action_intents import (
+        clear_action_intent,
+        match_action_intent,
+        stash_action_intent,
+    )
 
     runtime_config.chat.add_item(make_user_message(utterance.transcript))
     response = None
@@ -543,12 +547,15 @@ def build_commit_request(
         response = RealtimeResponseCreateParams(
             tool_choice=ToolChoiceFunction(type="function", name=intent.tool_name),
         )
+        stash_action_intent(utterance.turn_id, intent)
         logger.info(
             "Action intent forced tool_choice=%s (turn=%s rev=%s)",
             intent.tool_name,
             utterance.turn_id,
             utterance.turn_revision,
         )
+    else:
+        clear_action_intent(utterance.turn_id)
     return GenerateResponseRequest(
         runtime_config=runtime_config,
         language_code=utterance.language_code,

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from buddy_tools.voice.action_intents import ActionIntent, match_action_intent
+from buddy_tools.voice.action_intents import (
+    ActionIntent,
+    clear_action_intent,
+    match_action_intent,
+    pop_action_intent,
+    reset_action_intent_stash_for_tests,
+    stash_action_intent,
+)
 from buddy_tools.voice.listening_pause import (
     matches_start_listening,
     matches_stop_listening,
@@ -134,6 +141,31 @@ class ActionIntentMatchingTests(unittest.TestCase):
         self.assertFalse(matches_stop_listening("stop director"))
         self.assertIsNone(match_action_intent("stop listening"))
         self.assertIsNone(match_action_intent("start listening"))
+
+
+class ActionIntentStashTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_action_intent_stash_for_tests()
+
+    def tearDown(self) -> None:
+        reset_action_intent_stash_for_tests()
+
+    def test_stash_pop_round_trip(self) -> None:
+        intent = ActionIntent(tool_name="start_skill", arguments={"name": "remember"})
+        stash_action_intent("turn_1", intent)
+        self.assertEqual(pop_action_intent("turn_1"), intent)
+        self.assertIsNone(pop_action_intent("turn_1"))
+
+    def test_clear_drops_without_returning(self) -> None:
+        intent = ActionIntent(tool_name="cancel_skill", arguments={})
+        stash_action_intent("turn_2", intent)
+        clear_action_intent("turn_2")
+        self.assertIsNone(pop_action_intent("turn_2"))
+
+    def test_none_turn_id_is_noop(self) -> None:
+        intent = ActionIntent(tool_name="pause_skill", arguments={})
+        stash_action_intent(None, intent)
+        self.assertIsNone(pop_action_intent(None))
 
 
 if __name__ == "__main__":
