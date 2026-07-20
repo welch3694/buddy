@@ -420,6 +420,26 @@ class EndpointingGate:
             return
 
         from buddy_tools.pulse.state import is_silence_gated_only_active
+        from buddy_tools.voice.short_utterance_gate import should_discard_utterance
+
+        discard_reason = should_discard_utterance(utterance.transcript)
+        if discard_reason is not None:
+            try:
+                if tracker is not None:
+                    tracker.commit(utterance.turn_id, utterance.turn_revision)
+                _log_short_utterance_discard(utterance, discard_reason)
+                set_turn_state(
+                    VoiceTurnState.LISTENING,
+                    reason="short_utterance_gate",
+                    turn_id=utterance.turn_id,
+                    turn_revision=utterance.turn_revision,
+                )
+            except Exception:
+                logger.exception(
+                    "Endpointing gate failed short-utterance discard for turn=%s",
+                    utterance.turn_id,
+                )
+            return
 
         if is_silence_gated_only_active():
             try:
@@ -526,6 +546,16 @@ def perform_commit_side_effects(utterance: PendingUtterance) -> None:
         )
 
 
+def _log_short_utterance_discard(utterance: PendingUtterance, reason: Any) -> None:
+    logger.info(
+        "Voice commit discarded: short_utterance_gate reason=%s (turn=%s rev=%s): %s",
+        reason,
+        utterance.turn_id,
+        utterance.turn_revision,
+        utterance.transcript[:80],
+    )
+
+
 def build_commit_request(
     runtime_config: RuntimeConfig,
     utterance: PendingUtterance,
@@ -576,6 +606,18 @@ def commit_voice_turn(
         return iter(())
 
     from buddy_tools.pulse.state import is_silence_gated_only_active
+    from buddy_tools.voice.short_utterance_gate import should_discard_utterance
+
+    discard_reason = should_discard_utterance(utterance.transcript)
+    if discard_reason is not None:
+        _log_short_utterance_discard(utterance, discard_reason)
+        set_turn_state(
+            VoiceTurnState.LISTENING,
+            reason="short_utterance_gate",
+            turn_id=utterance.turn_id,
+            turn_revision=utterance.turn_revision,
+        )
+        return iter(())
 
     perform_commit_side_effects(utterance)
     if is_silence_gated_only_active():
