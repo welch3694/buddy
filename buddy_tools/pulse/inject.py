@@ -18,7 +18,11 @@ from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, LLMResponseChunk
 
 from buddy_tools.personality import get_active_personality
-from buddy_tools.pulse.gates import select_pulse_mode, set_last_user_speech_stopped_at
+from buddy_tools.pulse.gates import (
+    mark_fold_on_speech_deferral,
+    select_pulse_mode,
+    set_last_user_speech_stopped_at,
+)
 from buddy_tools.pulse.schema import SessionConfig
 from buddy_tools.pulse.state import PulseState, load_pulse_state, save_pulse_state
 
@@ -27,7 +31,7 @@ logger = logging.getLogger(__name__)
 PULSE_NUDGE_PREFIX = "[Pulse — internal scheduled nudge, not user speech]: "
 NO_OUTPUT_MARKER = "[NO_OUTPUT]"
 
-PulseTurnMode = Literal["directed", "conversational"]
+PulseTurnMode = Literal["directed", "conversational", "fold"]
 
 
 @dataclass
@@ -55,6 +59,7 @@ def _state_snapshot(state: PulseState) -> dict[str, Any]:
         "cue_priority": state.cue_priority,
         "pulse_mode": state.pulse_mode,
         "narrator_muted": state.narrator_muted,
+        "fold_on_next_reply": state.fold_on_next_reply,
         "vars": state.vars,
         "fired_rules": state.fired_rules,
         "last_user_speech_at": state.last_user_speech_at,
@@ -70,6 +75,21 @@ def build_directed_pulse_instructions(state: PulseState, base_instructions: str)
         f"Pending cue(s): {state.pending_cue}\n"
         "Cover every directive above in one response. Do not call tools on this turn. "
         "Do not invent cues beyond the pending cues.\n"
+        f"Pulse state snapshot:\n{snapshot}"
+    )
+
+
+def build_fold_cue_instructions(state: PulseState, base_instructions: str) -> str:
+    """Instructions for weaving a speech-deferred mandatory cue into a reactive reply."""
+    snapshot = json.dumps(_state_snapshot(state), indent=2, sort_keys=True)
+    return (
+        f"{base_instructions}\n\n"
+        "Pulse fold-into-reply turn — respond to the user naturally, and weave all "
+        "pending cues into the same spoken reply (do not make the cue the whole response).\n"
+        f"Pending cue(s): {state.pending_cue}\n"
+        "Answer the user first, then briefly include every directive above mid-reply "
+        "(e.g. acknowledge them, mention the cue in passing, continue the conversation). "
+        "Cover every directive. Do not invent cues beyond the pending cues.\n"
         f"Pulse state snapshot:\n{snapshot}"
     )
 
@@ -178,6 +198,7 @@ def _complete_pulse_turn(
         state.pending_cue = None
         state.cue_priority = None
         state.pending_cue_since = None
+        state.fold_on_next_reply = False
         state.pulse_mode = "directed"
     if mode == "conversational":
         state.vars["last_conversation_pulse_at"] = _utc_now_iso()
@@ -267,6 +288,86 @@ def inject_pulse_turn(
     return True
 
 
+def begin_fold_cue_delivery(
+    *,
+    memory_root: Path,
+    persona_namespace: str,
+    state: PulseState,
+) -> bool:
+    """Register a fold-into-reply delivery for the upcoming reactive turn.
+
+    Sets pulse_in_flight so the worker cannot also directed-inject the same cue.
+    """
+    global _active_pulse_turn, _pulse_turn_text
+
+    if not state.pending_cue or not state.pending_cue.strip():
+        return False
+    if not state.fold_on_next_reply:
+        return False
+    if state.narrator_muted:
+        return False
+    if state.pulse_in_flight:
+        return False
+
+    with _lock:
+        if _active_pulse_turn is not None:
+            return False
+        _active_pulse_turn = ActivePulseTurn(
+            memory_root=memory_root.resolve(),
+            persona_namespace=persona_namespace,
+            mode="fold",
+            clear_pending_cue=True,
+        )
+        _pulse_turn_text = []
+
+    state.pulse_in_flight = True
+    save_pulse_state(memory_root, persona_namespace, state)
+    logger.info(
+        "Fold cue delivery started namespace=%r skill=%r cue=%r",
+        persona_namespace,
+        state.skill_name,
+        (state.pending_cue or "")[:80],
+    )
+    return True
+
+
+def is_active_pulse_turn() -> bool:
+    """True while a directed/conversational/fold pulse turn is in flight."""
+    with _lock:
+        return _active_pulse_turn is not None
+
+
+def prepare_fold_cue_commit_instructions(runtime_config: RuntimeConfig) -> str | None:
+    """If a speech-deferred mandatory cue should fold into this commit, begin delivery.
+
+    Returns turn instructions to attach on GenerateResponseRequest, or None.
+    """
+    try:
+        profile = get_active_personality()
+        memory_root = _memory_root()
+        state = load_pulse_state(memory_root, profile.memory_namespace)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        logger.debug("Fold cue commit skipped: %s", exc)
+        return None
+
+    if state is None or state.status != "active":
+        return None
+    if not state.fold_on_next_reply:
+        return None
+    if not state.pending_cue or state.cue_priority != "mandatory":
+        return None
+
+    if not begin_fold_cue_delivery(
+        memory_root=memory_root,
+        persona_namespace=profile.memory_namespace,
+        state=state,
+    ):
+        return None
+
+    base_instructions = runtime_config.session.instructions or ""
+    return build_fold_cue_instructions(state, base_instructions)
+
+
 def evaluate_and_maybe_inject_pulse(
     *,
     memory_root: Path,
@@ -280,6 +381,13 @@ def evaluate_and_maybe_inject_pulse(
     if text_prompt_queue is None or runtime_config is None:
         logger.warning("Pulse injection skipped: scheduler not configured with runtime_config/queue")
         return False
+
+    # Prefer in-memory active turn (covers fold started on the commit path while
+    # the worker still holds a stale pulse_in_flight=False snapshot).
+    if is_active_pulse_turn() or state.pulse_in_flight:
+        return False
+
+    mark_fold_on_speech_deferral(state, session, should_listen=should_listen)
 
     mode = select_pulse_mode(state, session, should_listen=should_listen)
     if mode is None:
@@ -317,8 +425,15 @@ def handle_pulse_response_chunk(chunk: LLMResponseChunk) -> LLMResponseChunk | N
         combined = "".join(_pulse_turn_text).strip()
         if active.mode == "conversational" and is_no_output_text(combined):
             return None
-        if active.mode == "directed" and active.clear_pending_cue and is_no_output_text(combined):
-            logger.warning("Directed pulse returned [NO_OUTPUT]; suppressing empty delivery")
+        if (
+            active.mode in ("directed", "fold")
+            and active.clear_pending_cue
+            and is_no_output_text(combined)
+        ):
+            logger.warning(
+                "%s pulse returned [NO_OUTPUT]; suppressing empty delivery",
+                active.mode.capitalize(),
+            )
             return None
     return chunk
 

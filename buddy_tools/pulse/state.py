@@ -50,6 +50,9 @@ class PulseState:
     last_assistant_speech_at: str | None = None
     pending_cue_since: str | None = None
     pulse_in_flight: bool = False
+    # True when a mandatory cue was deferred because the user was speaking;
+    # next reactive reply should weave the cue instead of a separate directed inject.
+    fold_on_next_reply: bool = False
 
     def __post_init__(self) -> None:
         if not self.started_at:
@@ -78,6 +81,7 @@ class PulseState:
             "vars": dict(self.vars),
             "session_config": dict(self.session_config),
             "pulse_in_flight": self.pulse_in_flight,
+            "fold_on_next_reply": self.fold_on_next_reply,
         }
         if self.last_tick_at is not None:
             payload["last_tick_at"] = self.last_tick_at
@@ -154,6 +158,7 @@ class PulseState:
             last_assistant_speech_at=str(last_assistant).strip() if last_assistant else None,
             pending_cue_since=str(pending_since).strip() if pending_since else None,
             pulse_in_flight=bool(data.get("pulse_in_flight", False)),
+            fold_on_next_reply=bool(data.get("fold_on_next_reply", False)),
         )
 
 

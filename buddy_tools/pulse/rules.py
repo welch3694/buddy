@@ -440,6 +440,8 @@ def _queue_pulse_cue(
             if state.pending_cue != cleaned:
                 state.pending_cue_since = timestamp
             state.pending_cue = cleaned
+            # Fresh mandatory batch — deferral/fold flag is re-evaluated by gates.
+            state.fold_on_next_reply = False
         state.cue_priority = "mandatory"
         state.pulse_mode = "directed"
         return
@@ -452,6 +454,7 @@ def _queue_pulse_cue(
     state.pending_cue = cleaned
     state.cue_priority = "conversational"
     state.pulse_mode = "conversational"
+    state.fold_on_next_reply = False
 
 
 def apply_rule(

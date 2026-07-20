@@ -18,6 +18,7 @@ from buddy_tools.voice.listening_pause import get_listening_pause_controller
 from buddy_tools.pulse.gates import (
     conversational_pulse_gates_allow,
     directed_pulse_gates_allow,
+    mark_fold_on_speech_deferral,
     reset_pulse_gates_for_tests,
     select_pulse_mode,
     set_last_user_speech_stopped_at,
@@ -25,8 +26,11 @@ from buddy_tools.pulse.gates import (
 )
 from buddy_tools.pulse.inject import (
     NO_OUTPUT_MARKER,
+    begin_fold_cue_delivery,
     build_conversational_pulse_instructions,
     build_directed_pulse_instructions,
+    build_fold_cue_instructions,
+    evaluate_and_maybe_inject_pulse,
     handle_pulse_end_of_response,
     handle_pulse_response_chunk,
     inject_pulse_turn,
@@ -102,15 +106,67 @@ class PulseGateTests(unittest.TestCase):
             directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
         )
 
-    def test_directed_force_fire_after_max_defer(self) -> None:
+    def test_directed_no_talkover_after_max_defer_while_speaking(self) -> None:
         self.state.pending_cue = "Switch camera."
         self.state.cue_priority = "mandatory"
+        self.state.fold_on_next_reply = True
         self.state.pending_cue_since = (
             datetime.now(UTC) - timedelta(seconds=5)
         ).replace(microsecond=0).isoformat()
         set_last_user_speech_stopped_at(999.0)
+        self.assertFalse(
+            directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
+        )
+
+    def test_directed_silence_fallback_after_max_defer_when_fold_pending(self) -> None:
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.fold_on_next_reply = True
+        self.state.pending_cue_since = (
+            datetime.now(UTC) - timedelta(seconds=5)
+        ).replace(microsecond=0).isoformat()
+        set_last_user_speech_stopped_at(990.0)
         self.assertTrue(
             directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
+        )
+
+    def test_mark_fold_on_speech_deferral(self) -> None:
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        set_last_user_speech_stopped_at(999.0)
+        self.assertTrue(
+            mark_fold_on_speech_deferral(
+                self.state, self.session, should_listen=self.should_listen
+            )
+        )
+        self.assertTrue(self.state.fold_on_next_reply)
+        self.assertFalse(
+            directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
+        )
+
+    def test_mark_fold_skipped_when_already_silent(self) -> None:
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        self.assertFalse(
+            mark_fold_on_speech_deferral(
+                self.state, self.session, should_listen=self.should_listen
+            )
+        )
+        self.assertFalse(self.state.fold_on_next_reply)
+
+    def test_fold_suppresses_directed_before_max_defer_even_if_silent(self) -> None:
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.fold_on_next_reply = True
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        set_last_user_speech_stopped_at(990.0)
+        self.assertFalse(
+            directed_pulse_gates_allow(self.state, self.session, should_listen=self.should_listen)
+        )
+        self.assertIsNone(
+            select_pulse_mode(self.state, self.session, should_listen=self.should_listen)
         )
 
     def test_directed_skips_when_narrator_muted(self) -> None:
@@ -362,6 +418,66 @@ class PulseInjectTests(unittest.TestCase):
         assert loaded is not None
         self.assertIsNone(loaded.pending_cue)
         self.assertFalse(loaded.pulse_in_flight)
+
+    def test_fold_instructions_include_weave_guidance(self) -> None:
+        self.state.fold_on_next_reply = True
+        instructions = build_fold_cue_instructions(self.state, "Base.")
+        self.assertIn("Switch to camera 2.", instructions)
+        self.assertIn("fold-into-reply", instructions.lower())
+        self.assertIn("weave", instructions.lower())
+
+    def test_fold_delivery_clears_pending_and_fold_flag(self) -> None:
+        self.state.pending_cue = "Switch cameras."
+        self.state.cue_priority = "mandatory"
+        self.state.fold_on_next_reply = True
+        save_pulse_state(self.memory_root, "coach", self.state)
+
+        started = begin_fold_cue_delivery(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+        )
+        self.assertTrue(started)
+        self.assertTrue(self.state.pulse_in_flight)
+
+        handle_pulse_response_chunk(
+            LLMResponseChunk(
+                text="Good point — by the way switch cameras — tell me more.",
+                turn_id="t1",
+                turn_revision=0,
+            )
+        )
+        handle_pulse_end_of_response()
+
+        loaded = load_pulse_state(self.memory_root, "coach")
+        assert loaded is not None
+        self.assertIsNone(loaded.pending_cue)
+        self.assertFalse(loaded.fold_on_next_reply)
+        self.assertFalse(loaded.pulse_in_flight)
+
+    def test_evaluate_marks_fold_and_skips_inject_while_speaking(self) -> None:
+        reset_pulse_gates_for_tests()
+        set_perf_counter_for_tests(lambda: 1000.0)
+        set_last_user_speech_stopped_at(999.0)
+        self.state.pending_cue = "Switch camera."
+        self.state.cue_priority = "mandatory"
+        self.state.pending_cue_since = datetime.now(UTC).replace(microsecond=0).isoformat()
+        should_listen = Event()
+        should_listen.set()
+
+        injected = evaluate_and_maybe_inject_pulse(
+            memory_root=self.memory_root,
+            persona_namespace="coach",
+            state=self.state,
+            session=self.session,
+            text_prompt_queue=self.queue,
+            runtime_config=self.runtime_config,
+            should_listen=should_listen,
+        )
+        self.assertFalse(injected)
+        self.assertTrue(self.state.fold_on_next_reply)
+        self.assertTrue(self.queue.empty())
+        reset_pulse_gates_for_tests()
 
 
 if __name__ == "__main__":

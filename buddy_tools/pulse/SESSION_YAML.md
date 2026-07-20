@@ -48,7 +48,13 @@ Each worker tick runs two steps:
 1. **Rules / schedule** — evaluate conditions, update `vars`, queue `pending_cue`
 2. **Injection** — if a cue is queued (or conversational gates allow), prompt the LLM to speak
 
-Rules **do not speak directly**. A non-empty `cue:` queues text; the injection layer delivers it after user silence (and other gates). See `buddy_tools/pulse/gates.py` and `inject.py`.
+Rules **do not speak directly**. A non-empty `cue:` queues text; the injection layer delivers it:
+
+1. **User already silent** — directed pulse inject immediately (after the short silence gate).
+2. **User mid-speech / pipeline busy** — defer and set `fold_on_next_reply`; the cue is **woven into Buddy’s next natural reply** instead of interrupting.
+3. **Speech-deferred fallback** — if no reactive reply delivers the cue before `mandatory_cue_max_defer_s`, directed inject runs once the user is silent again (never while they are still talking).
+
+See `buddy_tools/pulse/gates.py` and `inject.py`.
 
 When multiple **mandatory** cues are due before one directed turn is delivered (same tick or while a prior mandatory cue is still pending), they are **merged** into a single `pending_cue` string separated by `"; "` (duplicates skipped). The agent receives all directives and should cover them in one response. See [Mandatory cue merging](#mandatory-cue-merging) below.
 
@@ -77,11 +83,21 @@ Conversational fill between mandatory cues is **not** a YAML rule — it is driv
 | `tick_interval_s` | `5` | Worker tick period (seconds) |
 | `conversation_check_s` | `60` | Min seconds between conversational pulse attempts |
 | `min_speak_interval_s` | `45` | Min seconds since last assistant speech before optional chat |
-| `mandatory_cue_max_defer_s` | `30` | Force-fire mandatory cue after this defer (even if user is talking) |
+| `mandatory_cue_max_defer_s` | `30` | After a speech-deferred cue, allow silence-gated directed inject if fold-into-reply has not delivered yet (never interrupts active speech) |
 | `silence_gated_only` | `false` | When `true`, suppress reactive spoken responses to user voice; Buddy speaks only via pulse injection (extended silence or mandatory cues). Voice alias: `keep_them_talking` via `update_pulse_config`. |
 | `scene_capture` | `off` | Passive webcam snapshot on pulse turns: `off` (none) or `conversational` (lull-fill turns only; skipped when `narrator_muted` or capture fails). |
 
-**Interaction with `narrator_muted`:** `silence_gated_only` blocks reactive LLM speech on user turns. `narrator_muted` (in `init.set` or runtime `vars`) blocks pulse worker injection and scene capture. Both can be active; combined behavior is near-total silence except force-fired mandatory cues after `mandatory_cue_max_defer_s`.
+### Mandatory cue delivery (immediate vs fold)
+
+| Situation | Behavior |
+|-----------|----------|
+| Cue due, user silent + pipeline idle | Directed inject **immediately** |
+| Cue due, user speaking / pipeline busy | Set `fold_on_next_reply`; **no** separate cue TTS; weave into the next reactive reply |
+| Fold pending, user commits a voice turn | Commit attaches fold instructions; cue clears after Buddy speaks |
+| Fold pending past `mandatory_cue_max_defer_s`, user now silent | Directed inject fallback (still silence-gated) |
+| `silence_gated_only` | No reactive replies — always directed when silence allows; fold path is unused |
+
+**Interaction with `narrator_muted`:** `silence_gated_only` blocks reactive LLM speech on user turns. `narrator_muted` (in `init.set` or runtime `vars`) blocks pulse worker injection, fold delivery, and scene capture. Combined behavior is near-total silence until unmuted.
 
 ---
 
@@ -172,7 +188,7 @@ Rules are evaluated **in file order** each tick. Schedule entries run **before**
 
 All firing rules' `set:` blocks still apply even when cues merge. Injection instructions tell the agent to deliver **all** pending directives in one spoken response (e.g. `"Hit the button.; Switch to camera 2."` → *"Switch to camera 2, and hit the button."*).
 
-`pending_cue_since` is **not** reset when appending to an existing mandatory batch — the defer timer (`mandatory_cue_max_defer_s`) stays anchored to when the first cue in the batch became pending.
+`pending_cue_since` is **not** reset when appending to an existing mandatory batch — the defer timer (`mandatory_cue_max_defer_s`) stays anchored to when the first cue in the batch became pending. That timer unlocks silence-gated directed fallback after a speech deferral (`fold_on_next_reply`), not talk-over injection.
 
 **Cues must not contain `"; "`** in the directive text — that character is the merge separator.
 

@@ -102,32 +102,75 @@ def _user_silent_for(*, silence_s: float) -> bool:
     return (_perf_counter() - last_speech) >= silence_s
 
 
+def _mandatory_cue_eligible(state: PulseState) -> bool:
+    if not state.pending_cue or not state.pending_cue.strip():
+        return False
+    if state.cue_priority != "mandatory" and state.pulse_mode != "directed":
+        return False
+    return True
+
+
+def _past_max_defer(state: PulseState, session: SessionConfig, *, now: datetime) -> bool:
+    pending_age = _seconds_since_iso(state.pending_cue_since, now=now)
+    max_defer = _mandatory_max_defer_s(session)
+    return pending_age is not None and pending_age >= max_defer
+
+
+def mark_fold_on_speech_deferral(
+    state: PulseState,
+    session: SessionConfig,
+    *,
+    should_listen,
+) -> bool:
+    """Mark fold_on_next_reply when a mandatory cue is blocked by speech/busy.
+
+    Returns True if the flag was newly set. No-op under silence_gated_only (no
+    reactive reply to fold into) or when narrator is muted.
+    """
+    if not _mandatory_cue_eligible(state):
+        return False
+    if state.narrator_muted:
+        return False
+    if session.pulse.silence_gated_only:
+        return False
+    if state.fold_on_next_reply:
+        return False
+
+    silence_s = _mandatory_silence_s(session)
+    blocked_by_speech = _pipeline_busy(should_listen=should_listen) or not _user_silent_for(
+        silence_s=silence_s
+    )
+    if not blocked_by_speech:
+        return False
+
+    state.fold_on_next_reply = True
+    logger.info(
+        "Mandatory cue deferred for fold-into-next-reply skill=%r cue=%r",
+        state.skill_name,
+        (state.pending_cue or "")[:80],
+    )
+    return True
+
+
 def directed_pulse_gates_allow(
     state: PulseState,
     session: SessionConfig,
     *,
     should_listen,
 ) -> bool:
-    if not state.pending_cue or not state.pending_cue.strip():
-        return False
-    if state.cue_priority != "mandatory" and state.pulse_mode != "directed":
+    if not _mandatory_cue_eligible(state):
         return False
     if state.narrator_muted:
         logger.info("Directed pulse deferred: narrator_muted for skill=%r", state.skill_name)
         return False
 
     now = datetime.now(UTC)
-    pending_age = _seconds_since_iso(state.pending_cue_since, now=now)
-    max_defer = _mandatory_max_defer_s(session)
-    force_fire = pending_age is not None and pending_age >= max_defer
 
-    if force_fire:
-        logger.info(
-            "Directed pulse force-fire after max defer (%.1fs) for skill=%r",
-            max_defer,
-            state.skill_name,
-        )
-        return True
+    # Speech-deferred cues wait for fold delivery; directed inject only after
+    # max defer *and* silence (never talk over the user).
+    if state.fold_on_next_reply and not session.pulse.silence_gated_only:
+        if not _past_max_defer(state, session, now=now):
+            return False
 
     if _pipeline_busy(should_listen=should_listen):
         return False
@@ -135,6 +178,13 @@ def directed_pulse_gates_allow(
     silence_s = _mandatory_silence_s(session)
     if not _user_silent_for(silence_s=silence_s):
         return False
+
+    if state.fold_on_next_reply and not session.pulse.silence_gated_only:
+        logger.info(
+            "Directed pulse silence fallback after max defer (%.1fs) for skill=%r",
+            _mandatory_max_defer_s(session),
+            state.skill_name,
+        )
 
     return True
 

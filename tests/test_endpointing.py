@@ -202,6 +202,181 @@ class EndpointingGateTests(unittest.TestCase):
         assert request is not None
         self.assertIsNone(request.response)
 
+    def test_fold_pending_cue_attaches_instructions_on_commit(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+        from openai.types.realtime.realtime_response_create_params import RealtimeResponseCreateParams
+
+        from buddy_tools.infra.bootstrap import set_memory_root
+        from buddy_tools.infra.data_dir import reset_data_dir_config
+        from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
+        from buddy_tools.pulse.inject import reset_pulse_inject_for_tests
+        from buddy_tools.pulse.schema import parse_session_config
+        from buddy_tools.pulse.state import build_pulse_state_from_session, save_pulse_state
+        from buddy_tools.voice.voices import set_voices_dir
+
+        reset_pulse_inject_for_tests()
+        reset_data_dir_config()
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmpdir.name)
+            personalities_root = root / "personalities"
+            voices_root = root / "voices"
+            memory_root = root / "memory"
+            for path in (personalities_root, voices_root, memory_root):
+                path.mkdir(parents=True)
+
+            set_personalities_dir(personalities_root)
+            set_voices_dir(voices_root)
+            set_memory_root(memory_root)
+
+            voice_dir = voices_root / "cliff"
+            voice_dir.mkdir(parents=True)
+            (voice_dir / "audio.wav").write_bytes(b"RIFF")
+            (voice_dir / "ref_text.txt").write_text("cliff", encoding="utf-8")
+            create_personality("coach", "Coach", "You are Coach.", voice_id="cliff")
+            set_active_personality("coach")
+
+            session = parse_session_config(
+                yaml.safe_load(
+                    """
+name: live-director
+pulse:
+  tick_interval_s: 5
+  mandatory_cue_max_defer_s: 30
+init:
+  set:
+    phase: live
+rules: []
+schedule: []
+"""
+                ),
+                skill_name="live-director",
+            )
+            state = build_pulse_state_from_session("live-director", session)
+            state.pending_cue = "Switch to camera 2."
+            state.cue_priority = "mandatory"
+            state.fold_on_next_reply = True
+            save_pulse_state(memory_root, "coach", state)
+
+            from speech_to_speech.LLM.chat import Chat
+
+            self.runtime_config.chat = Chat(4)
+            self.runtime_config.session.instructions = "Base system prompt."
+
+            request = build_commit_request(
+                self.runtime_config,
+                PendingUtterance(
+                    transcript="I was saying something important",
+                    language_code=None,
+                    speech_stopped_at_s=1.0,
+                    turn_id="t1",
+                    turn_revision=0,
+                ),
+            )
+            self.assertIsNotNone(request)
+            assert request is not None
+            self.assertIsNotNone(request.response)
+            assert isinstance(request.response, RealtimeResponseCreateParams)
+            assert request.response.instructions is not None
+            self.assertIn("Switch to camera 2.", request.response.instructions)
+            self.assertIn("fold-into-reply", request.response.instructions.lower())
+        finally:
+            reset_pulse_inject_for_tests()
+            tmpdir.cleanup()
+            reset_data_dir_config()
+
+    def test_action_intent_skips_fold_weave(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        from buddy_tools.infra.bootstrap import set_memory_root
+        from buddy_tools.infra.data_dir import reset_data_dir_config
+        from buddy_tools.personality import create_personality, set_active_personality, set_personalities_dir
+        from buddy_tools.pulse.inject import reset_pulse_inject_for_tests
+        from buddy_tools.pulse.schema import parse_session_config
+        from buddy_tools.pulse.state import build_pulse_state_from_session, load_pulse_state, save_pulse_state
+        from buddy_tools.voice.action_intents import reset_action_intent_stash_for_tests
+        from buddy_tools.voice.voices import set_voices_dir
+
+        reset_pulse_inject_for_tests()
+        reset_action_intent_stash_for_tests()
+        reset_data_dir_config()
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(tmpdir.name)
+            personalities_root = root / "personalities"
+            voices_root = root / "voices"
+            memory_root = root / "memory"
+            for path in (personalities_root, voices_root, memory_root):
+                path.mkdir(parents=True)
+
+            set_personalities_dir(personalities_root)
+            set_voices_dir(voices_root)
+            set_memory_root(memory_root)
+
+            voice_dir = voices_root / "cliff"
+            voice_dir.mkdir(parents=True)
+            (voice_dir / "audio.wav").write_bytes(b"RIFF")
+            (voice_dir / "ref_text.txt").write_text("cliff", encoding="utf-8")
+            create_personality("coach", "Coach", "You are Coach.", voice_id="cliff")
+            set_active_personality("coach")
+
+            session = parse_session_config(
+                yaml.safe_load(
+                    """
+name: live-director
+pulse:
+  tick_interval_s: 5
+init:
+  set:
+    phase: live
+rules: []
+schedule: []
+"""
+                ),
+                skill_name="live-director",
+            )
+            state = build_pulse_state_from_session("live-director", session)
+            state.pending_cue = "Switch to camera 2."
+            state.cue_priority = "mandatory"
+            state.fold_on_next_reply = True
+            save_pulse_state(memory_root, "coach", state)
+
+            from speech_to_speech.LLM.chat import Chat
+
+            self.runtime_config.chat = Chat(4)
+
+            request = build_commit_request(
+                self.runtime_config,
+                PendingUtterance(
+                    transcript="start director",
+                    language_code=None,
+                    speech_stopped_at_s=1.0,
+                    turn_id="t1",
+                    turn_revision=0,
+                ),
+            )
+            self.assertIsNotNone(request)
+            assert request is not None
+            assert request.response is not None
+            self.assertIsNotNone(request.response.tool_choice)
+            # Fold must not have started — cue still pending with fold flag.
+            loaded = load_pulse_state(memory_root, "coach")
+            assert loaded is not None
+            self.assertEqual(loaded.pending_cue, "Switch to camera 2.")
+            self.assertTrue(loaded.fold_on_next_reply)
+            self.assertFalse(loaded.pulse_in_flight)
+        finally:
+            reset_action_intent_stash_for_tests()
+            reset_pulse_inject_for_tests()
+            tmpdir.cleanup()
+            reset_data_dir_config()
+
     def test_listening_pause_still_blocks_before_endpointing(self) -> None:
         controller = ListeningPauseController(should_listen=Event())
         controller.pause()

@@ -8,6 +8,9 @@ pulse:
   min_speak_interval_s: 45
   mandatory_cue_max_defer_s: 30
   scene_capture: conversational
+  # Mandatory cues inject immediately when the user is silent.
+  # If deferred because the user is speaking, they fold into Buddy's next reply
+  # (see SESSION_YAML.md — Mandatory cue delivery).
   # silence_gated_only: true  # "keep them talking" — enable for tutorial filming (user narrates; Buddy speaks only on silence or mandatory cues)
 
 init:
