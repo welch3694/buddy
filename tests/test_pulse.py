@@ -75,6 +75,22 @@ class PulseStateTests(unittest.TestCase):
         self.assertFalse(path.is_file())
         self.assertIsNone(load_pulse_state(self.memory_root, "coach"))
 
+    def test_save_leaves_no_temp_files(self) -> None:
+        state = PulseState(skill_name="live-director", status="active", phase="intro")
+        save_pulse_state(self.memory_root, "coach", state)
+        persona_dir = pulse_state_path(self.memory_root, "coach").parent
+        leftovers = list(persona_dir.glob(".pulse_state.json.*.tmp"))
+        self.assertEqual(leftovers, [])
+
+    def test_load_returns_none_for_truncated_json(self) -> None:
+        path = pulse_state_path(self.memory_root, "coach")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            '{\n  "skill_name": "live-director",\n  "last_user_speech_at": "2026-07-21T17:15:34+\n',
+            encoding="utf-8",
+        )
+        self.assertIsNone(load_pulse_state(self.memory_root, "coach"))
+
     def test_init_from_session_yaml(self) -> None:
         skill_dir = Path(self._tmpdir.name) / "live-director"
         refs = skill_dir / "references"
