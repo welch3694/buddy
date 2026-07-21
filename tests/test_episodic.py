@@ -89,8 +89,11 @@ class EpisodicSessionManagerTests(unittest.TestCase):
         self.memory_root.mkdir()
         self.clock = FakeClock(datetime(2026, 7, 5, 15, 0, 0, tzinfo=UTC))
         reset_episodic_for_tests()
+        self._enqueue_patch = patch("buddy_tools.episodic.manager.enqueue_session_consolidation")
+        self._enqueue_patch.start()
 
     def tearDown(self) -> None:
+        self._enqueue_patch.stop()
         reset_episodic_for_tests()
         self._tmpdir.cleanup()
 

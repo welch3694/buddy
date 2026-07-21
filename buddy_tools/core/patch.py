@@ -389,32 +389,13 @@ def _configure_listening_pause_from_handlers(
     )
 
 
-def _patch_graceful_shutdown() -> None:
-    """Fix Ctrl+C on Windows and ensure pipeline threads can exit."""
+def _patch_thread_manager_shutdown() -> None:
+    """Patch ThreadManager.wait/stop for interruptible joins (no s2s_pipeline import)."""
+    from speech_to_speech.pipeline.messages import PIPELINE_END
     from speech_to_speech.utils.thread_manager import ThreadManager
 
     if getattr(ThreadManager, "_buddy_shutdown_patch_applied", False):
         return
-
-    import speech_to_speech.s2s_pipeline as pipeline
-    from speech_to_speech.pipeline.messages import PIPELINE_END
-
-    original_build_pipeline = pipeline.build_pipeline
-    original_stop = ThreadManager.stop
-
-    def patched_build_pipeline(*args: Any, **kwargs: Any) -> ThreadManager:
-        manager = original_build_pipeline(*args, **kwargs)
-        queues = kwargs.get("queues_and_events")
-        if queues is None and args:
-            queues = args[-1]
-        if isinstance(queues, dict):
-            stop_event = queues.get("stop_event")
-            if stop_event is not None:
-                for handler in manager.handlers:
-                    if handler.__class__.__name__ == "LocalAudioStreamer":
-                        handler.stop_event = stop_event
-        _wire_pulse_cancel_scope_from_handlers(manager.handlers)
-        return manager
 
     def stop_with_unblock(self: ThreadManager) -> None:
         for handler in self.handlers:
@@ -445,10 +426,42 @@ def _patch_graceful_shutdown() -> None:
             for thread in alive:
                 thread.join(timeout=0.2)
 
-    pipeline.build_pipeline = patched_build_pipeline  # type: ignore[assignment]
     ThreadManager.wait = wait_with_signal_processing  # type: ignore[method-assign]
     ThreadManager.stop = stop_with_unblock  # type: ignore[method-assign]
     ThreadManager._buddy_shutdown_patch_applied = True
+
+
+def _patch_pipeline_build_shutdown() -> None:
+    """Wire LocalAudioStreamer stop_event and pulse cancel scope into build_pipeline."""
+    import speech_to_speech.s2s_pipeline as pipeline
+
+    if getattr(pipeline, "_buddy_build_pipeline_shutdown_patch_applied", False):
+        return
+
+    original_build_pipeline = pipeline.build_pipeline
+
+    def patched_build_pipeline(*args: Any, **kwargs: Any) -> Any:
+        manager = original_build_pipeline(*args, **kwargs)
+        queues = kwargs.get("queues_and_events")
+        if queues is None and args:
+            queues = args[-1]
+        if isinstance(queues, dict):
+            stop_event = queues.get("stop_event")
+            if stop_event is not None:
+                for handler in manager.handlers:
+                    if handler.__class__.__name__ == "LocalAudioStreamer":
+                        handler.stop_event = stop_event
+        _wire_pulse_cancel_scope_from_handlers(manager.handlers)
+        return manager
+
+    pipeline.build_pipeline = patched_build_pipeline  # type: ignore[assignment]
+    pipeline._buddy_build_pipeline_shutdown_patch_applied = True
+
+
+def _patch_graceful_shutdown() -> None:
+    """Fix Ctrl+C on Windows and ensure pipeline threads can exit."""
+    _patch_thread_manager_shutdown()
+    _patch_pipeline_build_shutdown()
 
 
 def _wire_pulse_cancel_scope_from_handlers(handlers: list[Any]) -> None:
@@ -496,46 +509,65 @@ def _wire_vad_speech_activity_from_handlers(handlers: list[Any]) -> None:
         return
 
 
-def apply_patches() -> None:
-    import speech_to_speech.s2s_pipeline as pipeline
+_TTS_PATCHES_APPLIED = False
 
-    if getattr(pipeline, "_buddy_tools_patches_applied", False):
+
+def _apply_tts_patches() -> None:
+    """Patch TTS handlers. Imports Qwen3/NLTK — expensive; skip in unit tests that do not need it."""
+    global _TTS_PATCHES_APPLIED
+    if _TTS_PATCHES_APPLIED:
         return
-
-    from buddy_tools.infra.data_dir import configure_user_data
-
-    configure_user_data()
-
     _patch_qwen3_ref_text_sync()
     _patch_qwen3_voice_clone_stability()
     _patch_pocket_tts_voice_logging()
-    _patch_transcription_notifier_listening_pause()
-    _patch_llm_context_budget()
-    _patch_voice_prompt_anti_fabrication()
-    _patch_response_complete_turn_state()
-    _patch_graceful_shutdown()
+    _TTS_PATCHES_APPLIED = True
 
-    original_build = pipeline._build_pipeline_handlers
 
-    def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
-        speculative_turns = _ensure_speculative_turns(kwargs)
-        handlers = original_build(*args, **kwargs)
-        # LocalAudioStreamer is a comms handler — only available after full build_pipeline.
-        # Cancel scope / audio drain are wired there; VAD speech activity is wired here.
-        _wire_vad_speech_activity_from_handlers(handlers)
-        _configure_listening_pause_from_handlers(
-            handlers,
-            should_listen=kwargs.get("should_listen"),
-        )
-        return insert_local_tool_executor(
-            handlers,
-            stop_event=kwargs["stop_event"],
-            text_prompt_queue=kwargs["text_prompt_queue"],
-            lm_response_queue=kwargs["lm_response_queue"],
-            transcription_notifier_setup=kwargs["transcription_notifier_setup"],
-            speculative_turns=speculative_turns,
-            should_listen=kwargs.get("should_listen"),
-        )
+def apply_patches(*, tts: bool = True) -> None:
+    """Apply speech-to-speech monkey-patches.
 
-    pipeline._build_pipeline_handlers = patched_build_pipeline_handlers  # type: ignore[method-assign]
-    pipeline._buddy_tools_patches_applied = True
+    Args:
+        tts: When True (default, production), also patch Qwen3/Pocket TTS handlers.
+            Unit tests that only need listening-pause / voice-prompt / shutdown
+            patches can pass ``tts=False`` to avoid multi-second TTS imports.
+    """
+    import speech_to_speech.s2s_pipeline as pipeline
+
+    if not getattr(pipeline, "_buddy_tools_patches_applied", False):
+        from buddy_tools.infra.data_dir import configure_user_data
+
+        configure_user_data()
+
+        _patch_transcription_notifier_listening_pause()
+        _patch_llm_context_budget()
+        _patch_voice_prompt_anti_fabrication()
+        _patch_response_complete_turn_state()
+        _patch_graceful_shutdown()
+
+        original_build = pipeline._build_pipeline_handlers
+
+        def patched_build_pipeline_handlers(*args: Any, **kwargs: Any) -> list[Any]:
+            speculative_turns = _ensure_speculative_turns(kwargs)
+            handlers = original_build(*args, **kwargs)
+            # LocalAudioStreamer is a comms handler — only available after full build_pipeline.
+            # Cancel scope / audio drain are wired there; VAD speech activity is wired here.
+            _wire_vad_speech_activity_from_handlers(handlers)
+            _configure_listening_pause_from_handlers(
+                handlers,
+                should_listen=kwargs.get("should_listen"),
+            )
+            return insert_local_tool_executor(
+                handlers,
+                stop_event=kwargs["stop_event"],
+                text_prompt_queue=kwargs["text_prompt_queue"],
+                lm_response_queue=kwargs["lm_response_queue"],
+                transcription_notifier_setup=kwargs["transcription_notifier_setup"],
+                speculative_turns=speculative_turns,
+                should_listen=kwargs.get("should_listen"),
+            )
+
+        pipeline._build_pipeline_handlers = patched_build_pipeline_handlers  # type: ignore[method-assign]
+        pipeline._buddy_tools_patches_applied = True
+
+    if tts:
+        _apply_tts_patches()
