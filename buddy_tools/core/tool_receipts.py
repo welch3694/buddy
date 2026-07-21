@@ -12,8 +12,9 @@ from buddy_tools.core.tool_logging import is_tool_error, safe_tool_context
 
 ReceiptStatus = Literal["ok", "error", "skipped"]
 
-# Prefer multi-word / constrained phrases. Bare "starting" / "done" false-positive
-# on casual speech (e.g. "aura is starting to shine", "well done").
+# Prefer multi-word / constrained phrases. Bare verbs false-positive on planning
+# talk (e.g. "if we updated the Coach section", "aura is starting to shine").
+# "(?<!\bif )" / "(?<!\bwhether )" keep first-person completions out of conditionals.
 _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
     (re.compile(pattern, re.IGNORECASE), label)
     for pattern, label in (
@@ -23,13 +24,35 @@ _CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (r"\bi have started\b", "i have started"),
         # Imperative / object-taking only — not "is starting to …"
         (r"\bstarting (?:the|a|an|your|this|it)\b", "starting"),
-        (r"\bsaved\b", "saved"),
-        (r"\bremembered\b", "remembered"),
+        (r"(?<!\bif )(?<!\bwhether )\bi['’]?ve saved\b", "saved"),
+        (r"(?<!\bif )(?<!\bwhether )\bi have saved\b", "saved"),
+        (r"(?<!\bif )(?<!\bwhether )\bi saved\b", "saved"),
+        (r"\b(?:that|it|this|memory|note|config)\s+saved\b", "saved"),
+        (r"(?:^|[.!?]\s+|,\s+)saved[.!]?\s*$", "saved"),
+        (r"(?<!\bif )(?<!\bwhether )\bi['’]?ve remembered\b", "remembered"),
+        (r"(?<!\bif )(?<!\bwhether )\bi have remembered\b", "remembered"),
+        (r"(?<!\bif )(?<!\bwhether )\bi remembered\b", "remembered"),
+        (r"(?:^|[.!?]\s+|,\s+)remembered[.!]?\s*$", "remembered"),
         (r"\bi['’]?ll remember\b", "i'll remember"),
         (r"\bmake sure to remember\b", "make sure to remember"),
-        (r"\bcancelled\b", "cancelled"),
-        (r"\bcanceled\b", "canceled"),
-        (r"\bupdated\b", "updated"),
+        (r"(?<!\bif )(?<!\bwhether )\bi['’]?ve cancelled\b", "cancelled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi have cancelled\b", "cancelled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi cancelled\b", "cancelled"),
+        (r"\b(?:skill|session|timer|pulse)\s+cancelled\b", "cancelled"),
+        (r"(?:^|[.!?]\s+|,\s+)cancelled[.!]?\s*$", "cancelled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi['’]?ve canceled\b", "canceled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi have canceled\b", "canceled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi canceled\b", "canceled"),
+        (r"\b(?:skill|session|timer|pulse)\s+canceled\b", "canceled"),
+        (r"(?:^|[.!?]\s+|,\s+)canceled[.!]?\s*$", "canceled"),
+        (r"(?<!\bif )(?<!\bwhether )\bi['’]?ve updated\b", "updated"),
+        (r"(?<!\bif )(?<!\bwhether )\bi have updated\b", "updated"),
+        (r"(?<!\bif )(?<!\bwhether )\bi updated\b", "updated"),
+        (
+            r"\b(?:config|prompt|persona(?:lity)?|skill|memory|settings?|file)\s+updated\b",
+            "updated",
+        ),
+        (r"(?:^|[.!?]\s+|,\s+)updated[.!]?\s*$", "updated"),
         (r"\bi['’]?m done\b", "i'm done"),
         (r"\ball done\b", "all done"),
         # Whole-utterance "Done." only — not "well done" / "not done yet"

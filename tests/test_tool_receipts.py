@@ -27,6 +27,8 @@ class FindActionClaimsTests(unittest.TestCase):
         self.assertIn("cancelled", find_action_claims("Skill cancelled."))
         self.assertIn("canceled", find_action_claims("Skill canceled."))
         self.assertIn("updated", find_action_claims("Config updated."))
+        self.assertIn("updated", find_action_claims("I've updated the Coach section."))
+        self.assertIn("updated", find_action_claims("Okay, updated."))
 
     def test_done_phrases(self) -> None:
         self.assertIn("i'm done", find_action_claims("I'm done with that."))
@@ -47,6 +49,31 @@ class FindActionClaimsTests(unittest.TestCase):
         self.assertEqual(find_action_claims("We're starting soon — hang tight."), [])
         self.assertEqual(find_action_claims("Well done on that set."), [])
         self.assertEqual(find_action_claims("I'm not done thinking yet."), [])
+
+    def test_hypothetical_updated_is_not_a_claim(self) -> None:
+        # Issue #168: dial-in / planning talk must not trip tool_bypass.
+        self.assertEqual(
+            find_action_claims(
+                'If we were to bake those specific tweaks into my core logic, the "Coach" '
+                "section would look updated like this."
+            ),
+            [],
+        )
+        self.assertEqual(
+            find_action_claims("If we updated the Coach section, it might read like this."),
+            [],
+        )
+        self.assertEqual(
+            find_action_claims("Here's what the updated prompt would look like before you tell me to apply it."),
+            [],
+        )
+        self.assertEqual(find_action_claims("Whether I updated the persona or not, let's decide first."), [])
+        self.assertFalse(
+            claims_without_receipt(
+                "If we updated the Coach section, it might read like this.",
+                [],
+            )
+        )
 
 
 class ClaimsWithoutReceiptTests(unittest.TestCase):
