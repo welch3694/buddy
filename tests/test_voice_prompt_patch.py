@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from buddy_tools.core.patch import apply_patches
+from buddy_tools.core.patch import _patch_voice_prompt_anti_fabrication
 
 
 class VoicePromptAntiFabricationTests(unittest.TestCase):
     def test_patched_voice_prompt_appends_buddy_tool_rules(self) -> None:
-        apply_patches()
+        _patch_voice_prompt_anti_fabrication()
         from speech_to_speech.LLM.voice_prompt import build_voice_system_prompt
 
         prompt = build_voice_system_prompt("You are Buddy.")
@@ -26,11 +26,11 @@ class VoicePromptAntiFabricationTests(unittest.TestCase):
         )
 
     def test_voice_prompt_patch_is_idempotent(self) -> None:
-        apply_patches()
+        _patch_voice_prompt_anti_fabrication()
         from speech_to_speech.LLM import voice_prompt
 
         first = voice_prompt.build_voice_system_prompt
-        apply_patches()
+        _patch_voice_prompt_anti_fabrication()
         second = voice_prompt.build_voice_system_prompt
         self.assertIs(first, second)
 

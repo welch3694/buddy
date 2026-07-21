@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import buddy_tools.voice.voices as voices_module
-from buddy_tools.core.patch import apply_patches
+from buddy_tools.core.patch import _apply_tts_patches
 from buddy_tools.voice.session import apply_startup_voice, apply_voice, get_tts_handler, set_tts_handler
 from buddy_tools.voice.voices import ref_text_for_audio_path, set_voices_dir
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
@@ -120,7 +120,7 @@ class Qwen3PatchTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_patched_override_syncs_ref_text_from_voice_folder(self) -> None:
-        apply_patches()
+        _apply_tts_patches()
         from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
 
         handler = object.__new__(Qwen3TTSHandler)
@@ -136,17 +136,17 @@ class Qwen3PatchTests(unittest.TestCase):
         self.assertEqual(str(handler.ref_audio), str(self.audio_path))
         self.assertEqual(handler.ref_text, "Patched transcript.")
 
-    def test_apply_patches_is_idempotent(self) -> None:
-        apply_patches()
+    def test_tts_patches_are_idempotent(self) -> None:
+        _apply_tts_patches()
         from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
 
         first = Qwen3TTSHandler._apply_session_voice_override
-        apply_patches()
+        _apply_tts_patches()
         second = Qwen3TTSHandler._apply_session_voice_override
         self.assertIs(first, second)
 
     def test_patched_process_voice_clone_passes_cached_prompt(self) -> None:
-        apply_patches()
+        _apply_tts_patches()
         from speech_to_speech.TTS.qwen3_tts_handler import Qwen3TTSHandler
 
         handler = object.__new__(Qwen3TTSHandler)

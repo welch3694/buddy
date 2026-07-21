@@ -125,9 +125,9 @@ class SkillSessionCleanupTests(unittest.TestCase):
 
 class ThreadManagerShutdownPatchTests(unittest.TestCase):
     def test_wait_uses_timed_join(self) -> None:
-        from buddy_tools.core.patch import apply_patches
+        from buddy_tools.core.patch import _patch_thread_manager_shutdown
 
-        apply_patches()
+        _patch_thread_manager_shutdown()
         source = ThreadManager.wait.__doc__ or ""
         self.assertIn("SIGINT", source)
 
@@ -206,9 +206,9 @@ class FinalizeBuddySessionTests(unittest.TestCase):
 
 class TimedJoinAllowsStopTests(unittest.TestCase):
     def test_timed_join_lets_stop_event_unblock_wait(self) -> None:
-        from buddy_tools.core.patch import apply_patches
+        from buddy_tools.core.patch import _patch_thread_manager_shutdown
 
-        apply_patches()
+        _patch_thread_manager_shutdown()
 
         stop_event = Event()
 

@@ -15,7 +15,6 @@ from buddy_tools.voice.listening_pause import (
     normalize_transcript,
     process_transcription_with_listening_pause,
 )
-from buddy_tools.core.patch import apply_patches
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, PartialTranscription, Transcription
@@ -147,8 +146,11 @@ class TranscriptionNotifierPatchTests(unittest.TestCase):
         controller.should_listen = None
 
     def test_patch_routes_through_listening_pause_gate(self) -> None:
-        apply_patches()
+        # Patch only the notifier — avoid apply_patches() TTS/pipeline imports (~7s).
+        from buddy_tools.core.patch import _patch_transcription_notifier_listening_pause
         from speech_to_speech.STT.transcription_notifier import TranscriptionNotifier
+
+        _patch_transcription_notifier_listening_pause()
 
         notifier = TranscriptionNotifier(Mock(), queue_in=Mock(), queue_out=Mock())
         notifier.text_output_queue = None

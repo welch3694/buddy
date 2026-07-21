@@ -214,7 +214,9 @@ class ConsolidationWorkerManager:
             if job.run_at > now:
                 wait_seconds = job.run_at - now
                 self._queue.put(job)
-                time.sleep(min(wait_seconds, 1.0))
+                # Interruptible wait so shutdown does not block on delay sleep.
+                if self._stop_event.wait(timeout=min(wait_seconds, 1.0)):
+                    break
                 continue
 
             if job.session_id in self._cancelled_session_ids:
@@ -225,7 +227,8 @@ class ConsolidationWorkerManager:
             if self._agent_busy_fn():
                 job.run_at = time.monotonic() + _AGENT_BUSY_BACKOFF_SECONDS
                 self._queue.put(job)
-                time.sleep(0.5)
+                if self._stop_event.wait(timeout=0.5):
+                    break
                 continue
 
             success = consolidate_session(
