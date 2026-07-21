@@ -44,7 +44,8 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         description=(
             "Browse the episodic memory index for the active persona. Start at parent=root for "
             "years, then drill into year, month, and day to list sessions with short blurbs. "
-            "Use before loading full summaries or turns."
+            "For parent=day you may pass date alone (YYYY-MM-DD or relative such as today/"
+            "yesterday) without browsing year/month first."
         ),
         parameters={
             "type": "object",
@@ -56,15 +57,18 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
                 "year": {
                     "type": "string",
-                    "description": "Four-digit year, required when parent is year, month, or day",
+                    "description": "Four-digit year, required when parent is year, month, or day "
+                    "(auto-derived from date when parent is day)",
                 },
                 "month": {
                     "type": "string",
-                    "description": "YYYY-MM month key, required when parent is month or day",
+                    "description": "YYYY-MM month key, required when parent is month or day "
+                    "(auto-derived from date when parent is day)",
                 },
                 "date": {
                     "type": "string",
-                    "description": "YYYY-MM-DD date key, required when parent is day",
+                    "description": "YYYY-MM-DD or relative term (yesterday, today, N days ago); "
+                    "required when parent is day",
                 },
             },
             "required": ["parent"],
@@ -76,7 +80,9 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         description=(
             "Read a consolidated summary JSON for a year, month, day, or session in the active "
             "persona's episodic tree. For level=day, date accepts YYYY-MM-DD or relative terms "
-            "such as yesterday or today (resolved in the episodic timezone)."
+            "such as yesterday or today (resolved in the episodic timezone). For level=session, "
+            "pass a real session id (YYYYMMDDTHHMMSS-xxxxxxxx), or omit session_id to load the "
+            "latest session for date (default today). Do not pass a calendar date as session_id."
         ),
         parameters={
             "type": "object",
@@ -93,7 +99,11 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
                 },
                 "session_id": {
                     "type": "string",
-                    "description": "Session id when level is session (alternative to date drill-down)",
+                    "description": (
+                        "Real session id (YYYYMMDDTHHMMSS-xxxxxxxx). Required only when targeting "
+                        "a specific session; omit with level=session to load the latest session "
+                        "for date (default today). Never pass YYYY-MM-DD here."
+                    ),
                 },
             },
             "required": ["level"],
@@ -103,12 +113,16 @@ EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
         type="function",
         name="read_episodic_turns",
         description=(
-            "Read paginated raw conversation turns from turns.jsonl for one episodic session."
+            "Read paginated raw conversation turns from turns.jsonl for one episodic session. "
+            "session_id must be a real session id (YYYYMMDDTHHMMSS-xxxxxxxx), not a calendar date."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "session_id": {"type": "string", "description": "Target session id"},
+                "session_id": {
+                    "type": "string",
+                    "description": "Target session id (YYYYMMDDTHHMMSS-xxxxxxxx), not YYYY-MM-DD",
+                },
                 "offset": {
                     "type": "integer",
                     "description": "Zero-based turn offset (default 0)",
@@ -178,10 +192,14 @@ def build_episodic_instructions() -> str:
         "Episodic memory stores past conversations in a temporal tree (year/month/day/session). "
         "It is NOT in the memory snapshot — use episodic tools to recall what was discussed when.\n"
         "- read_episodic_summary: load a day/month/year/session summary; for yesterday/today or a "
-        "specific calendar day call this directly with level=day and date (do not browse the tree first)\n"
+        "specific calendar day call this directly with level=day and date (do not browse the tree first); "
+        "for earlier today / last session call level=session directly (optional date, default today) — "
+        "do not pass a YYYY-MM-DD as session_id\n"
         "- search_episodic_memory: semantic search over summaries for fuzzy recall; follow recall_plan to drill down\n"
-        "- list_episodic_periods: browse the index when you do not know the target date or period\n"
-        "- read_episodic_turns: read raw turns for one session (paginated)\n"
+        "- list_episodic_periods: browse the index when you do not know the target date or period; "
+        "to choose among sessions on one day call parent=day with date (relative OK) without year/month browse\n"
+        "- read_episodic_turns: read raw turns for one session (paginated); needs a real session id "
+        "(YYYYMMDDTHHMMSS-xxxxxxxx), never a calendar date\n"
         "- find_episodes_by_topic: exact topic tag or keyword substring match in summaries\n"
         "Use semantic memory tools (read_memory / snapshot) for durable facts; "
         "use episodic tools for conversation history and 'when did we talk about X' questions."
@@ -218,6 +236,91 @@ def _sorted_dir_names(directory: Path, pattern: re.Pattern[str]) -> list[str]:
     return sorted(names)
 
 
+def _reject_date_shaped_session_id(session_id: str) -> None:
+    cleaned = session_id.strip()
+    if _DAY_RE.match(cleaned):
+        raise ValueError(
+            f"session_id looks like a calendar date ({cleaned!r}). "
+            "Use read_episodic_summary with level=day and that date, "
+            "or list_episodic_periods(parent=day, date=...) then pass a real session id "
+            "(YYYYMMDDTHHMMSS-xxxxxxxx)."
+        )
+
+
+def _resolve_day_date_arg(date: str | None, *, default: str | None = None) -> str:
+    """Resolve a date argument to YYYY-MM-DD (absolute or relative)."""
+    raw = (date or default or "").strip()
+    if not raw:
+        raise ValueError(
+            "date must be YYYY-MM-DD or a supported relative term (yesterday, today, N days ago)"
+        )
+    if _DAY_RE.match(raw):
+        return raw
+    resolved = resolve_episodic_date_now(raw)
+    if resolved is None:
+        raise ValueError(
+            "date must be YYYY-MM-DD or a supported relative term (yesterday, today, N days ago)"
+        )
+    return resolved
+
+
+def _load_day_sessions(
+    memory_root: Path,
+    persona_namespace: str,
+    year: str,
+    month: str,
+    date: str,
+) -> list[tuple[Path, EpisodicSession]]:
+    tree = episodic_root(memory_root, persona_namespace)
+    sessions_path = tree / year / month / date / SESSIONS_DIRNAME
+    loaded: list[tuple[Path, EpisodicSession]] = []
+    if not sessions_path.is_dir():
+        return loaded
+    for session_directory in sorted(entry for entry in sessions_path.iterdir() if entry.is_dir()):
+        session = load_session(session_json_path(session_directory))
+        if session is None:
+            continue
+        loaded.append((session_directory, session))
+    return loaded
+
+
+def _day_session_entries(
+    memory_root: Path,
+    persona_namespace: str,
+    sessions: list[tuple[Path, EpisodicSession]],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for session_directory, session in sessions:
+        entries.append(
+            {
+                "id": session.session_id,
+                "label": session.session_id,
+                "blurb": _session_blurb(session),
+                "status": session.status,
+                "provenance": episodic_provenance(
+                    memory_root,
+                    persona_namespace,
+                    session_directory,
+                    session_id=session.session_id,
+                ),
+            }
+        )
+    return entries
+
+
+def _pick_latest_day_session(
+    sessions: list[tuple[Path, EpisodicSession]],
+) -> tuple[Path, EpisodicSession, str]:
+    """Pick latest session by id; prefer closed when latest is open and a closed sibling exists."""
+    ordered = sorted(sessions, key=lambda item: item[1].session_id, reverse=True)
+    latest_directory, latest_session = ordered[0]
+    if latest_session.status == "open":
+        closed = [item for item in ordered if item[1].status == "closed"]
+        if closed:
+            return closed[0][0], closed[0][1], "latest_closed"
+    return latest_directory, latest_session, "latest"
+
+
 def list_episodic_periods(
     memory_root: Path,
     persona_namespace: str,
@@ -233,6 +336,11 @@ def list_episodic_periods(
         years = _sorted_dir_names(tree, _YEAR_RE)
         entries = [{"id": entry, "label": entry, "child_count": _child_count(tree / entry)} for entry in years]
         return {"parent": parent, "entries": entries}
+
+    if parent == "day":
+        date = _resolve_day_date_arg(date)
+        year = year or date[:4]
+        month = month or date[:7]
 
     if not year and month and _MONTH_RE.match(month):
         year = month.split("-", 1)[0]
@@ -262,28 +370,8 @@ def list_episodic_periods(
     if not date.startswith(f"{month}-"):
         raise ValueError(f"date {date!r} does not belong to month {month!r}")
 
-    sessions_path = tree / year / month / date / SESSIONS_DIRNAME
-    entries: list[dict[str, Any]] = []
-    if sessions_path.is_dir():
-        for session_directory in sorted(entry for entry in sessions_path.iterdir() if entry.is_dir()):
-            session = load_session(session_json_path(session_directory))
-            if session is None:
-                continue
-            entries.append(
-                {
-                    "id": session.session_id,
-                    "label": session.session_id,
-                    "blurb": _session_blurb(session),
-                    "status": session.status,
-                    "provenance": episodic_provenance(
-                        memory_root,
-                        persona_namespace,
-                        session_directory,
-                        session_id=session.session_id,
-                    ),
-                }
-            )
-
+    sessions = _load_day_sessions(memory_root, persona_namespace, year, month, date)
+    entries = _day_session_entries(memory_root, persona_namespace, sessions)
     return {"parent": parent, "year": year, "month": month, "date": date, "entries": entries}
 
 
@@ -349,17 +437,47 @@ def read_episodic_summary(
         return {"level": level, "summary": payload, "provenance": episodic_provenance(memory_root, persona_namespace, path)}
 
     if level == "session":
-        if not session_id or not session_id.strip():
-            raise ValueError("session_id is required when level is session")
-        session_directory = find_session_directory(memory_root, persona_namespace, session_id.strip())
-        if session_directory is None:
-            raise ValueError(f"session not found: {session_id!r}")
-        session = load_session(session_json_path(session_directory))
-        if session is None:
-            raise ValueError(f"session not found: {session_id!r}")
+        if session_id and session_id.strip():
+            cleaned_id = session_id.strip()
+            _reject_date_shaped_session_id(cleaned_id)
+            session_directory = find_session_directory(memory_root, persona_namespace, cleaned_id)
+            if session_directory is None:
+                raise ValueError(f"session not found: {cleaned_id!r}")
+            session = load_session(session_json_path(session_directory))
+            if session is None:
+                raise ValueError(f"session not found: {cleaned_id!r}")
+            return {
+                "level": level,
+                "summary": session.to_dict(),
+                "provenance": episodic_provenance(
+                    memory_root,
+                    persona_namespace,
+                    session_directory,
+                    session_id=session.session_id,
+                ),
+            }
+
+        resolved_date = _resolve_day_date_arg(date, default="today")
+        year = resolved_date[:4]
+        month = resolved_date[:7]
+        day_sessions = _load_day_sessions(memory_root, persona_namespace, year, month, resolved_date)
+        if not day_sessions:
+            raise ValueError(f"no sessions found for {resolved_date!r}")
+        session_directory, session, selection = _pick_latest_day_session(day_sessions)
+        siblings = [
+            {
+                "id": sibling.session_id,
+                "blurb": _session_blurb(sibling),
+                "status": sibling.status,
+            }
+            for _, sibling in sorted(day_sessions, key=lambda item: item[1].session_id)
+        ]
         return {
             "level": level,
+            "resolved_date": resolved_date,
+            "selection": selection,
             "summary": session.to_dict(),
+            "siblings": siblings,
             "provenance": episodic_provenance(
                 memory_root,
                 persona_namespace,
@@ -382,6 +500,9 @@ def read_episodic_turns(
     if not session_id or not session_id.strip():
         raise ValueError("session_id is required")
 
+    cleaned_id = session_id.strip()
+    _reject_date_shaped_session_id(cleaned_id)
+
     if offset < 0:
         raise ValueError("offset must be >= 0")
 
@@ -389,9 +510,9 @@ def read_episodic_turns(
         raise ValueError("limit must be >= 1")
     limit = min(limit, _TURNS_MAX_LIMIT)
 
-    session_directory = find_session_directory(memory_root, persona_namespace, session_id.strip())
+    session_directory = find_session_directory(memory_root, persona_namespace, cleaned_id)
     if session_directory is None:
-        raise ValueError(f"session not found: {session_id!r}")
+        raise ValueError(f"session not found: {cleaned_id!r}")
 
     turns_path = turns_jsonl_path(session_directory)
     all_turns = load_turns(turns_path)
@@ -399,7 +520,7 @@ def read_episodic_turns(
     page = all_turns[offset : offset + limit]
 
     return {
-        "session_id": session_id.strip(),
+        "session_id": cleaned_id,
         "turns": page,
         "total_count": total_count,
         "offset": offset,
@@ -409,7 +530,7 @@ def read_episodic_turns(
             memory_root,
             persona_namespace,
             turns_path,
-            session_id=session_id.strip(),
+            session_id=cleaned_id,
         ),
     }
 

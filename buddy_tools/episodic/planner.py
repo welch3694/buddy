@@ -45,14 +45,30 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
                 f"Query references a relative calendar day — read the day summary for {resolved_date}."
             ),
             "recommended_tools": ["read_episodic_summary"],
+            "recommended_args": {"level": "day", "date": resolved_date},
             "resolved_date": resolved_date,
         }
 
-    if _SESSION_ID_RE.search(query_clean) or _DATE_RE.search(query_clean):
+    session_id_match = _SESSION_ID_RE.search(query_clean)
+    if session_id_match:
         return {
             "depth": "turns",
-            "reason": "Query references a specific session id or date — load raw turns for detail.",
+            "reason": "Query references a specific session id — load raw turns for detail.",
             "recommended_tools": ["read_episodic_turns"],
+            "recommended_args": {"session_id": session_id_match.group(0)},
+        }
+
+    date_match = _DATE_RE.search(query_clean)
+    if date_match:
+        absolute_date = date_match.group(0)
+        return {
+            "depth": "day",
+            "reason": (
+                f"Query references calendar date {absolute_date} — read the day summary first."
+            ),
+            "recommended_tools": ["read_episodic_summary"],
+            "recommended_args": {"level": "day", "date": absolute_date},
+            "resolved_date": absolute_date,
         }
 
     for pattern in _TURNS_PATTERNS:
@@ -76,10 +92,12 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
             "depth": "session",
             "reason": "Temporal recall question — review matching session summaries first.",
             "recommended_tools": ["read_episodic_summary"],
+            "recommended_args": {"level": "session"},
         }
 
     return {
         "depth": "session",
         "reason": "Default to session-level summaries before loading turns.",
         "recommended_tools": ["read_episodic_summary"],
+        "recommended_args": {"level": "session"},
     }

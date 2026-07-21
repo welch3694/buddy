@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -184,14 +186,33 @@ def load_pulse_state(memory_root: Path, persona_namespace: str) -> PulseState | 
         return None
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write text via temp file + replace so readers never see a truncated file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 def save_pulse_state(
     memory_root: Path,
     persona_namespace: str,
     state: PulseState,
 ) -> None:
     path = pulse_state_path(memory_root, persona_namespace)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state.to_dict(), indent=2) + "\n", encoding="utf-8")
+    _atomic_write_text(path, json.dumps(state.to_dict(), indent=2) + "\n")
     logger.info(
         "Saved pulse state: skill=%r status=%r phase=%r ticks=%d pending_cue=%r",
         state.skill_name,

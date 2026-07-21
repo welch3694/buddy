@@ -200,7 +200,15 @@ class EpisodicSearchTests(unittest.TestCase):
         self.assertIn("read_episodic_turns", turns["recommended_tools"])
 
         dated = plan_episodic_recall("on 2026-07-05 what did we talk about")
-        self.assertEqual(dated["depth"], "turns")
+        self.assertEqual(dated["depth"], "day")
+        self.assertEqual(dated["resolved_date"], "2026-07-05")
+        self.assertIn("read_episodic_summary", dated["recommended_tools"])
+        self.assertEqual(dated["recommended_args"]["level"], "day")
+        self.assertEqual(dated["recommended_args"]["date"], "2026-07-05")
+
+        default = plan_episodic_recall("when did we discuss pasta")
+        self.assertEqual(default["depth"], "session")
+        self.assertEqual(default["recommended_args"]["level"], "session")
 
     def test_recall_planner_yesterday(self) -> None:
         with patch(
@@ -211,6 +219,8 @@ class EpisodicSearchTests(unittest.TestCase):
         self.assertEqual(plan["depth"], "day")
         self.assertEqual(plan["resolved_date"], "2026-07-07")
         self.assertIn("read_episodic_summary", plan["recommended_tools"])
+        self.assertEqual(plan["recommended_args"]["level"], "day")
+        self.assertEqual(plan["recommended_args"]["date"], "2026-07-07")
 
     def test_search_includes_resolved_dates_for_yesterday(self) -> None:
         with patch(

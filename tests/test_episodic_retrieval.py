@@ -204,6 +204,90 @@ class EpisodicRetrievalTests(unittest.TestCase):
         )
         self.assertEqual(day_payload["summary"]["date"], self.day1)
 
+    def test_list_episodic_periods_day_with_relative_date(self) -> None:
+        with patch(
+            "buddy_tools.episodic.retrieval.resolve_episodic_date_now",
+            return_value=self.day1,
+        ):
+            sessions = list_episodic_periods(
+                self.memory_root,
+                "buddy",
+                parent="day",
+                date="today",
+            )
+        self.assertEqual(sessions["date"], self.day1)
+        self.assertEqual(sessions["year"], self.year)
+        self.assertEqual(sessions["month"], self.year_month)
+        self.assertEqual(len(sessions["entries"]), 1)
+        self.assertEqual(sessions["entries"][0]["id"], self.session_ids["day1_id"])
+
+    def test_read_episodic_summary_session_defaults_to_today_latest(self) -> None:
+        with patch(
+            "buddy_tools.episodic.retrieval.resolve_episodic_date_now",
+            return_value=self.day1,
+        ):
+            payload = read_episodic_summary(self.memory_root, "buddy", level="session")
+        self.assertEqual(payload["level"], "session")
+        self.assertEqual(payload["resolved_date"], self.day1)
+        self.assertEqual(payload["selection"], "latest")
+        self.assertEqual(payload["summary"]["session_id"], self.session_ids["day1_id"])
+        self.assertEqual(len(payload["siblings"]), 1)
+        self.assertEqual(payload["siblings"][0]["id"], self.session_ids["day1_id"])
+
+    def test_read_episodic_summary_session_with_date(self) -> None:
+        payload = read_episodic_summary(
+            self.memory_root,
+            "buddy",
+            level="session",
+            date=self.day2,
+        )
+        self.assertEqual(payload["resolved_date"], self.day2)
+        self.assertEqual(payload["summary"]["session_id"], self.session_ids["day2_id"])
+        self.assertIn("pasta", payload["summary"]["summary"].lower())
+
+    def test_read_episodic_summary_session_prefers_closed_over_open(self) -> None:
+        clock = FakeClock(datetime(2026, 7, 6, 18, 0, 0, tzinfo=UTC))
+        manager = EpisodicSessionManager(
+            self.memory_root,
+            "buddy",
+            config=_test_config(),
+            now_fn=clock.now,
+        )
+        manager.on_user_activity("voice")
+        open_session = manager.current_session()
+        assert open_session is not None
+        open_id = open_session.session_id
+
+        payload = read_episodic_summary(
+            self.memory_root,
+            "buddy",
+            level="session",
+            date=self.day2,
+        )
+        self.assertEqual(payload["selection"], "latest_closed")
+        self.assertEqual(payload["summary"]["session_id"], self.session_ids["day2_id"])
+        sibling_ids = {entry["id"] for entry in payload["siblings"]}
+        self.assertIn(self.session_ids["day2_id"], sibling_ids)
+        self.assertIn(open_id, sibling_ids)
+        with patch("buddy_tools.episodic.manager.enqueue_session_consolidation"):
+            manager.force_close("idle_timeout")
+
+    def test_date_shaped_session_id_errors(self) -> None:
+        with self.assertRaises(ValueError) as summary_err:
+            read_episodic_summary(
+                self.memory_root,
+                "buddy",
+                level="session",
+                session_id=self.day1,
+            )
+        self.assertIn("calendar date", str(summary_err.exception))
+        self.assertIn("YYYYMMDDTHHMMSS", str(summary_err.exception))
+
+        with self.assertRaises(ValueError) as turns_err:
+            read_episodic_turns(self.memory_root, "buddy", session_id=self.day1)
+        self.assertIn("calendar date", str(turns_err.exception))
+        self.assertIn("list_episodic_periods", str(turns_err.exception))
+
     def test_read_episodic_summary_each_level(self) -> None:
         year_payload = read_episodic_summary(
             self.memory_root,
@@ -311,6 +395,7 @@ class EpisodicRetrievalTests(unittest.TestCase):
         instructions = build_tool_instructions("Base prompt.", "(no memory saved yet)")
         self.assertIn("read_episodic_summary", instructions)
         self.assertIn("yesterday", instructions.lower())
+        self.assertIn("level=session", instructions.lower())
         self.assertIn("semantic memory", instructions.lower())
 
     def test_execute_episodic_tool_errors(self) -> None:
