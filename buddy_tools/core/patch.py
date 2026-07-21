@@ -296,12 +296,14 @@ def _wrap_should_listen_for_turn_state(should_listen: Any) -> None:
 
 
 def _patch_response_complete_turn_state() -> None:
-    """Return to listening when playback finishes and should_listen is re-enabled."""
+    """Return to listening when playback finishes and should_listen is re-enabled.
+
+    Also replaces ``LocalAudioStreamer.run`` with a reload-capable duplex loop so
+    Windows default-mic changes are picked up without a process restart (#155).
+    """
     from speech_to_speech.connections.local_audio_streamer import LocalAudioStreamer
 
     if not getattr(LocalAudioStreamer, "_buddy_turn_state_patch_applied", False):
-        original_run = LocalAudioStreamer.run
-
         def run_with_turn_state(self: Any) -> None:
             _wrap_should_listen_for_turn_state(self.should_listen)
             try:
@@ -312,7 +314,9 @@ def _patch_response_complete_turn_state() -> None:
                 install_playback_progress_tracking(self)
             except Exception:
                 logger.exception("Failed to install companion playback progress tracking")
-            original_run(self)
+            from buddy_tools.voice.microphone import run_local_audio_with_reload
+
+            run_local_audio_with_reload(self)
 
         LocalAudioStreamer.run = run_with_turn_state  # type: ignore[method-assign]
         LocalAudioStreamer._buddy_turn_state_patch_applied = True
