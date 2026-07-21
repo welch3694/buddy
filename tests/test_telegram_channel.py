@@ -15,7 +15,7 @@ import numpy as np
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.messages import EndOfResponse, GenerateResponseRequest, LLMResponseChunk
 
-from buddy_tools.channels.images import DEFAULT_MAX_WIDTH, bytes_to_jpeg_data_uri
+from buddy_tools.channels.images import DEFAULT_MAX_WIDTH, bytes_to_jpeg_data_uri, data_uri_to_jpeg_bytes
 from buddy_tools.channels.reply_router import ChannelReplyRouter
 from buddy_tools.channels.telegram import (
     enqueue_telegram_photo_turn,
@@ -98,6 +98,20 @@ class ImageEncodingTests(unittest.TestCase):
         frame = cv2.imdecode(decoded, cv2.IMREAD_COLOR)
         assert frame is not None
         self.assertLessEqual(frame.shape[1], DEFAULT_MAX_WIDTH)
+
+    def test_data_uri_to_jpeg_bytes_round_trip(self) -> None:
+        jpeg_bytes = _make_jpeg_bytes(width=64, height=48)
+        data_uri = bytes_to_jpeg_data_uri(jpeg_bytes, max_width=64)
+        raw = data_uri_to_jpeg_bytes(data_uri)
+        self.assertTrue(raw)
+        frame = cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+        self.assertIsNotNone(frame)
+
+    def test_data_uri_to_jpeg_bytes_rejects_bad_input(self) -> None:
+        with self.assertRaises(ValueError):
+            data_uri_to_jpeg_bytes("not-a-data-uri")
+        with self.assertRaises(ValueError):
+            data_uri_to_jpeg_bytes("data:text/plain;base64,YQ==")
 
 
 class TelegramEnqueueTests(unittest.TestCase):

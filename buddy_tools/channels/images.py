@@ -34,3 +34,24 @@ def bytes_to_jpeg_data_uri(
 
     encoded = base64.b64encode(jpeg.tobytes()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def data_uri_to_jpeg_bytes(data_uri: str) -> bytes:
+    """Decode a ``data:image/...;base64,...`` URI to raw image bytes for Telegram upload."""
+    uri = (data_uri or "").strip()
+    if not uri.startswith("data:") or "," not in uri:
+        raise ValueError("Expected a data:image/...;base64,... URI")
+
+    header, payload = uri.split(",", 1)
+    if ";base64" not in header.lower():
+        raise ValueError("Expected a base64 data URI")
+    if "image/" not in header.lower():
+        raise ValueError("Expected an image data URI")
+
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except Exception as exc:
+        raise ValueError(f"Could not decode base64 image payload: {exc}") from exc
+    if not raw:
+        raise ValueError("Decoded image payload is empty")
+    return raw

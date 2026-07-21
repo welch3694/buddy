@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 from speech_to_speech.pipeline.messages import EndOfResponse, LLMResponseChunk, TTSInput
 
 from buddy_tools.channels.reply_router import ChannelReplyRouter
+from buddy_tools.channels.last_capture import clear_last_capture, store_last_capture
 from buddy_tools.channels.telegram import (
     TelegramBridge,
     TelegramConfig,
@@ -158,6 +159,95 @@ class SendTelegramMessageToolTests(unittest.TestCase):
     def test_errors_on_empty_text(self) -> None:
         result = execute_channel_tool("send_telegram_message", {"text": "  "})
         self.assertTrue(is_tool_error(result))
+
+
+class SendTelegramPhotoToolTests(unittest.TestCase):
+    def setUp(self) -> None:
+        reset_turn_contexts()
+        clear_last_capture()
+        self.stop = Event()
+        self.sent: list[dict[str, Any]] = []
+        self.bridge = TelegramBridge(
+            TelegramConfig(bot_token="tok", allowed_chat_ids=frozenset({55})),
+            runtime_config=MagicMock(),
+            text_prompt_queue=Queue(),
+            stop_event=self.stop,
+        )
+        self.bridge.send_photo = self._send_photo  # type: ignore[method-assign]
+        set_telegram_bridge(self.bridge)
+
+        # Tiny valid JPEG data URI via existing encoder
+        import cv2
+        import numpy as np
+
+        from buddy_tools.channels.images import bytes_to_jpeg_data_uri
+
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+        ok, jpeg = cv2.imencode(".jpg", frame)
+        assert ok
+        self.data_uri = bytes_to_jpeg_data_uri(jpeg.tobytes(), max_width=32)
+        store_last_capture(self.data_uri)
+
+    def tearDown(self) -> None:
+        set_telegram_bridge(None)
+        clear_last_capture()
+        reset_turn_contexts()
+
+    def _send_photo(
+        self,
+        chat_id: int,
+        jpeg_bytes: bytes,
+        *,
+        caption: str | None = None,
+        message_thread_id: int | None = None,
+    ) -> None:
+        self.sent.append(
+            {
+                "chat_id": chat_id,
+                "jpeg_bytes": jpeg_bytes,
+                "caption": caption,
+                "message_thread_id": message_thread_id,
+            }
+        )
+
+    def test_sends_last_capture_with_caption(self) -> None:
+        result = execute_channel_tool(
+            "send_telegram_photo",
+            {"caption": "Here is your screen"},
+            turn_id="voice-1",
+        )
+        self.assertFalse(is_tool_error(result))
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.sent[0]["chat_id"], 55)
+        self.assertEqual(self.sent[0]["caption"], "Here is your screen")
+        self.assertTrue(self.sent[0]["jpeg_bytes"])
+
+    def test_errors_without_last_capture(self) -> None:
+        clear_last_capture()
+        result = execute_channel_tool("send_telegram_photo", {})
+        self.assertTrue(is_tool_error(result))
+        self.assertIn("capture", result.output.lower())
+
+    def test_errors_when_bridge_missing(self) -> None:
+        set_telegram_bridge(None)
+        result = execute_channel_tool("send_telegram_photo", {"caption": "x"})
+        self.assertTrue(is_tool_error(result))
+
+    def test_telegram_turn_suppresses_default_router(self) -> None:
+        register_turn(
+            "tg-photo",
+            TurnReplyContext(channel="telegram", telegram_chat_id=55),
+        )
+        result = execute_channel_tool(
+            "send_telegram_photo",
+            {"caption": "photo"},
+            turn_id="tg-photo",
+        )
+        self.assertFalse(is_tool_error(result))
+        ctx = get_turn("tg-photo")
+        self.assertIsNotNone(ctx)
+        assert ctx is not None
+        self.assertTrue(ctx.suppress_default_telegram_reply)
 
 
 class SpeakAloudToolTests(unittest.TestCase):

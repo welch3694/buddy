@@ -49,6 +49,7 @@ from buddy_tools.episodic import (
 )
 from buddy_tools.episodic.turns import truncate_tool_output
 from buddy_tools.channels.turn_context import get_turn
+from buddy_tools.channels.last_capture import store_last_capture
 from buddy_tools.voice.session import apply_voice
 from buddy_tools.themes.session import apply_theme
 from buddy_tools.voice.action_intents import (
@@ -338,6 +339,7 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                     logger.error("Could not record tool output for %s: %s", tool.call_id, exc)
 
             if result.image_data_uri:
+                store_last_capture(result.image_data_uri)
                 caption = result.image_caption or "Here is the captured image."
                 image_msg = RealtimeConversationItemUserMessage(
                     type="message",

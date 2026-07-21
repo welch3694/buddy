@@ -79,6 +79,7 @@ class ToolRoutingInstructionTests(unittest.TestCase):
         self.assertIn("Never impersonate", text)
         self.assertIn("update_personality", text)
         self.assertIn("send_telegram_message", text)
+        self.assertIn("send_telegram_photo", text)
         self.assertIn("speak_aloud", text)
         self.assertNotIn("create_personality", text)
 
