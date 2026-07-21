@@ -326,11 +326,53 @@ class TelegramBridge:
             logger.exception("Telegram send_message failed for chat_id=%s", chat_id)
             raise
 
+    def send_photo(
+        self,
+        chat_id: int,
+        jpeg_bytes: bytes,
+        *,
+        caption: str | None = None,
+        message_thread_id: int | None = None,
+    ) -> None:
+        if self._loop is None or self._application is None:
+            logger.warning("Telegram bridge not ready; dropping photo")
+            return
+        if not jpeg_bytes:
+            raise ValueError("jpeg_bytes is empty")
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_photo(chat_id, jpeg_bytes, caption, message_thread_id),
+            self._loop,
+        )
+        try:
+            future.result(timeout=60)
+        except Exception:
+            logger.exception("Telegram send_photo failed for chat_id=%s", chat_id)
+            raise
+
     async def _send_message(self, chat_id: int, text: str, message_thread_id: int | None) -> None:
         kwargs: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if message_thread_id is not None:
             kwargs["message_thread_id"] = message_thread_id
         await self._application.bot.send_message(**kwargs)
+
+    async def _send_photo(
+        self,
+        chat_id: int,
+        jpeg_bytes: bytes,
+        caption: str | None,
+        message_thread_id: int | None,
+    ) -> None:
+        from io import BytesIO
+
+        from telegram import InputFile
+
+        photo = InputFile(BytesIO(jpeg_bytes), filename="capture.jpg")
+        kwargs: dict[str, Any] = {"chat_id": chat_id, "photo": photo}
+        if caption:
+            kwargs["caption"] = caption
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = message_thread_id
+        await self._application.bot.send_photo(**kwargs)
 
     def _run_polling(self) -> None:
         loop = asyncio.new_event_loop()
