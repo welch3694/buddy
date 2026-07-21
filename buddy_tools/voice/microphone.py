@@ -1,14 +1,16 @@
 """Follow OS default microphone changes without restarting the process.
 
-PortAudio binds a duplex stream to device indices at open time. When the
-Windows default capture device changes (or a newly plugged mic becomes
-default), we detect the fingerprint change and ask the local audio streamer
-to reopen.
+PortAudio binds a duplex stream to device indices at open time and caches the
+default device list while a stream is open. On Windows we therefore fingerprint
+the default capture endpoint via Core Audio (not PortAudio) so default-mic
+swaps and hotplug promotions are visible without tearing down the live stream
+first. When the fingerprint changes we close, refresh PortAudio, and reopen.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -20,11 +22,41 @@ DEFAULT_POLL_INTERVAL_S = 1.0
 _PLAYBACK_DRAIN_TIMEOUT_S = 0.5
 _PLAYBACK_DRAIN_POLL_S = 0.05
 
+# Fingerprint: (source, key, label) — key is what must change to trigger reload.
+InputFingerprint = tuple[str, str, str]
+
 ReloadCallback = Callable[[], None]
 
 
-def default_input_fingerprint(sd: Any | None = None) -> tuple[int, str, int]:
-    """Return ``(index, name, hostapi)`` for the current default input device."""
+def windows_default_capture_fingerprint() -> InputFingerprint:
+    """Return the Windows Core Audio default capture endpoint id + name.
+
+    Independent of PortAudio, so it updates while a sounddevice stream is open.
+    """
+    import comtypes
+    from comtypes import CLSCTX_ALL
+    from pycaw.constants import CLSID_MMDeviceEnumerator, EDataFlow, ERole
+    from pycaw.pycaw import AudioUtilities, IMMDeviceEnumerator
+
+    enumerator = comtypes.CoCreateInstance(
+        CLSID_MMDeviceEnumerator,
+        IMMDeviceEnumerator,
+        CLSCTX_ALL,
+    )
+    device = enumerator.GetDefaultAudioEndpoint(
+        EDataFlow.eCapture.value,
+        ERole.eMultimedia.value,
+    )
+    info = AudioUtilities.CreateDevice(device)
+    endpoint_id = str(info.id or "")
+    name = str(info.FriendlyName or "")
+    if not endpoint_id:
+        raise RuntimeError("Windows default capture endpoint id is empty")
+    return ("win", endpoint_id, name)
+
+
+def portaudio_default_input_fingerprint(sd: Any | None = None) -> InputFingerprint:
+    """Return PortAudio default input fingerprint (fallback / non-Windows)."""
     if sd is None:
         import sounddevice as sd
 
@@ -32,7 +64,20 @@ def default_input_fingerprint(sd: Any | None = None) -> tuple[int, str, int]:
     info = sd.query_devices(index)
     name = str(info.get("name", "") or "")
     hostapi = int(info.get("hostapi", -1))
-    return index, name, hostapi
+    return ("pa", f"{index}:{hostapi}:{name}", name)
+
+
+def default_input_fingerprint(sd: Any | None = None) -> InputFingerprint:
+    """Fingerprint the OS default input device for change detection."""
+    if sys.platform == "win32":
+        try:
+            return windows_default_capture_fingerprint()
+        except Exception:
+            logger.debug(
+                "Windows Core Audio default-mic probe failed; falling back to PortAudio",
+                exc_info=True,
+            )
+    return portaudio_default_input_fingerprint(sd)
 
 
 def resolve_duplex_device(sd: Any | None = None) -> tuple[int, int]:
@@ -95,6 +140,11 @@ def describe_device(index: int, sd: Any | None = None) -> str:
         return f"{index}:?"
 
 
+def _fingerprint_label(fingerprint: InputFingerprint) -> str:
+    _source, key, name = fingerprint
+    return name or key
+
+
 class MicDeviceWatcher:
     """Poll the OS default input device and request a stream reload on change."""
 
@@ -102,7 +152,7 @@ class MicDeviceWatcher:
         self,
         *,
         poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
-        fingerprint_fn: Callable[[], tuple[int, str, int]] | None = None,
+        fingerprint_fn: Callable[[], InputFingerprint] | None = None,
     ) -> None:
         self._poll_interval_s = poll_interval_s
         self._fingerprint_fn = fingerprint_fn or default_input_fingerprint
@@ -110,7 +160,7 @@ class MicDeviceWatcher:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._on_reload: ReloadCallback | None = None
-        self._last_fingerprint: tuple[int, str, int] | None = None
+        self._last_fingerprint: InputFingerprint | None = None
 
     def start(self, on_reload: ReloadCallback) -> None:
         with self._lock:
@@ -146,21 +196,25 @@ class MicDeviceWatcher:
             if self._last_fingerprint is None:
                 self._last_fingerprint = fingerprint
                 logger.info(
-                    "Mic watcher baseline input device: %s (hostapi=%s)",
-                    f"{fingerprint[0]}:{fingerprint[1]}",
-                    fingerprint[2],
+                    "Mic watcher baseline input device: %s (%s)",
+                    _fingerprint_label(fingerprint),
+                    fingerprint[0],
                 )
                 continue
 
-            if fingerprint == self._last_fingerprint:
+            # Compare stable key only (source + id); label may be truncated elsewhere.
+            if (
+                fingerprint[0] == self._last_fingerprint[0]
+                and fingerprint[1] == self._last_fingerprint[1]
+            ):
                 continue
 
             old = self._last_fingerprint
             self._last_fingerprint = fingerprint
             logger.info(
                 "Default microphone changed: %s -> %s; requesting stream reload",
-                f"{old[0]}:{old[1]}",
-                f"{fingerprint[0]}:{fingerprint[1]}",
+                _fingerprint_label(old),
+                _fingerprint_label(fingerprint),
             )
             with self._lock:
                 callback = self._on_reload
@@ -212,11 +266,31 @@ def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None
         streamer.reload_event = reload_event
 
     dither = np.random.randint(-1, 2, size=(streamer.list_play_chunk_size, 1), dtype=np.int16)
+    bad_status_streak = 0
 
-    def callback(indata: np.ndarray, outdata: np.ndarray, frames: int, time_info: float, status: str) -> None:
+    def request_reload() -> None:
+        if streamer.stop_event.is_set():
+            return
+        reload_event.set()
+
+    def callback(indata: np.ndarray, outdata: np.ndarray, frames: int, time_info: float, status: Any) -> None:
+        nonlocal bad_status_streak
         if streamer.stop_event.is_set():
             outdata[:] = 0 * outdata
             return
+
+        # Device removal / host abort often surfaces as a sticky non-zero status.
+        if status:
+            bad_status_streak += 1
+            if bad_status_streak >= 5:
+                logger.warning(
+                    "Audio callback status=%s; requesting mic stream reload",
+                    status,
+                )
+                request_reload()
+                bad_status_streak = 0
+        else:
+            bad_status_streak = 0
 
         if streamer.output_queue.empty():
             pcm = np.ascontiguousarray(indata, dtype=np.int16)
@@ -236,11 +310,6 @@ def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None
             except Exception:
                 outdata[:] = 0 * outdata
 
-    def request_reload() -> None:
-        if streamer.stop_event.is_set():
-            return
-        reload_event.set()
-
     watcher = get_mic_device_watcher()
     watcher.start(request_reload)
     try:
@@ -253,16 +322,25 @@ def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None
                 describe_device(out_idx, sd),
             )
             reload_event.clear()
-            with sd.Stream(
-                samplerate=16000,
-                dtype="int16",
-                channels=1,
-                callback=callback,
-                blocksize=streamer.list_play_chunk_size,
-                device=(in_idx, out_idx),
-            ):
-                while not streamer.stop_event.is_set() and not reload_event.is_set():
-                    time.sleep(0.001)
+            bad_status_streak = 0
+            try:
+                with sd.Stream(
+                    samplerate=16000,
+                    dtype="int16",
+                    channels=1,
+                    callback=callback,
+                    blocksize=streamer.list_play_chunk_size,
+                    device=(in_idx, out_idx),
+                ):
+                    while not streamer.stop_event.is_set() and not reload_event.is_set():
+                        time.sleep(0.001)
+            except Exception:
+                if streamer.stop_event.is_set():
+                    break
+                logger.exception(
+                    "Local audio stream failed; refreshing devices and reopening"
+                )
+                reload_event.set()
 
             if streamer.stop_event.is_set():
                 break
@@ -272,7 +350,9 @@ def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None
             try:
                 refresh_portaudio_devices(sd)
             except Exception:
-                logger.exception("Failed to refresh PortAudio after mic change; retrying reopen")
+                logger.exception(
+                    "Failed to refresh PortAudio after mic change; retrying reopen"
+                )
             new_in, new_out = resolve_duplex_device(sd)
             logger.info(
                 "Reopened local audio stream after mic change: input %s -> %s (output %s)",

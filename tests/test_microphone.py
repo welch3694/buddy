@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from buddy_tools.voice.microphone import (
     MicDeviceWatcher,
-    default_input_fingerprint,
     describe_device,
+    portaudio_default_input_fingerprint,
     refresh_portaudio_devices,
     reset_mic_device_watcher_for_tests,
     resolve_duplex_device,
@@ -61,9 +61,12 @@ class _FakeStreamContext:
 
 
 class FingerprintTests(unittest.TestCase):
-    def test_default_input_fingerprint(self) -> None:
+    def test_portaudio_default_input_fingerprint(self) -> None:
         sd = _FakeSd()
-        self.assertEqual(default_input_fingerprint(sd), (1, "Mic A", 0))
+        self.assertEqual(
+            portaudio_default_input_fingerprint(sd),
+            ("pa", "1:0:Mic A", "Mic A"),
+        )
 
     def test_resolve_duplex_device(self) -> None:
         sd = _FakeSd()
@@ -100,10 +103,10 @@ class MicDeviceWatcherTests(unittest.TestCase):
         reset_mic_device_watcher_for_tests()
 
     def test_baseline_does_not_reload(self) -> None:
-        fingerprints = [(1, "Mic A", 0)]
+        fingerprints = [("win", "id-a", "Mic A")]
         reloads = 0
 
-        def fingerprint_fn() -> tuple[int, str, int]:
+        def fingerprint_fn() -> tuple[str, str, str]:
             return fingerprints[-1]
 
         def on_reload() -> None:
@@ -117,10 +120,10 @@ class MicDeviceWatcherTests(unittest.TestCase):
         self.assertEqual(reloads, 0)
 
     def test_fingerprint_change_requests_reload(self) -> None:
-        fingerprints = [(1, "Mic A", 0)]
+        fingerprints = [("win", "id-a", "Mic A")]
         reloads = threading.Event()
 
-        def fingerprint_fn() -> tuple[int, str, int]:
+        def fingerprint_fn() -> tuple[str, str, str]:
             return fingerprints[-1]
 
         def on_reload() -> None:
@@ -129,9 +132,29 @@ class MicDeviceWatcherTests(unittest.TestCase):
         watcher = MicDeviceWatcher(poll_interval_s=0.05, fingerprint_fn=fingerprint_fn)
         watcher.start(on_reload)
         time.sleep(0.12)
-        fingerprints.append((2, "Mic B", 0))
+        fingerprints.append(("win", "id-b", "Mic B"))
         self.assertTrue(reloads.wait(timeout=1.0))
         watcher.stop()
+
+    def test_label_only_change_does_not_reload(self) -> None:
+        """Friendly-name noise must not thrash the stream if endpoint id is stable."""
+        fingerprints = [("win", "id-a", "Mic A")]
+        reloads = 0
+
+        def fingerprint_fn() -> tuple[str, str, str]:
+            return fingerprints[-1]
+
+        def on_reload() -> None:
+            nonlocal reloads
+            reloads += 1
+
+        watcher = MicDeviceWatcher(poll_interval_s=0.05, fingerprint_fn=fingerprint_fn)
+        watcher.start(on_reload)
+        time.sleep(0.12)
+        fingerprints.append(("win", "id-a", "Mic A (renamed)"))
+        time.sleep(0.15)
+        watcher.stop()
+        self.assertEqual(reloads, 0)
 
 
 class RunLocalAudioReloadTests(unittest.TestCase):
@@ -179,7 +202,7 @@ class RunLocalAudioReloadTests(unittest.TestCase):
             ):
                 watcher = MagicMock()
                 get_watcher.return_value = watcher
-                # Trigger one reload shortly after first stream opens, then stop.
+
                 def start_and_reload(on_reload: Any) -> None:
                     def _fire() -> None:
                         time.sleep(0.05)
@@ -198,6 +221,17 @@ class RunLocalAudioReloadTests(unittest.TestCase):
         self.assertEqual(sd.stream_calls[1]["device"], (2, 5))
         self.assertEqual(sd.stream_calls[0]["samplerate"], 16000)
         self.assertEqual(sd.stream_calls[0]["channels"], 1)
+
+
+@unittest.skipUnless(__import__("sys").platform == "win32", "Windows Core Audio only")
+class WindowsFingerprintIntegrationTests(unittest.TestCase):
+    def test_windows_default_capture_fingerprint_returns_endpoint(self) -> None:
+        from buddy_tools.voice.microphone import windows_default_capture_fingerprint
+
+        source, endpoint_id, name = windows_default_capture_fingerprint()
+        self.assertEqual(source, "win")
+        self.assertTrue(endpoint_id.startswith("{"))
+        self.assertTrue(name)
 
 
 if __name__ == "__main__":
