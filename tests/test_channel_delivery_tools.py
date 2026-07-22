@@ -173,10 +173,9 @@ class SendTelegramPhotoToolTests(unittest.TestCase):
             text_prompt_queue=Queue(),
             stop_event=self.stop,
         )
-        self.bridge.send_photo = self._send_photo  # type: ignore[method-assign]
+        self.bridge.send_document = self._send_document  # type: ignore[method-assign]
         set_telegram_bridge(self.bridge)
 
-        # Tiny valid JPEG data URI via existing encoder
         import cv2
         import numpy as np
 
@@ -185,26 +184,33 @@ class SendTelegramPhotoToolTests(unittest.TestCase):
         frame = np.zeros((32, 32, 3), dtype=np.uint8)
         ok, jpeg = cv2.imencode(".jpg", frame)
         assert ok
-        self.data_uri = bytes_to_jpeg_data_uri(jpeg.tobytes(), max_width=32)
-        store_last_capture(self.data_uri)
+        self.delivery_jpeg = jpeg.tobytes()
+        self.data_uri = bytes_to_jpeg_data_uri(self.delivery_jpeg, max_width=32)
+        store_last_capture(
+            self.data_uri,
+            delivery_jpeg=self.delivery_jpeg,
+            filename="buddy-camera.jpg",
+        )
 
     def tearDown(self) -> None:
         set_telegram_bridge(None)
         clear_last_capture()
         reset_turn_contexts()
 
-    def _send_photo(
+    def _send_document(
         self,
         chat_id: int,
-        jpeg_bytes: bytes,
+        file_bytes: bytes,
         *,
+        filename: str = "capture.jpg",
         caption: str | None = None,
         message_thread_id: int | None = None,
     ) -> None:
         self.sent.append(
             {
                 "chat_id": chat_id,
-                "jpeg_bytes": jpeg_bytes,
+                "file_bytes": file_bytes,
+                "filename": filename,
                 "caption": caption,
                 "message_thread_id": message_thread_id,
             }
@@ -220,7 +226,21 @@ class SendTelegramPhotoToolTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertEqual(self.sent[0]["chat_id"], 55)
         self.assertEqual(self.sent[0]["caption"], "Here is your screen")
-        self.assertTrue(self.sent[0]["jpeg_bytes"])
+        self.assertEqual(self.sent[0]["file_bytes"], self.delivery_jpeg)
+        self.assertEqual(self.sent[0]["filename"], "buddy-camera.jpg")
+
+    def test_legacy_uri_only_store_still_delivers(self) -> None:
+        clear_last_capture()
+        store_last_capture(self.data_uri)
+        result = execute_channel_tool(
+            "send_telegram_photo",
+            {"caption": "legacy"},
+            turn_id="voice-1",
+        )
+        self.assertFalse(is_tool_error(result))
+        self.assertEqual(len(self.sent), 1)
+        self.assertTrue(self.sent[0]["file_bytes"])
+        self.assertEqual(self.sent[0]["filename"], "buddy-capture.jpg")
 
     def test_errors_without_last_capture(self) -> None:
         clear_last_capture()

@@ -338,8 +338,13 @@ class LocalToolExecutor(BaseHandler[LLMOut, LLMOut]):
                 except ChatItemError as exc:
                     logger.error("Could not record tool output for %s: %s", tool.call_id, exc)
 
+            if result.image_data_uri or result.image_delivery_bytes:
+                store_last_capture(
+                    result.image_data_uri,
+                    delivery_jpeg=result.image_delivery_bytes,
+                    filename=result.image_delivery_filename or "buddy-capture.jpg",
+                )
             if result.image_data_uri:
-                store_last_capture(result.image_data_uri)
                 caption = result.image_caption or "Here is the captured image."
                 image_msg = RealtimeConversationItemUserMessage(
                     type="message",

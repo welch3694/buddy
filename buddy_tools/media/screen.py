@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 
 import cv2
@@ -12,11 +11,12 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import log_tool_failure
+from buddy_tools.media.encode import DualJpegCapture, encode_preview_and_delivery
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_WIDTH = 1280
-JPEG_QUALITY = 85
+DELIVERY_FILENAME = "buddy-screen.jpg"
 
 SCREEN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
     RealtimeFunctionTool(
@@ -40,8 +40,8 @@ SCREEN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
 ]
 
 
-def capture_screen(monitor: int = 0, max_width: int = DEFAULT_MAX_WIDTH) -> str:
-    """Grab one JPEG screenshot and return a base64 data URI."""
+def capture_screen(monitor: int = 0, max_width: int = DEFAULT_MAX_WIDTH) -> DualJpegCapture:
+    """Grab one screenshot; return preview URI for analysis and full JPEG for delivery."""
     with mss.mss() as sct:
         monitors = sct.monitors[1:]
         if not monitors:
@@ -53,31 +53,21 @@ def capture_screen(monitor: int = 0, max_width: int = DEFAULT_MAX_WIDTH) -> str:
         frame = np.array(screenshot)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
-        height, width = frame.shape[:2]
-        if width > max_width:
-            scale = max_width / width
-            frame = cv2.resize(frame, (max_width, int(height * scale)))
-
-        ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        if not ok:
-            raise RuntimeError("Could not encode screen capture as JPEG")
-
-        encoded = base64.b64encode(jpeg.tobytes()).decode("ascii")
-        data_uri = f"data:image/jpeg;base64,{encoded}"
+        captured = encode_preview_and_delivery(frame, max_width=max_width)
         logger.info(
-            "Captured screen (monitor %d, %dx%d, %d bytes)",
+            "Captured screen (monitor %d, %dx%d, delivery %d bytes)",
             monitor,
-            frame.shape[1],
-            frame.shape[0],
-            len(jpeg),
+            captured.width,
+            captured.height,
+            len(captured.delivery_jpeg),
         )
-        return data_uri
+        return captured
 
 
 def execute_screen_tool(args: dict) -> ToolExecutionResult:
     monitor = int(args.get("monitor", 0))
     try:
-        data_uri = capture_screen(monitor=monitor)
+        captured = capture_screen(monitor=monitor)
     except Exception as exc:
         log_tool_failure(
             "capture_screen",
@@ -88,6 +78,8 @@ def execute_screen_tool(args: dict) -> ToolExecutionResult:
         return ToolExecutionResult(output=f"Error: screen capture failed: {exc}")
     return ToolExecutionResult(
         output="Screen capture succeeded.",
-        image_data_uri=data_uri,
+        image_data_uri=captured.preview_data_uri,
         image_caption="Here is what is on the user's screen.",
+        image_delivery_bytes=captured.delivery_jpeg,
+        image_delivery_filename=DELIVERY_FILENAME,
     )

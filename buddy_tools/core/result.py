@@ -14,6 +14,8 @@ class ToolExecutionResult:
     output: str
     image_data_uri: str | None = None
     image_caption: str | None = None
+    image_delivery_bytes: bytes | None = None
+    image_delivery_filename: str | None = None
     personality_switch_id: str | None = None
     voice_switch_id: str | None = None
     theme_switch_id: str | None = None

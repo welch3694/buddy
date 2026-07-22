@@ -81,6 +81,7 @@ class ToolRoutingInstructionTests(unittest.TestCase):
         self.assertIn("channel(action=send_telegram_message)", text)
         self.assertIn("channel(action=send_telegram_photo)", text)
         self.assertIn("channel(action=speak_aloud)", text)
+        self.assertIn("full-resolution", text.lower())
         self.assertNotIn("persona_admin(action=create)", text)
 
     def test_active_context_and_admin_for_buddy(self) -> None:

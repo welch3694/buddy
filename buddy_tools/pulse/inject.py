@@ -180,7 +180,7 @@ def _try_capture_scene() -> str | None:
     try:
         from buddy_tools.media.camera import capture_frame
 
-        return capture_frame()
+        return capture_frame().preview_data_uri
     except Exception as exc:
         logger.warning("Pulse scene capture failed; continuing without image: %s", exc)
         return None

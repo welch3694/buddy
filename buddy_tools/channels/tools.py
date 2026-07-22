@@ -47,7 +47,7 @@ CHANNEL_ACTIONS: tuple[ActionSpec, ...] = (
         properties={
             "caption": {
                 "type": "string",
-                "description": "Optional caption for the photo",
+                "description": "Optional caption for the full-resolution image file",
             },
             "chat_id": _CHAT_ID_PROPERTY,
         },
@@ -64,8 +64,9 @@ CHANNEL_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
     description=(
         "Cross-channel delivery operations. Use action=send_telegram_message to send text to "
         "Telegram, action=send_telegram_photo to send the latest screen/camera capture as a "
-        "Telegram photo (call capture_screen or capture_camera first), or action=speak_aloud to "
-        "speak exact text on the local speakers. Independent of which channel started the turn."
+        "full-resolution Telegram file (call capture_screen or capture_camera first), or "
+        "action=speak_aloud to speak exact text on the local speakers. Independent of which "
+        "channel started the turn."
     ),
     actions=CHANNEL_ACTIONS,
 )
@@ -81,9 +82,10 @@ def build_channel_instructions() -> str:
         "- channel(action=send_telegram_message): send text to Telegram (e.g. summaries for easy "
         "copying). After sending, keep any spoken or same-channel reply brief — do not recite the "
         "full message again.\n"
-        "- channel(action=send_telegram_photo): send the latest screen/camera capture as a Telegram "
-        "photo. Call capture_screen or capture_camera first, then this action (not "
-        "send_telegram_message). Keep the spoken/same-channel ack brief.\n"
+        "- channel(action=send_telegram_photo): send the latest screen/camera capture as a "
+        "full-resolution Telegram file. Call vision(action=capture_screen) or "
+        "vision(action=capture_camera) first, then this action (not send_telegram_message). Keep "
+        "the spoken/same-channel ack brief.\n"
         "- channel(action=speak_aloud): speak exact text on the local speakers (e.g. when Telegram "
         "says \"read this aloud\"). Keep the same-channel reply brief (a short ack).\n"
         "Do not use this tool for ordinary same-channel replies."
@@ -180,32 +182,23 @@ def _send_telegram_photo(
     *,
     turn_id: str | None,
 ) -> ToolExecutionResult:
-    from buddy_tools.channels.images import data_uri_to_jpeg_bytes
-    from buddy_tools.channels.last_capture import get_last_capture
+    from buddy_tools.channels.last_capture import get_last_capture_delivery
     from buddy_tools.channels.telegram import get_telegram_bridge, resolve_outbound_chat
 
-    data_uri = get_last_capture()
-    if not data_uri:
+    delivery = get_last_capture_delivery()
+    if not delivery:
         return tool_error(
             "send_telegram_photo",
             "no recent capture available; call capture_screen or capture_camera first",
             context=safe_tool_context(args),
         )
+    jpeg_bytes, filename = delivery
 
     bridge = get_telegram_bridge()
     if bridge is None:
         return tool_error(
             "send_telegram_photo",
             "Telegram bridge is not configured",
-            context=safe_tool_context(args),
-        )
-
-    try:
-        jpeg_bytes = data_uri_to_jpeg_bytes(data_uri)
-    except ValueError as exc:
-        return tool_error(
-            "send_telegram_photo",
-            str(exc),
             context=safe_tool_context(args),
         )
 
@@ -230,9 +223,10 @@ def _send_telegram_photo(
             caption = caption[:TELEGRAM_CAPTION_MAX_LENGTH]
 
     try:
-        bridge.send_photo(
+        bridge.send_document(
             chat_id,
             jpeg_bytes,
+            filename=filename,
             caption=caption,
             message_thread_id=thread_id,
         )
@@ -250,8 +244,9 @@ def _send_telegram_photo(
         suppress_default_telegram_reply(turn_id)
 
     logger.info(
-        "send_telegram_photo delivered %d bytes to chat_id=%s turn=%s",
+        "send_telegram_photo delivered %d bytes (%s) to chat_id=%s turn=%s",
         len(jpeg_bytes),
+        filename,
         chat_id,
         turn_id,
     )
