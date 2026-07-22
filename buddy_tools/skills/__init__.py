@@ -45,12 +45,16 @@ SkillSource = Literal["builtin", "shared", "personality"]
 
 _SKILL_NAME_PROPERTY = {
     "type": "string",
-    "description": "Skill name/id, e.g. equipment-setup or director-flow (lowercase letters, digits, hyphens)",
+    "description": (
+        "Skill name/id for start/create/update/delete, e.g. equipment-setup "
+        "(skill_name is accepted as an alias)"
+    ),
 }
 _SKILL_NAME_REF_PROPERTY = {
     "type": "string",
     "description": (
-        "Skill name to target; for read_file omit to read from the active skill only"
+        "Skill name for read_file/write_file/update_pulse_config; for read_file omit to "
+        "read from the active skill (name is accepted as an alias)"
     ),
 }
 _PATH_PROPERTY = {
@@ -96,6 +100,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
         legacy_name="start_skill",
         required=("name",),
         properties={"name": _SKILL_NAME_PROPERTY},
+        aliases={"skill_name": "name"},
     ),
     ActionSpec(action="status", legacy_name="skill_status"),
     ActionSpec(
@@ -126,6 +131,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
             "personality_id": _PERSONALITY_ID_PROPERTY,
             "skill_type": _SKILL_TYPE_PROPERTY,
         },
+        aliases={"skill_name": "name"},
     ),
     ActionSpec(
         action="update",
@@ -139,6 +145,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
             "personality_id": _PERSONALITY_ID_PROPERTY,
             "skill_type": _SKILL_TYPE_PROPERTY,
         },
+        aliases={"skill_name": "name"},
     ),
     ActionSpec(
         action="delete",
@@ -149,6 +156,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
             "scope": _SCOPE_PROPERTY,
             "personality_id": _PERSONALITY_ID_PROPERTY,
         },
+        aliases={"skill_name": "name"},
     ),
     ActionSpec(
         action="read_file",
@@ -158,6 +166,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
             "path": _PATH_PROPERTY,
             "skill_name": _SKILL_NAME_REF_PROPERTY,
         },
+        aliases={"name": "skill_name"},
     ),
     ActionSpec(
         action="write_file",
@@ -168,6 +177,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
             "path": _PATH_PROPERTY,
             "content": {"type": "string", "description": "Full file content to write"},
         },
+        aliases={"name": "skill_name"},
     ),
     ActionSpec(
         action="update_pulse_config",
@@ -183,6 +193,7 @@ SKILL_ACTIONS: tuple[ActionSpec, ...] = (
                 ),
             },
         },
+        aliases={"name": "skill_name"},
     ),
 )
 

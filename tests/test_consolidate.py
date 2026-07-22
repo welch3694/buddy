@@ -15,6 +15,7 @@ from buddy_tools.core.consolidate import (
 )
 from buddy_tools.core.registry import execute_tool
 from buddy_tools.core.result import ToolExecutionResult
+from buddy_tools.skills import SKILL_ACTIONS
 
 _ACTIONS: tuple[ActionSpec, ...] = (
     ActionSpec(action="list", legacy_name="list_widgets"),
@@ -23,6 +24,7 @@ _ACTIONS: tuple[ActionSpec, ...] = (
         legacy_name="create_widget",
         required=("name",),
         properties={"name": {"type": "string", "description": "Widget name"}},
+        aliases={"skill_name": "name"},
     ),
 )
 
@@ -107,6 +109,40 @@ class ResolveActionArgsTests(unittest.TestCase):
         legacy_name, remaining = resolved  # type: ignore[misc]
         self.assertEqual(legacy_name, "list_widgets")
         self.assertEqual(remaining, {})
+
+    def test_alias_fills_missing_canonical_required(self) -> None:
+        resolved = resolve_action_args(
+            "widget",
+            {"action": "create", "skill_name": "popper-director"},
+            _ACTIONS,
+        )
+        self.assertNotIsInstance(resolved, ToolExecutionResult)
+        legacy_name, remaining = resolved  # type: ignore[misc]
+        self.assertEqual(legacy_name, "create_widget")
+        self.assertEqual(remaining["name"], "popper-director")
+        self.assertEqual(remaining["skill_name"], "popper-director")
+
+    def test_canonical_wins_over_alias_when_both_present(self) -> None:
+        resolved = resolve_action_args(
+            "widget",
+            {"action": "create", "name": "canonical", "skill_name": "alias"},
+            _ACTIONS,
+        )
+        self.assertNotIsInstance(resolved, ToolExecutionResult)
+        _, remaining = resolved  # type: ignore[misc]
+        self.assertEqual(remaining["name"], "canonical")
+
+    def test_skill_start_accepts_skill_name_alias(self) -> None:
+        """Regression #175: model often passes skill_name for start."""
+        resolved = resolve_action_args(
+            "skill",
+            {"action": "start", "skill_name": "popper-director"},
+            SKILL_ACTIONS,
+        )
+        self.assertNotIsInstance(resolved, ToolExecutionResult)
+        legacy_name, remaining = resolved  # type: ignore[misc]
+        self.assertEqual(legacy_name, "start_skill")
+        self.assertEqual(remaining["name"], "popper-director")
 
 
 class ActionLegacyMapTests(unittest.TestCase):
