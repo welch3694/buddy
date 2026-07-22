@@ -188,7 +188,8 @@ class EpisodicSearchTests(unittest.TestCase):
         self.assertEqual(payload["query"], "when did we discuss pasta")
         self.assertIn("recall_plan", payload)
         self.assertEqual(payload["recall_plan"]["depth"], "session")
-        self.assertIn("read_episodic_summary", payload["recall_plan"]["recommended_tools"])
+        self.assertIn("episodic", payload["recall_plan"]["recommended_tools"])
+        self.assertEqual(payload["recall_plan"]["recommended_args"]["action"], "read_summary")
         self.assertGreaterEqual(len(payload["results"]), 1)
 
     def test_recall_planner_depths(self) -> None:
@@ -197,17 +198,20 @@ class EpisodicSearchTests(unittest.TestCase):
 
         turns = plan_episodic_recall("what exactly did I say about pasta")
         self.assertEqual(turns["depth"], "turns")
-        self.assertIn("read_episodic_turns", turns["recommended_tools"])
+        self.assertIn("episodic", turns["recommended_tools"])
+        self.assertEqual(turns["recommended_args"]["action"], "read_turns")
 
         dated = plan_episodic_recall("on 2026-07-05 what did we talk about")
         self.assertEqual(dated["depth"], "day")
         self.assertEqual(dated["resolved_date"], "2026-07-05")
-        self.assertIn("read_episodic_summary", dated["recommended_tools"])
+        self.assertIn("episodic", dated["recommended_tools"])
+        self.assertEqual(dated["recommended_args"]["action"], "read_summary")
         self.assertEqual(dated["recommended_args"]["level"], "day")
         self.assertEqual(dated["recommended_args"]["date"], "2026-07-05")
 
         default = plan_episodic_recall("when did we discuss pasta")
         self.assertEqual(default["depth"], "session")
+        self.assertEqual(default["recommended_args"]["action"], "read_summary")
         self.assertEqual(default["recommended_args"]["level"], "session")
 
     def test_recall_planner_yesterday(self) -> None:
@@ -218,7 +222,8 @@ class EpisodicSearchTests(unittest.TestCase):
             plan = plan_episodic_recall("what did we talk about yesterday")
         self.assertEqual(plan["depth"], "day")
         self.assertEqual(plan["resolved_date"], "2026-07-07")
-        self.assertIn("read_episodic_summary", plan["recommended_tools"])
+        self.assertIn("episodic", plan["recommended_tools"])
+        self.assertEqual(plan["recommended_args"]["action"], "read_summary")
         self.assertEqual(plan["recommended_args"]["level"], "day")
         self.assertEqual(plan["recommended_args"]["date"], "2026-07-07")
 
@@ -247,8 +252,8 @@ class EpisodicSearchTests(unittest.TestCase):
 
     def test_registry_includes_search_tool(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
-        self.assertIn("search_episodic_memory", names)
-        self.assertIn("search_episodic_memory", EPISODIC_TOOL_NAMES)
+        self.assertIn("episodic", names)
+        self.assertIn("episodic", EPISODIC_TOOL_NAMES)
 
     def test_execute_episodic_tool_search(self) -> None:
         result = execute_episodic_tool(
@@ -267,8 +272,8 @@ class EpisodicSearchTests(unittest.TestCase):
     def test_execute_tool_search_via_registry(self) -> None:
         result = execute_tool(
             self.memory_root,
-            "search_episodic_memory",
-            json.dumps({"query": "pasta recipes"}),
+            "episodic",
+            json.dumps({"action": "search", "query": "pasta recipes"}),
             persona_namespace="buddy",
         )
         payload = json.loads(result.output)

@@ -17,7 +17,7 @@ Each skill follows the [Agent Skills layout](https://agentskills.io): a required
 
 ## Runtime discovery
 
-`list_skills` and `start_skill` resolve skills from three sources, merged by name:
+`skill(action=list)` and `skill(action=start)` resolve skills from three sources, merged by name:
 
 1. **Built-ins** — this repo `skills/` directory (read at runtime via `get_repo_root()`)
 2. **Shared user skills** — `{BUDDY_DATA_DIR}/skills/` (mutable; scoped to all personas or a subset)
@@ -44,7 +44,7 @@ metadata:
     # personalities: [coach, buddy]   # visible only to listed personality ids
 ```
 
-`list_skills` includes `source: "shared"` and a `scope` field (`"all"` or a list of ids) for shared skills.
+`skill(action=list)` includes `source: "shared"` and a `scope` field (`"all"` or a list of ids) for shared skills.
 
 ### Mutability (design decision)
 
@@ -64,14 +64,14 @@ User-authored skills belong under `{BUDDY_DATA_DIR}/skills/` (shared, with optio
 | `remember` | Save a user fact with explicit global vs persona scope ("share with everyone" / "keep it between us") |
 | `live-director` | Pulse session: timed camera-switch cues (~3 min) with optional conversational fill between cues |
 
-The **remember** skill auto-starts when the user says "remember that", "don't forget", or similar — the model calls `start_skill` with name `remember` rather than saving memory directly. It uses existing `append_memory` / `update_memory` tools with `scope: global` or `scope: persona`; no separate persistence layer.
+The **remember** skill auto-starts when the user says "remember that", "don't forget", or similar — the model calls `skill(action=start)` with name `remember` rather than saving memory directly. It uses `memory(action=append|update)` with `scope: global` or `scope: persona`; no separate persistence layer.
 
 ## Pulse sessions vs checklist skills
 
 | | Checklist (`type: checklist`) | Pulse (`type: pulse`) |
 |---|------------------------------|------------------------|
 | **Examples** | `remember`, `edit-personality` | `live-director` |
-| **Who advances** | LLM calls `advance_skill` after user confirms each step | Python worker owns timing, rules, and cues |
+| **Who advances** | LLM calls `skill(action=advance)` after user confirms each step | Python worker owns timing, rules, and cues |
 | **State** | `skill_state.json` (step index) | `pulse_state.json` (vars, pending cues, fired rules) |
 | **Config** | Steps in `SKILL.md` | Rules in `references/session.yaml` |
 | **LLM role** | Guide interactive steps | Narrate directed cues; optional `[NO_OUTPUT]` on conversational pulses |
@@ -80,18 +80,18 @@ The **remember** skill auto-starts when the user says "remember that", "don't fo
 
 **Full `session.yaml` reference** (conditions, mutations, schedule, limits): [`buddy_tools/pulse/SESSION_YAML.md`](../buddy_tools/pulse/SESSION_YAML.md)
 
-Start with `start_skill` and name `live-director` when the user says "go live" or "start director".
+Start with `skill(action=start)` and name `live-director` when the user says "go live" or "start director".
 
 ## Skill authoring: tool results
 
-**Do not claim success without a tool result.** After calling a tool (`start_skill`, `update_personality`, `append_memory`, `cancel_skill`, etc.), confirm what happened only once the tool returns. Narrating “I’ve started…”, “saved…”, or “cancelled…” before a tool result is a bypass — voice users hear a false completion.
+**Do not claim success without a tool result.** After calling a tool (`skill`, `persona`, `memory`, etc.), confirm what happened only once the tool returns. Narrating “I’ve started…”, “saved…”, or “cancelled…” before a tool result is a bypass — voice users hear a false completion.
 
 The runtime backs this rule: turn receipts, a claim TTS gate, deterministic intent routing with forced `tool_choice`, and a short required-tool nudge retry before silent fallback. Skill steps should still state the rule explicitly (see `edit-personality` apply-update).
 
 ### Manual test plan (live-director)
 
 1. Start llama-server and speech-to-speech (`start-llama-server-speech.ps1`, `start-speech-to-speech.ps1`).
-2. Say **"start director"** or **"go live"** — confirm `start_skill` arms the pulse worker.
+2. Say **"start director"** or **"go live"** — confirm `skill(action=start)` arms the pulse worker.
 3. Wait ~3 minutes (or temporarily lower `180` → `30` in `session.yaml` for a faster check) — verify a camera-switch cue fires **after** you stop speaking, not mid-sentence.
 4. Talk continuously through the interval — verify the cue defers until brief silence (or hits `mandatory_cue_max_defer_s`).
 5. Between cues, stay quiet — verify optional conversational pulses may speak briefly or stay silent (`[NO_OUTPUT]`).

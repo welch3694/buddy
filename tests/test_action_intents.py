@@ -32,7 +32,7 @@ class ActionIntentMatchingTests(unittest.TestCase):
                 intent = match_action_intent(phrase)
                 self.assertEqual(
                     intent,
-                    ActionIntent(tool_name="cancel_skill", arguments={}),
+                    ActionIntent(tool_name="skill", arguments={"action": "cancel"}),
                 )
 
     def test_pause_skill_phrases(self) -> None:
@@ -45,7 +45,7 @@ class ActionIntentMatchingTests(unittest.TestCase):
                 intent = match_action_intent(phrase)
                 self.assertEqual(
                     intent,
-                    ActionIntent(tool_name="pause_skill", arguments={}),
+                    ActionIntent(tool_name="skill", arguments={"action": "pause"}),
                 )
 
     def test_live_director_phrases(self) -> None:
@@ -60,7 +60,10 @@ class ActionIntentMatchingTests(unittest.TestCase):
                 intent = match_action_intent(phrase)
                 self.assertEqual(
                     intent,
-                    ActionIntent(tool_name="start_skill", arguments={"name": "live-director"}),
+                    ActionIntent(
+                        tool_name="skill",
+                        arguments={"action": "start", "name": "live-director"},
+                    ),
                 )
 
     def test_remember_phrases(self) -> None:
@@ -75,7 +78,10 @@ class ActionIntentMatchingTests(unittest.TestCase):
                 intent = match_action_intent(phrase)
                 self.assertEqual(
                     intent,
-                    ActionIntent(tool_name="start_skill", arguments={"name": "remember"}),
+                    ActionIntent(
+                        tool_name="skill",
+                        arguments={"action": "start", "name": "remember"},
+                    ),
                 )
 
     def test_edit_personality_phrases(self) -> None:
@@ -88,23 +94,32 @@ class ActionIntentMatchingTests(unittest.TestCase):
                 intent = match_action_intent(phrase)
                 self.assertEqual(
                     intent,
-                    ActionIntent(tool_name="start_skill", arguments={"name": "edit-personality"}),
+                    ActionIntent(
+                        tool_name="skill",
+                        arguments={"action": "start", "name": "edit-personality"},
+                    ),
                 )
 
     def test_switch_personality_when_name_extractable(self) -> None:
         self.assertEqual(
             match_action_intent("become coach"),
-            ActionIntent(tool_name="switch_personality", arguments={"personality_id": "coach"}),
+            ActionIntent(
+                tool_name="persona",
+                arguments={"action": "switch", "personality_id": "coach"},
+            ),
         )
         self.assertEqual(
             match_action_intent("Switch to Buddy!"),
-            ActionIntent(tool_name="switch_personality", arguments={"personality_id": "buddy"}),
+            ActionIntent(
+                tool_name="persona",
+                arguments={"action": "switch", "personality_id": "buddy"},
+            ),
         )
         self.assertEqual(
             match_action_intent("become cool coach"),
             ActionIntent(
-                tool_name="switch_personality",
-                arguments={"personality_id": "cool_coach"},
+                tool_name="persona",
+                arguments={"action": "switch", "personality_id": "cool_coach"},
             ),
         )
 
@@ -129,7 +144,7 @@ class ActionIntentMatchingTests(unittest.TestCase):
         # Control intents are checked before start_skill / switch rules.
         self.assertEqual(
             match_action_intent("cancel skill and go live"),
-            ActionIntent(tool_name="cancel_skill", arguments={}),
+            ActionIntent(tool_name="skill", arguments={"action": "cancel"}),
         )
 
     def test_normalize_transcript_still_used(self) -> None:

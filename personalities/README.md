@@ -52,7 +52,7 @@ memory_namespace: buddy
 
 The `id` must match the folder name. `voice_id` must reference a valid voice in `voices/`.
 
-Optional `tool_groups` is a list of tool group ids to expose beyond the defaults. Known groups: `persona`, `persona_admin`, `memory`, `episodic`, `skills`, `timers`, `vision`. Most groups are always visible (including `update_personality` on the `persona` group). `persona_admin` (create/delete personality) is hidden by default except for the `buddy` personality, which gets it automatically; other personas can opt in with `tool_groups: [persona_admin]`.
+Optional `tool_groups` is a list of tool group ids to expose beyond the defaults. Known groups: `persona`, `persona_admin`, `theme`, `memory`, `episodic`, `skills`, `timers`, `vision`, `channels`. Most groups are always visible (including `persona(action=update)` on the `persona` group). `persona_admin` (create/delete personality) is hidden by default except for the `buddy` personality, which gets it automatically; other personas can opt in with `tool_groups: [persona_admin]`. Each group exposes one action-parameter entry point (e.g. `memory`, `skill`, `theme`).
 
 ## Skills (Agent Skills layout)
 
@@ -116,7 +116,7 @@ Put on headphones to avoid feedback.
 
 Active skill progress is stored in `{BUDDY_DATA_DIR}/memory/{namespace}/skill_state.json` (not global memory). Switching away from a persona mid-checklist preserves state in that persona's namespace; switching back allows resume.
 
-Skill tools (`list_skills`, `start_skill`, `advance_skill`, etc.) are registered globally. Discovery merges **built-in** skills from repo `skills/`, **shared** skills from `{data_dir}/skills/` (filtered by scope), and the **active** personality's `skills/` folder. Precedence on name collision: personality > shared > built-in.
+Skill tools use the consolidated `skill` entry point (`skill(action=list|start|advance|...)`). Discovery merges **built-in** skills from repo `skills/`, **shared** skills from `{data_dir}/skills/` (filtered by scope), and the **active** personality's `skills/` folder. Precedence on name collision: personality > shared > built-in.
 
 ## Adding a personality
 

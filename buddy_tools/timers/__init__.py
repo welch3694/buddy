@@ -19,6 +19,7 @@ from speech_to_speech.LLM.chat import make_user_message
 from speech_to_speech.pipeline.messages import GenerateResponseRequest
 
 from buddy_tools.voice.listening_pause import get_listening_pause_controller
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 
@@ -473,101 +474,98 @@ def _optional_positive_float(args: dict[str, Any], key: str) -> float | None:
     return numeric
 
 
-TIMER_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="start_timer",
-        description=(
-            "Schedule a proactive assistant turn on a timer. Use for repeating check-ins, "
-            "silence-based conversation nudges, or precise wall-clock interval cues. "
-            "Ticks inject an internal system prompt and trigger a new response — not a fake user message."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "Unique timer name"},
-                "prompt": {"type": "string", "description": "System nudge injected on each tick"},
-                "mode": {"type": "string", "enum": ["once", "repeat"], "description": "Fire once or repeat"},
-                "gate": {
-                    "type": "string",
-                    "enum": ["wall_clock", "after_silence"],
-                    "description": "wall_clock fires on schedule; after_silence waits for user silence",
-                },
-                "delay_seconds": {"type": "number", "description": "Initial delay or silence duration"},
-                "interval_seconds": {"type": "number", "description": "Fixed repeat interval"},
-                "interval_min_seconds": {"type": "number", "description": "Jittered repeat minimum"},
-                "interval_max_seconds": {"type": "number", "description": "Jittered repeat maximum"},
-                "defer_while_busy": {
-                    "type": "boolean",
-                    "description": "When true, defer ticks while mic pipeline is busy (default true)",
-                },
-                "cancel_on_user_speech": {
-                    "type": "boolean",
-                    "description": "When true, cancel if the user speaks before the tick fires",
-                },
-                "skill_name": {
-                    "type": "string",
-                    "description": "Associate timer with a skill for auto-cancel on cancel_skill",
-                },
-                "replace": {
-                    "type": "boolean",
-                    "description": "When true, atomically replace an existing timer with the same id",
-                },
-            },
-            "required": ["id", "prompt", "mode", "gate"],
-        },
+_TIMER_ID_PROPERTY = {
+    "type": "string",
+    "description": (
+        "Timer id: unique name when starting; target id for cancel/reschedule "
+        "(omit for cancel to cancel all timers)"
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="cancel_timer",
-        description="Cancel one timer by id, or all active timers when id is omitted.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "Timer id to cancel; omit to cancel all"},
-            },
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="reschedule_timer",
-        description=(
-            "Update timing or flags on an active timer in place. Re-arms from now with new parameters."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "id": {"type": "string", "description": "Timer id to reschedule"},
-                "prompt": {"type": "string"},
-                "mode": {"type": "string", "enum": ["once", "repeat"]},
-                "gate": {"type": "string", "enum": ["wall_clock", "after_silence"]},
-                "delay_seconds": {"type": "number"},
-                "interval_seconds": {"type": "number"},
-                "interval_min_seconds": {"type": "number"},
-                "interval_max_seconds": {"type": "number"},
-                "defer_while_busy": {"type": "boolean"},
-                "cancel_on_user_speech": {"type": "boolean"},
-                "skill_name": {"type": "string"},
-            },
-            "required": ["id"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="list_timers",
-        description="List active timers with gate, mode, interval config, and seconds_until_next estimate.",
-        parameters={"type": "object", "properties": {}},
-    ),
-]
+}
+_PROMPT_PROPERTY = {"type": "string", "description": "System nudge injected on each tick"}
+_MODE_PROPERTY = {"type": "string", "enum": ["once", "repeat"], "description": "Fire once or repeat"}
+_GATE_PROPERTY = {
+    "type": "string",
+    "enum": ["wall_clock", "after_silence"],
+    "description": "wall_clock fires on schedule; after_silence waits for user silence",
+}
+_DELAY_SECONDS_PROPERTY = {"type": "number", "description": "Initial delay or silence duration"}
+_INTERVAL_SECONDS_PROPERTY = {"type": "number", "description": "Fixed repeat interval"}
+_INTERVAL_MIN_SECONDS_PROPERTY = {"type": "number", "description": "Jittered repeat minimum"}
+_INTERVAL_MAX_SECONDS_PROPERTY = {"type": "number", "description": "Jittered repeat maximum"}
+_DEFER_WHILE_BUSY_PROPERTY = {
+    "type": "boolean",
+    "description": "When true, defer ticks while mic pipeline is busy (default true)",
+}
+_CANCEL_ON_USER_SPEECH_PROPERTY = {
+    "type": "boolean",
+    "description": "When true, cancel if the user speaks before the tick fires",
+}
+_TIMER_SKILL_NAME_PROPERTY = {
+    "type": "string",
+    "description": "Associate timer with a skill for auto-cancel on cancel_skill",
+}
+_TIMING_PROPERTIES = {
+    "prompt": _PROMPT_PROPERTY,
+    "mode": _MODE_PROPERTY,
+    "gate": _GATE_PROPERTY,
+    "delay_seconds": _DELAY_SECONDS_PROPERTY,
+    "interval_seconds": _INTERVAL_SECONDS_PROPERTY,
+    "interval_min_seconds": _INTERVAL_MIN_SECONDS_PROPERTY,
+    "interval_max_seconds": _INTERVAL_MAX_SECONDS_PROPERTY,
+    "defer_while_busy": _DEFER_WHILE_BUSY_PROPERTY,
+    "cancel_on_user_speech": _CANCEL_ON_USER_SPEECH_PROPERTY,
+    "skill_name": _TIMER_SKILL_NAME_PROPERTY,
+}
 
-TIMER_TOOL_NAMES = frozenset(tool.name for tool in TIMER_TOOL_DEFINITIONS)
+TIMER_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(
+        action="start",
+        legacy_name="start_timer",
+        required=("id", "prompt", "mode", "gate"),
+        properties={
+            "id": _TIMER_ID_PROPERTY,
+            **_TIMING_PROPERTIES,
+            "replace": {
+                "type": "boolean",
+                "description": "When true, atomically replace an existing timer with the same id",
+            },
+        },
+    ),
+    ActionSpec(
+        action="cancel",
+        legacy_name="cancel_timer",
+        properties={"id": _TIMER_ID_PROPERTY},
+    ),
+    ActionSpec(action="list", legacy_name="list_timers"),
+    ActionSpec(
+        action="reschedule",
+        legacy_name="reschedule_timer",
+        required=("id",),
+        properties={"id": _TIMER_ID_PROPERTY, **_TIMING_PROPERTIES},
+    ),
+)
+
+TIMER_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="timer",
+    description=(
+        "Proactive timer operations. Use action=start to schedule a proactive assistant turn "
+        "(repeating check-ins, silence-based nudges, or wall-clock cues), action=cancel to stop "
+        "one or all timers, action=list to report active timers, or action=reschedule to update "
+        "an active timer's timing or flags in place."
+    ),
+    actions=TIMER_ACTIONS,
+)
+
+TIMER_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [TIMER_TOOL_DEFINITION]
+TIMER_TOOL_NAMES = frozenset({"timer"})
 
 
 def build_timer_instructions() -> str:
     return (
         "Timer tools schedule proactive assistant turns without fake user messages. "
-        "Use start_timer for repeating check-ins or interval coaching; cancel_timer to stop; "
-        "list_timers to report pace; reschedule_timer or start_timer with replace=true to change cadence atomically."
+        "Use timer(action=start) for repeating check-ins or interval coaching; "
+        "timer(action=cancel) to stop; timer(action=list) to report pace; "
+        "timer(action=reschedule) or timer(action=start, replace=true) to change cadence atomically."
     )
 
 
@@ -578,12 +576,18 @@ TIMER_TOOL_GROUP = ToolGroup(
         "User wants reminders, repeating check-ins, interval coaching, "
         "or to start/cancel/list scheduled proactive turns."
     ),
-    tools=tuple(TIMER_TOOL_DEFINITIONS),
+    tools=(TIMER_TOOL_DEFINITION,),
     instructions=build_timer_instructions(),
 )
 
 
 def execute_timer_tool(tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:
+    if tool_name == "timer":
+        resolved = resolve_action_args("timer", args, TIMER_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     scheduler = get_timer_scheduler()
 
     if tool_name == "start_timer":

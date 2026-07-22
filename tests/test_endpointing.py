@@ -179,12 +179,12 @@ class EndpointingGateTests(unittest.TestCase):
         assert request.response is not None
         tool_choice = request.response.tool_choice
         self.assertIsNotNone(tool_choice)
-        self.assertEqual(tool_choice.name, "start_skill")
+        self.assertEqual(tool_choice.name, "skill")
         self.assertEqual(tool_choice.type, "function")
         stashed = pop_action_intent("t1")
         self.assertIsNotNone(stashed)
         assert stashed is not None
-        self.assertEqual(stashed.arguments, {"name": "live-director"})
+        self.assertEqual(stashed.arguments, {"action": "start", "name": "live-director"})
         reset_action_intent_stash_for_tests()
 
     def test_unmatched_commit_leaves_response_none(self) -> None:

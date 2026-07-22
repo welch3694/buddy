@@ -1,4 +1,4 @@
-"""Theme list/switch tools exposed to the LLM (#138)."""
+"""Theme list/switch tools exposed to the LLM (#138, consolidated #109)."""
 
 from __future__ import annotations
 
@@ -7,48 +7,46 @@ from typing import Any
 
 from openai.types.realtime import RealtimeFunctionTool
 
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 from buddy_tools.themes.catalog import get_active_theme_id, get_theme, list_themes
 from buddy_tools.themes.schema import ThemeValidationError
 
-_THEME_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="list_themes",
-        description="List installed companion display themes by id and name.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="switch_theme",
-        description=(
-            "Switch the companion display theme. Use when the user asks to change "
-            "the look, colors, or visual theme of the agent panel."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "theme_id": {
-                    "type": "string",
-                    "description": "Theme id from list_themes, e.g. default or ember",
-                }
-            },
-            "required": ["theme_id"],
+THEME_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(action="list", legacy_name="list_themes"),
+    ActionSpec(
+        action="switch",
+        legacy_name="switch_theme",
+        required=("theme_id",),
+        properties={
+            "theme_id": {
+                "type": "string",
+                "description": "Theme id from theme(action=list), e.g. default or ember",
+            }
         },
     ),
-]
+)
 
-THEME_TOOL_DEFINITIONS = list(_THEME_TOOL_DEFINITIONS)
-THEME_TOOL_NAMES = frozenset(tool.name for tool in THEME_TOOL_DEFINITIONS)
+THEME_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="theme",
+    description=(
+        "Companion display theme operations. Use action=list to see installed themes, "
+        "or action=switch with theme_id to change the look, colors, or visual theme."
+    ),
+    actions=THEME_ACTIONS,
+)
+
+THEME_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [THEME_TOOL_DEFINITION]
+THEME_TOOL_NAMES = frozenset({"theme"})
 
 
 def build_theme_instructions() -> str:
     return (
-        "You can change the companion display theme (colors and orb mood):\n"
-        "- list_themes: see installed themes and which is active\n"
-        "- switch_theme: apply a theme immediately without restart\n"
+        "You can change the companion display theme (colors and orb mood) with the theme tool:\n"
+        "- theme(action=list): see installed themes and which is active\n"
+        "- theme(action=switch, theme_id=...): apply a theme immediately without restart\n"
         "After switching, confirm briefly without mentioning tools."
     )
 
@@ -59,12 +57,18 @@ THEME_TOOL_GROUP = ToolGroup(
     when_to_use=(
         "User asks to change the companion look, colors, display theme, or visual style."
     ),
-    tools=tuple(_THEME_TOOL_DEFINITIONS),
+    tools=(THEME_TOOL_DEFINITION,),
     instructions=build_theme_instructions(),
 )
 
 
 def execute_theme_tool(tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:
+    if tool_name == "theme":
+        resolved = resolve_action_args("theme", args, THEME_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     if tool_name == "list_themes":
         themes = list_themes()
         active = get_active_theme_id()

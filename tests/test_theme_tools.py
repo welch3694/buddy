@@ -66,7 +66,7 @@ class ThemeToolTests(unittest.TestCase):
         self._tmpdir.cleanup()
 
     def test_tool_names(self) -> None:
-        self.assertEqual(THEME_TOOL_NAMES, frozenset({"list_themes", "switch_theme"}))
+        self.assertEqual(THEME_TOOL_NAMES, frozenset({"theme"}))
 
     def test_list_themes(self) -> None:
         result = execute_theme_tool("list_themes", {})
@@ -90,7 +90,7 @@ class ThemeToolTests(unittest.TestCase):
         from buddy_tools.core.registry import execute_tool
 
         with tempfile.TemporaryDirectory() as mem:
-            result = execute_tool(Path(mem), "list_themes", "{}", persona_namespace="buddy")
+            result = execute_tool(Path(mem), "theme", '{"action":"list"}', persona_namespace="buddy")
             payload = json.loads(result.output)
             self.assertIn("themes", payload)
 

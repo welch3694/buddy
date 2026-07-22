@@ -64,10 +64,7 @@ class TimerToolTests(unittest.TestCase):
 
     def test_timer_tools_registered(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
-        self.assertIn("start_timer", names)
-        self.assertIn("cancel_timer", names)
-        self.assertIn("list_timers", names)
-        self.assertIn("reschedule_timer", names)
+        self.assertIn("timer", names)
 
     def test_start_cancel_list(self) -> None:
         result = execute_timer_tool(
@@ -309,9 +306,10 @@ class TimerToolTests(unittest.TestCase):
             set_memory_root(Path(tmp))
             result = execute_tool(
                 Path(tmp),
-                "start_timer",
+                "timer",
                 json.dumps(
                     {
+                        "action": "start",
                         "id": "via-registry",
                         "prompt": "hi",
                         "mode": "once",
@@ -323,7 +321,9 @@ class TimerToolTests(unittest.TestCase):
             )
             self.assertIn("Started timer", result.output)
             listed = json.loads(
-                execute_tool(Path(tmp), "list_timers", "{}", persona_namespace="buddy").output
+                execute_tool(
+                    Path(tmp), "timer", '{"action":"list"}', persona_namespace="buddy"
+                ).output
             )
             self.assertEqual(len(listed), 1)
 

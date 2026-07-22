@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from openai.types.realtime import RealtimeFunctionTool
 
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
@@ -37,172 +38,143 @@ _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 ListParent = Literal["root", "year", "month", "day"]
 SummaryLevel = Literal["year", "month", "day", "session"]
 
-EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="list_episodic_periods",
-        description=(
-            "Browse the episodic memory index for the active persona. Start at parent=root for "
-            "years, then drill into year, month, and day to list sessions with short blurbs. "
-            "For parent=day you may pass date alone (YYYY-MM-DD or relative such as today/"
-            "yesterday) without browsing year/month first."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "parent": {
-                    "type": "string",
-                    "enum": ["root", "year", "month", "day"],
-                    "description": "Index level to list children of",
-                },
-                "year": {
-                    "type": "string",
-                    "description": "Four-digit year, required when parent is year, month, or day "
-                    "(auto-derived from date when parent is day)",
-                },
-                "month": {
-                    "type": "string",
-                    "description": "YYYY-MM month key, required when parent is month or day "
-                    "(auto-derived from date when parent is day)",
-                },
-                "date": {
-                    "type": "string",
-                    "description": "YYYY-MM-DD or relative term (yesterday, today, N days ago); "
-                    "required when parent is day",
-                },
+EPISODIC_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(
+        action="list_periods",
+        legacy_name="list_episodic_periods",
+        required=("parent",),
+        properties={
+            "parent": {
+                "type": "string",
+                "enum": ["root", "year", "month", "day"],
+                "description": "Index level to list children of",
             },
-            "required": ["parent"],
+            "year": {
+                "type": "string",
+                "description": "Four-digit year, required when parent is year, month, or day "
+                "(auto-derived from date when parent is day)",
+            },
+            "month": {
+                "type": "string",
+                "description": "YYYY-MM month key, required when parent is month or day "
+                "(auto-derived from date when parent is day)",
+            },
+            "date": {
+                "type": "string",
+                "description": "YYYY-MM-DD or relative term (yesterday, today, N days ago); "
+                "required when parent is day",
+            },
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="read_episodic_summary",
-        description=(
-            "Read a consolidated summary JSON for a year, month, day, or session in the active "
-            "persona's episodic tree. For level=day, date accepts YYYY-MM-DD or relative terms "
-            "such as yesterday or today (resolved in the episodic timezone). For level=session, "
-            "pass a real session id (YYYYMMDDTHHMMSS-xxxxxxxx), or omit session_id to load the "
-            "latest session for date (default today). Do not pass a calendar date as session_id."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "level": {
-                    "type": "string",
-                    "enum": ["year", "month", "day", "session"],
-                },
-                "year": {"type": "string", "description": "Four-digit year"},
-                "month": {"type": "string", "description": "YYYY-MM month key"},
-                "date": {
-                    "type": "string",
-                    "description": "YYYY-MM-DD date key, or relative term (yesterday, today, N days ago)",
-                },
-                "session_id": {
-                    "type": "string",
-                    "description": (
-                        "Real session id (YYYYMMDDTHHMMSS-xxxxxxxx). Required only when targeting "
-                        "a specific session; omit with level=session to load the latest session "
-                        "for date (default today). Never pass YYYY-MM-DD here."
-                    ),
-                },
+    ActionSpec(
+        action="read_summary",
+        legacy_name="read_episodic_summary",
+        required=("level",),
+        properties={
+            "level": {
+                "type": "string",
+                "enum": ["year", "month", "day", "session"],
             },
-            "required": ["level"],
+            "year": {"type": "string", "description": "Four-digit year"},
+            "month": {"type": "string", "description": "YYYY-MM month key"},
+            "date": {
+                "type": "string",
+                "description": "YYYY-MM-DD date key, or relative term (yesterday, today, N days ago)",
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Real session id (YYYYMMDDTHHMMSS-xxxxxxxx). Required only when targeting "
+                    "a specific session; omit with level=session to load the latest session "
+                    "for date (default today). Never pass YYYY-MM-DD here."
+                ),
+            },
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="read_episodic_turns",
-        description=(
-            "Read paginated raw conversation turns from turns.jsonl for one episodic session. "
-            "session_id must be a real session id (YYYYMMDDTHHMMSS-xxxxxxxx), not a calendar date."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "session_id": {
-                    "type": "string",
-                    "description": "Target session id (YYYYMMDDTHHMMSS-xxxxxxxx), not YYYY-MM-DD",
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "Zero-based turn offset (default 0)",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": f"Max turns to return (default {_TURNS_DEFAULT_LIMIT}, max {_TURNS_MAX_LIMIT})",
-                },
+    ActionSpec(
+        action="read_turns",
+        legacy_name="read_episodic_turns",
+        required=("session_id",),
+        properties={
+            "session_id": {
+                "type": "string",
+                "description": "Target session id (YYYYMMDDTHHMMSS-xxxxxxxx), not YYYY-MM-DD",
             },
-            "required": ["session_id"],
+            "offset": {
+                "type": "integer",
+                "description": "Zero-based turn offset (default 0)",
+            },
+            "limit": {
+                "type": "integer",
+                "description": f"Max turns to return (default {_TURNS_DEFAULT_LIMIT}, max {_TURNS_MAX_LIMIT})",
+            },
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="search_episodic_memory",
-        description=(
-            "Semantic search over episodic session and period summaries for the active persona. "
-            "Use for fuzzy recall when topic tags or exact keywords are insufficient. "
-            "Results include scores, provenance, and a recall_plan for drill-down."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Natural-language question or topic to search for",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": (
-                        f"Max results (default {_SEARCH_DEFAULT_LIMIT}, max {_SEARCH_MAX_LIMIT})"
-                    ),
-                },
+    ActionSpec(
+        action="search",
+        legacy_name="search_episodic_memory",
+        required=("query",),
+        properties={
+            "query": {
+                "type": "string",
+                "description": "Natural-language question or topic to search for",
             },
-            "required": ["query"],
+            "limit": {
+                "type": "integer",
+                "description": (
+                    f"Max results (default {_SEARCH_DEFAULT_LIMIT}, max {_SEARCH_MAX_LIMIT})"
+                ),
+            },
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="find_episodes_by_topic",
-        description=(
-            "Search episodic session and day summaries by topic tag or keyword substring "
-            "for the active persona."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Topic tag or keyword to search for",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": f"Max results (default {_TOPIC_DEFAULT_LIMIT}, max {_TOPIC_MAX_LIMIT})",
-                },
+    ActionSpec(
+        action="find_by_topic",
+        legacy_name="find_episodes_by_topic",
+        required=("query",),
+        properties={
+            "query": {
+                "type": "string",
+                "description": "Topic tag or keyword to search for",
             },
-            "required": ["query"],
+            "limit": {
+                "type": "integer",
+                "description": f"Max results (default {_TOPIC_DEFAULT_LIMIT}, max {_TOPIC_MAX_LIMIT})",
+            },
         },
     ),
-]
+)
 
-EPISODIC_TOOL_NAMES = frozenset(tool.name for tool in EPISODIC_TOOL_DEFINITIONS)
+EPISODIC_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="episodic",
+    description=(
+        "Episodic memory operations for the active persona's conversation history. "
+        "Use action=list_periods to browse the temporal tree, action=read_summary for a "
+        "year/month/day/session summary, action=read_turns for raw paginated turns, "
+        "action=search for semantic recall, or action=find_by_topic for exact tag/keyword matches."
+    ),
+    actions=EPISODIC_ACTIONS,
+)
+
+EPISODIC_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [EPISODIC_TOOL_DEFINITION]
+EPISODIC_TOOL_NAMES = frozenset({"episodic"})
 
 
 def build_episodic_instructions() -> str:
     return (
         "Episodic memory stores past conversations in a temporal tree (year/month/day/session). "
-        "It is NOT in the memory snapshot — use episodic tools to recall what was discussed when.\n"
-        "- read_episodic_summary: load a day/month/year/session summary; for yesterday/today or a "
+        "It is NOT in the memory snapshot — use the episodic tool to recall what was discussed when.\n"
+        "- episodic(action=read_summary): load a day/month/year/session summary; for yesterday/today or a "
         "specific calendar day call this directly with level=day and date (do not browse the tree first); "
         "for earlier today / last session call level=session directly (optional date, default today) — "
         "do not pass a YYYY-MM-DD as session_id\n"
-        "- search_episodic_memory: semantic search over summaries for fuzzy recall; follow recall_plan to drill down\n"
-        "- list_episodic_periods: browse the index when you do not know the target date or period; "
+        "- episodic(action=search): semantic search over summaries for fuzzy recall; follow recall_plan to drill down\n"
+        "- episodic(action=list_periods): browse the index when you do not know the target date or period; "
         "to choose among sessions on one day call parent=day with date (relative OK) without year/month browse\n"
-        "- read_episodic_turns: read raw turns for one session (paginated); needs a real session id "
+        "- episodic(action=read_turns): read raw turns for one session (paginated); needs a real session id "
         "(YYYYMMDDTHHMMSS-xxxxxxxx), never a calendar date\n"
-        "- find_episodes_by_topic: exact topic tag or keyword substring match in summaries\n"
+        "- episodic(action=find_by_topic): exact topic tag or keyword substring match in summaries\n"
         "Use semantic memory tools (read_memory / snapshot) for durable facts; "
-        "use episodic tools for conversation history and 'when did we talk about X' questions."
+        "use the episodic tool for conversation history and 'when did we talk about X' questions."
     )
 
 
@@ -213,7 +185,7 @@ EPISODIC_TOOL_GROUP = ToolGroup(
         "User asks about past conversations, when something was discussed, "
         "or wants to browse/search conversation history (not durable fact notes)."
     ),
-    tools=tuple(EPISODIC_TOOL_DEFINITIONS),
+    tools=(EPISODIC_TOOL_DEFINITION,),
     instructions=build_episodic_instructions(),
 )
 
@@ -701,6 +673,12 @@ def execute_episodic_tool(
     tool_name: str,
     args: dict[str, Any],
 ) -> ToolExecutionResult:
+    if tool_name == "episodic":
+        resolved = resolve_action_args("episodic", args, EPISODIC_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     try:
         if tool_name == "list_episodic_periods":
             payload = list_episodic_periods(

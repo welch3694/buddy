@@ -52,9 +52,8 @@ class PersonalityToolTests(unittest.TestCase):
 
     def test_registry_includes_personality_tools(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
-        self.assertIn("switch_personality", names)
-        self.assertIn("read_personality", names)
-        self.assertIn("list_voices", names)
+        self.assertIn("persona", names)
+        self.assertIn("persona_admin", names)
 
     def test_read_personality_returns_on_disk_fields(self) -> None:
         result = execute_personality_tool("read_personality", {"personality_id": "coach"})
@@ -79,8 +78,8 @@ class PersonalityToolTests(unittest.TestCase):
     def test_execute_tool_dispatches_read_personality(self) -> None:
         result = execute_tool(
             self.memory_root,
-            "read_personality",
-            '{"personality_id":"buddy"}',
+            "persona",
+            '{"action":"read","personality_id":"buddy"}',
             persona_namespace="buddy",
         )
         payload = json.loads(result.output)
@@ -113,7 +112,12 @@ class PersonalityToolTests(unittest.TestCase):
         self.assertIn("Deleted personality guide", deleted.output)
 
     def test_execute_tool_dispatches_personality_tools(self) -> None:
-        result = execute_tool(self.memory_root, "list_voices", "{}", persona_namespace="buddy")
+        result = execute_tool(
+            self.memory_root,
+            "persona",
+            '{"action":"list_voices"}',
+            persona_namespace="buddy",
+        )
         payload = json.loads(result.output)
         self.assertIn("cliff", payload["voices"])
 
@@ -176,14 +180,13 @@ class PersonalitySessionTests(unittest.TestCase):
         self.assertEqual(profile.id, "coach")
         self.assertEqual(chat.buffer, [])
         self.assertIn("You are Coach.", runtime_config.session.instructions)
-        self.assertIn("switch_personality", runtime_config.session.instructions)
+        self.assertIn("persona(action=switch)", runtime_config.session.instructions)
         self.assertIn("Identity rule", runtime_config.session.instructions)
         self.assertIn("narrator", runtime_config.session.audio.output.voice)
         self.assertEqual(handler.ref_text, "narrator transcript")
         tool_names = {t.name for t in runtime_config.session.tools}
-        self.assertIn("switch_personality", tool_names)
-        self.assertIn("update_personality", tool_names)
-        self.assertNotIn("create_personality", tool_names)
+        self.assertIn("persona", tool_names)
+        self.assertNotIn("persona_admin", tool_names)
 
     def test_apply_personality_switch_emits_companion_persona(self) -> None:
         from buddy_tools.companion.publisher import (
@@ -252,9 +255,9 @@ class PersonalitySessionTests(unittest.TestCase):
     def test_build_tool_instructions_includes_personality_help(self) -> None:
         text = build_tool_instructions("Base prompt.", "(no memory saved yet)")
         self.assertIn("global", text.lower())
-        self.assertIn("read_personality", text)
-        self.assertIn("switch_personality", text)
-        self.assertIn("list_voices", text)
+        self.assertIn("persona(action=read)", text)
+        self.assertIn("persona(action=switch", text)
+        self.assertIn("persona(action=list_voices)", text)
         self.assertIn("Identity rule", text)
         self.assertIn("## Tool routing", text)
 

@@ -9,6 +9,7 @@ from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.pipeline.messages import EndOfResponse, TTSInput
 
 from buddy_tools.channels.turn_context import get_turn, suppress_default_telegram_reply
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
@@ -16,96 +17,76 @@ from buddy_tools.voice.session import get_tts_handler
 
 logger = logging.getLogger(__name__)
 
-_CHANNEL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="send_telegram_message",
-        description=(
-            "Send a text message to the user on Telegram. Use when the user asks to "
-            "send, copy, or deliver content to Telegram — including from a voice turn. "
-            "Independent of which channel started the turn. For photos/screenshots use "
-            "send_telegram_photo instead."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "Message body to send on Telegram",
-                },
-                "chat_id": {
-                    "type": "integer",
-                    "description": (
-                        "Optional Telegram chat id. Only needed when multiple chats "
-                        "are allowlisted and there is no prior inbound chat."
-                    ),
-                },
-            },
-            "required": ["text"],
-        },
+_CHAT_ID_PROPERTY = {
+    "type": "integer",
+    "description": (
+        "Optional Telegram chat id. Only needed when multiple chats "
+        "are allowlisted and there is no prior inbound chat."
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="send_telegram_photo",
-        description=(
-            "Send the most recent screen or camera capture as a photo on Telegram. "
-            "Call capture_screen or capture_camera first, then this tool. Use when the "
-            "user asks to send a screenshot or photo to Telegram."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "caption": {
-                    "type": "string",
-                    "description": "Optional caption for the photo",
-                },
-                "chat_id": {
-                    "type": "integer",
-                    "description": (
-                        "Optional Telegram chat id. Only needed when multiple chats "
-                        "are allowlisted and there is no prior inbound chat."
-                    ),
-                },
-            },
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="speak_aloud",
-        description=(
-            "Speak exact text aloud on the local speakers via TTS. Use when the user "
-            "asks to read something aloud — including from a Telegram turn. "
-            "Independent of which channel started the turn."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "text": {
-                    "type": "string",
-                    "description": "Exact text to speak aloud",
-                },
-            },
-            "required": ["text"],
-        },
-    ),
-]
+}
 
-CHANNEL_TOOL_DEFINITIONS = list(_CHANNEL_TOOL_DEFINITIONS)
-CHANNEL_TOOL_NAMES = frozenset(tool.name for tool in CHANNEL_TOOL_DEFINITIONS)
+CHANNEL_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(
+        action="send_telegram_message",
+        legacy_name="send_telegram_message",
+        required=("text",),
+        properties={
+            "text": {
+                "type": "string",
+                "description": (
+                    "Text content: message body to send for send_telegram_message, "
+                    "or exact text to speak aloud for speak_aloud"
+                ),
+            },
+            "chat_id": _CHAT_ID_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="send_telegram_photo",
+        legacy_name="send_telegram_photo",
+        properties={
+            "caption": {
+                "type": "string",
+                "description": "Optional caption for the photo",
+            },
+            "chat_id": _CHAT_ID_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="speak_aloud",
+        legacy_name="speak_aloud",
+        required=("text",),
+    ),
+)
+
+CHANNEL_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="channel",
+    description=(
+        "Cross-channel delivery operations. Use action=send_telegram_message to send text to "
+        "Telegram, action=send_telegram_photo to send the latest screen/camera capture as a "
+        "Telegram photo (call capture_screen or capture_camera first), or action=speak_aloud to "
+        "speak exact text on the local speakers. Independent of which channel started the turn."
+    ),
+    actions=CHANNEL_ACTIONS,
+)
+
+CHANNEL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [CHANNEL_TOOL_DEFINITION]
+CHANNEL_TOOL_NAMES = frozenset({"channel"})
 
 
 def build_channel_instructions() -> str:
     return (
-        "You can deliver output to a channel other than the one that started this turn:\n"
-        "- send_telegram_message: send text to Telegram (e.g. summaries for easy copying). "
-        "After sending, keep any spoken or same-channel reply brief — do not recite the "
+        "You can deliver output to a channel other than the one that started this turn using "
+        "the channel tool:\n"
+        "- channel(action=send_telegram_message): send text to Telegram (e.g. summaries for easy "
+        "copying). After sending, keep any spoken or same-channel reply brief — do not recite the "
         "full message again.\n"
-        "- send_telegram_photo: send the latest screen/camera capture as a Telegram photo. "
-        "Call capture_screen or capture_camera first, then this tool (not send_telegram_message). "
-        "Keep the spoken/same-channel ack brief.\n"
-        "- speak_aloud: speak exact text on the local speakers (e.g. when Telegram says "
-        "\"read this aloud\"). Keep the same-channel reply brief (a short ack).\n"
-        "Do not use these tools for ordinary same-channel replies."
+        "- channel(action=send_telegram_photo): send the latest screen/camera capture as a Telegram "
+        "photo. Call capture_screen or capture_camera first, then this action (not "
+        "send_telegram_message). Keep the spoken/same-channel ack brief.\n"
+        "- channel(action=speak_aloud): speak exact text on the local speakers (e.g. when Telegram "
+        "says \"read this aloud\"). Keep the same-channel reply brief (a short ack).\n"
+        "Do not use this tool for ordinary same-channel replies."
     )
 
 
@@ -116,7 +97,7 @@ CHANNEL_TOOL_GROUP = ToolGroup(
         "User asks to send something (text or photo) to Telegram, or to read/speak "
         "something aloud on a different channel than the current turn."
     ),
-    tools=tuple(_CHANNEL_TOOL_DEFINITIONS),
+    tools=(CHANNEL_TOOL_DEFINITION,),
     instructions=build_channel_instructions(),
 )
 
@@ -341,6 +322,12 @@ def execute_channel_tool(
     turn_id: str | None = None,
     turn_revision: int | None = None,
 ) -> ToolExecutionResult:
+    if tool_name == "channel":
+        resolved = resolve_action_args("channel", args, CHANNEL_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     if tool_name == "send_telegram_message":
         return _send_telegram_message(args, turn_id=turn_id)
     if tool_name == "send_telegram_photo":

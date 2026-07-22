@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from openai.types.realtime import RealtimeFunctionTool
 
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
@@ -27,98 +28,70 @@ _SCOPE_PROPERTY = {
         "all personas, persona for role-specific state for the active personality"
     ),
 }
+_NAME_PROPERTY = {
+    "type": "string",
+    "description": "Document name, e.g. notes or user_profile",
+}
 
-MEMORY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="list_memory",
-        description="List available persistent memory documents (without .md extension) in global and persona scopes.",
-        parameters={
-            "type": "object",
-            "properties": {},
-        },
+MEMORY_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(action="list", legacy_name="list_memory"),
+    ActionSpec(
+        action="read",
+        legacy_name="read_memory",
+        required=("name",),
+        properties={"name": _NAME_PROPERTY, "scope": _SCOPE_PROPERTY},
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="read_memory",
-        description="Read a persistent memory document by name.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Document name, e.g. notes or user_profile",
-                },
-                "scope": _SCOPE_PROPERTY,
+    ActionSpec(
+        action="update",
+        legacy_name="update_memory",
+        required=("name", "topic", "value"),
+        properties={
+            "name": {**_NAME_PROPERTY, "description": "Document name, usually notes"},
+            "topic": {
+                "type": "string",
+                "description": "Short label for the fact, e.g. favorite color",
             },
-            "required": ["name"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="update_memory",
-        description=(
-            "Set or replace one fact in a memory document. Use when the user states or "
-            "corrects a specific fact (e.g. favorite color, name, preference). Replaces any "
-            "existing line about the same topic instead of adding a duplicate."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Document name, usually notes",
-                },
-                "topic": {
-                    "type": "string",
-                    "description": "Short label for the fact, e.g. favorite color",
-                },
-                "value": {
-                    "type": "string",
-                    "description": "The current correct value for that topic",
-                },
-                "scope": _SCOPE_PROPERTY,
+            "value": {
+                "type": "string",
+                "description": "The current correct value for that topic",
             },
-            "required": ["name", "topic", "value"],
+            "scope": _SCOPE_PROPERTY,
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="write_memory",
-        description=(
-            "Replace an entire memory document. Use only when reorganizing many facts at once, "
-            "not for a single correction (use update_memory instead)."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "content": {"type": "string", "description": "Full markdown content"},
-                "scope": _SCOPE_PROPERTY,
-            },
-            "required": ["name", "content"],
+    ActionSpec(
+        action="write",
+        legacy_name="write_memory",
+        required=("name", "content"),
+        properties={
+            "name": _NAME_PROPERTY,
+            "content": {"type": "string", "description": "Full markdown content"},
+            "scope": _SCOPE_PROPERTY,
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="append_memory",
-        description=(
-            "Add a genuinely new fact that does not replace or contradict anything already stored. "
-            "Do not use for corrections or changes of mind; use update_memory instead."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "content": {"type": "string", "description": "Text to append"},
-                "scope": _SCOPE_PROPERTY,
-            },
-            "required": ["name", "content"],
+    ActionSpec(
+        action="append",
+        legacy_name="append_memory",
+        required=("name", "content"),
+        properties={
+            "name": _NAME_PROPERTY,
+            "content": {"type": "string", "description": "Text to append"},
+            "scope": _SCOPE_PROPERTY,
         },
     ),
-]
+)
 
-MEMORY_TOOL_NAMES = frozenset(tool.name for tool in MEMORY_TOOL_DEFINITIONS)
+MEMORY_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="memory",
+    description=(
+        "Persistent markdown memory. Use action=list|read|update|write|append. "
+        "Prefer update for one fact; append only for new non-conflicting facts; "
+        "write only when replacing a whole document."
+    ),
+    actions=MEMORY_ACTIONS,
+)
+
+MEMORY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [MEMORY_TOOL_DEFINITION]
+MEMORY_TOOL_NAMES = frozenset({"memory"})
 
 
 def _sanitize_name(name: str) -> str:
@@ -304,11 +277,11 @@ def build_memory_instructions() -> str:
         "- persona: role-specific state for the active personality only\n"
         "The memory snapshot below is semantic only; past conversations live in episodic memory "
         "and require episodic tools to browse.\n"
-        "Use the memory tools when needed:\n"
-        "- update_memory: set or correct one fact (preferred for remember / changed my mind)\n"
-        "- append_memory: only for new facts that do not contradict existing memory\n"
-        "- read_memory / list_memory: read before answering about stored context\n"
-        "- write_memory: replace a whole document only when reorganizing many facts\n"
+        "Use the memory tool when needed:\n"
+        "- memory(action=update): set or correct one fact (preferred for remember / changed my mind)\n"
+        "- memory(action=append): only for new facts that do not contradict existing memory\n"
+        "- memory(action=read|list): read before answering about stored context\n"
+        "- memory(action=write): replace a whole document only when reorganizing many facts\n"
         "Pass scope=global for shared user facts; omit scope or use scope=persona for persona-only notes.\n"
         "Each topic should have one current value in memory. Never store conflicting lines "
         "for the same topic (e.g. both blue and red as favorite color).\n"
@@ -324,7 +297,7 @@ MEMORY_TOOL_GROUP = ToolGroup(
         "User asks to remember, forget, update, or recall durable facts "
         "(preferences, names, household details) stored as markdown notes."
     ),
-    tools=tuple(MEMORY_TOOL_DEFINITIONS),
+    tools=(MEMORY_TOOL_DEFINITION,),
     instructions=build_memory_instructions(),
 )
 
@@ -335,6 +308,12 @@ def execute_memory_tool(
     tool_name: str,
     args: dict[str, Any],
 ) -> ToolExecutionResult:
+    if tool_name == "memory":
+        resolved = resolve_action_args("memory", args, MEMORY_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     memory_root.mkdir(parents=True, exist_ok=True)
     migrate_legacy_memory(memory_root)
 
