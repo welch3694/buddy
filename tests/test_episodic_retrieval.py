@@ -383,8 +383,8 @@ class EpisodicRetrievalTests(unittest.TestCase):
 
         result = execute_tool(
             self.memory_root,
-            "list_episodic_periods",
-            json.dumps({"parent": "root"}),
+            "episodic",
+            json.dumps({"action": "list_periods", "parent": "root"}),
             persona_namespace="buddy",
         )
         payload = json.loads(result.output)
@@ -393,7 +393,7 @@ class EpisodicRetrievalTests(unittest.TestCase):
 
     def test_build_tool_instructions_mentions_episodic(self) -> None:
         instructions = build_tool_instructions("Base prompt.", "(no memory saved yet)")
-        self.assertIn("read_episodic_summary", instructions)
+        self.assertIn("episodic(action=read_summary)", instructions)
         self.assertIn("yesterday", instructions.lower())
         self.assertIn("level=session", instructions.lower())
         self.assertIn("semantic memory", instructions.lower())

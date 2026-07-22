@@ -10,12 +10,6 @@ from typing import Any
 from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
-from buddy_tools.media.camera import (
-    CAMERA_TOOL_NAMES,
-    execute_camera_tool,
-    execute_list_cameras_tool,
-    execute_set_active_camera_tool,
-)
 from buddy_tools.voice.listening_pause import build_listening_pause_instructions
 from buddy_tools.episodic.retrieval import (
     EPISODIC_TOOL_GROUP,
@@ -43,8 +37,7 @@ from buddy_tools.core.groups import (
 )
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
-from buddy_tools.media.screen import execute_screen_tool
-from buddy_tools.media.vision import VISION_TOOL_GROUP
+from buddy_tools.media.vision import VISION_TOOL_GROUP, VISION_TOOL_NAMES, execute_vision_tool
 from buddy_tools.skills import (
     SKILL_TOOL_GROUP,
     SKILL_TOOL_NAMES,
@@ -229,16 +222,8 @@ def execute_tool(
         return tool_error(tool_name, f"invalid tool arguments JSON: {exc}")
 
     try:
-        if tool_name in CAMERA_TOOL_NAMES:
-            if tool_name == "capture_camera":
-                return execute_camera_tool()
-            if tool_name == "list_cameras":
-                return execute_list_cameras_tool()
-            if tool_name == "set_active_camera":
-                return execute_set_active_camera_tool(args)
-
-        if tool_name == "capture_screen":
-            return execute_screen_tool(args)
+        if tool_name in VISION_TOOL_NAMES:
+            return execute_vision_tool(tool_name, args)
 
         if tool_name in MEMORY_TOOL_NAMES:
             return execute_memory_tool(memory_root, persona_namespace, tool_name, args)

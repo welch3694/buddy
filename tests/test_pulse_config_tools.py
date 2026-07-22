@@ -105,8 +105,7 @@ class PulseConfigToolsTests(unittest.TestCase):
 
     def test_registry_includes_new_tools(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
-        self.assertIn("write_skill_file", names)
-        self.assertIn("update_pulse_config", names)
+        self.assertIn("skill", names)
 
     def test_build_tool_instructions_mentions_new_tools(self) -> None:
         text = build_tool_instructions(
@@ -116,8 +115,8 @@ class PulseConfigToolsTests(unittest.TestCase):
             persona_namespace="coach",
             personality_id="coach",
         )
-        self.assertIn("write_skill_file", text)
-        self.assertIn("update_pulse_config", text)
+        self.assertIn("skill(action=write_file)", text)
+        self.assertIn("skill(action=update_pulse_config)", text)
 
     def test_write_and_read_roundtrip(self) -> None:
         skill = create_skill(

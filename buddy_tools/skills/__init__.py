@@ -15,6 +15,7 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.memory import persona_memory_dir
 from buddy_tools.personality import PersonalityProfile, get_active_personality, get_personality
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.pulse import (
@@ -42,264 +43,163 @@ SkillStatus = Literal["in_progress", "paused"]
 SkillType = Literal["checklist", "generic", "pulse"]
 SkillSource = Literal["builtin", "shared", "personality"]
 
-SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="list_skills",
-        description=(
-            "List available skills: built-in workflows, shared user skills (optionally scoped to "
-            "specific personalities), and skills for the active personality (name, description, "
-            "source, and scope when shared). Use when the user asks what guided workflows or "
-            "checklists are available."
-        ),
-        parameters={"type": "object", "properties": {}},
+_SKILL_NAME_PROPERTY = {
+    "type": "string",
+    "description": "Skill name/id, e.g. equipment-setup or director-flow (lowercase letters, digits, hyphens)",
+}
+_SKILL_NAME_REF_PROPERTY = {
+    "type": "string",
+    "description": (
+        "Skill name to target; for read_file omit to read from the active skill only"
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="start_skill",
-        description=(
-            "Begin or resume a skill by name. Use when the user wants to run a checklist, "
-            "guided setup, or other structured workflow."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Skill name, e.g. equipment-setup",
-                }
-            },
-            "required": ["name"],
-        },
+}
+_PATH_PROPERTY = {
+    "type": "string",
+    "description": "Relative path under references/, scripts/, or assets/, e.g. references/checklist.md",
+}
+_DESCRIPTION_PROPERTY = {
+    "type": "string",
+    "description": "When-to-use description for skill discovery",
+}
+_BODY_PROPERTY = {
+    "type": "string",
+    "description": "Markdown body after frontmatter, or a full SKILL.md including --- frontmatter",
+}
+_SCOPE_PROPERTY = {
+    "type": "string",
+    "enum": ["persona", "shared"],
+    "description": (
+        "persona (default) or shared for cross-persona placement; for update/delete "
+        "defaults to highest-precedence match"
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="read_skill_file",
-        description=(
-            "Read a file from a skill's references/, scripts/, or assets/ folder. "
-            "Use skill_name to read from any discoverable skill (including built-ins); "
-            "omit skill_name to read from the active skill only."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "path": {
-                    "type": "string",
-                    "description": "Relative path under references/, scripts/, or assets/, e.g. references/checklist.md",
-                },
-                "skill_name": {
-                    "type": "string",
-                    "description": "Optional skill name; when set, reads from that skill instead of the active skill",
-                },
-            },
-            "required": ["path"],
-        },
+}
+_PERSONALITY_ID_PROPERTY = {
+    "type": "string",
+    "description": (
+        "Target personality for persona scope (default active); for shared scope, "
+        "limits visibility to this personality when set"
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="write_skill_file",
-        description=(
-            "Write a file under references/, scripts/, or assets/ for a persona or shared skill. "
-            "Cannot modify built-in skills. session.yaml writes are validated against the pulse schema."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "skill_name": {
-                    "type": "string",
-                    "description": "Skill name to write to",
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Relative path, e.g. references/session.yaml or references/notes.md",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Full file content to write",
-                },
-            },
-            "required": ["skill_name", "path", "content"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="skill_status",
-        description="Get the current active skill, step progress, and current step prompt.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="advance_skill",
-        description=(
-            "Mark the current checklist step complete and advance to the next step. "
-            "Call when the user verbally confirms they finished the current step."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "skip": {
-                    "type": "boolean",
-                    "description": "Skip the current step instead of completing it",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Optional reason when skipping a step",
-                },
-            },
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="pause_skill",
-        description="Suspend the active skill while keeping progress so it can be resumed later.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="cancel_skill",
-        description="Cancel the active skill and clear all progress.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="create_skill",
-        description=(
-            "Create a new skill on disk. By default writes under the active personality's "
-            "skills/ folder; use scope shared only when the user wants a cross-persona skill."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Skill id (lowercase letters, digits, hyphens), e.g. director-flow",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "When-to-use description for skill discovery",
-                },
-                "body": {
-                    "type": "string",
-                    "description": (
-                        "Markdown body after frontmatter, or a full SKILL.md including --- frontmatter"
-                    ),
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["persona", "shared"],
-                    "description": "persona (default) or shared for cross-persona placement",
-                },
-                "personality_id": {
-                    "type": "string",
-                    "description": (
-                        "Target personality for persona scope (default active); for shared scope, "
-                        "limits visibility to this personality when set"
-                    ),
-                },
-                "skill_type": {
-                    "type": "string",
-                    "enum": ["checklist", "generic", "pulse"],
-                    "description": (
-                        "checklist requires ## Steps with ### headings; pulse uses references/session.yaml"
-                    ),
-                },
-            },
-            "required": ["name", "description", "body"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="update_skill",
-        description=(
-            "Update an existing persona or shared skill's SKILL.md. Cannot modify built-in skills."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Skill name to update",
-                },
-                "description": {
-                    "type": "string",
-                    "description": "New when-to-use description",
-                },
-                "body": {
-                    "type": "string",
-                    "description": "New markdown body or full SKILL.md content",
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["persona", "shared"],
-                    "description": "Which layer to update; defaults to highest-precedence match",
-                },
-                "personality_id": {
-                    "type": "string",
-                    "description": "Personality for persona scope or shared personality filter",
-                },
-                "skill_type": {
-                    "type": "string",
-                    "enum": ["checklist", "generic", "pulse"],
-                },
-            },
-            "required": ["name"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="update_pulse_config",
-        description=(
-            "Merge structured tuning params into a pulse skill's references/session.yaml. "
-            "Preserves hand-edited rules and schedule; only updates known timing/camera keys. "
-            "Changes apply on the next start_skill (not mid-session)."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "skill_name": {
-                    "type": "string",
-                    "description": "Pulse skill name to update",
-                },
-                "params": {
-                    "type": "object",
-                    "description": (
-                        "Keys: camera_switch_interval_s, cameras, conversation_min_silence_s, "
-                        "min_speak_interval_s, tick_interval_s, mandatory_cue_max_defer_s"
-                    ),
-                },
-            },
-            "required": ["skill_name", "params"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="delete_skill",
-        description=(
-            "Delete a persona or shared skill directory. Cannot delete built-in skills."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "Skill name to delete",
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["persona", "shared"],
-                    "description": "Which layer to delete; defaults to highest-precedence match",
-                },
-                "personality_id": {
-                    "type": "string",
-                    "description": "Personality for persona scope",
-                },
-            },
-            "required": ["name"],
-        },
-    ),
-]
+}
+_SKILL_TYPE_PROPERTY = {
+    "type": "string",
+    "enum": ["checklist", "generic", "pulse"],
+    "description": "checklist requires ## Steps with ### headings; pulse uses references/session.yaml",
+}
 
-SKILL_TOOL_NAMES = frozenset(tool.name for tool in SKILL_TOOL_DEFINITIONS)
+SKILL_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(
+        action="list",
+        legacy_name="list_skills",
+    ),
+    ActionSpec(
+        action="start",
+        legacy_name="start_skill",
+        required=("name",),
+        properties={"name": _SKILL_NAME_PROPERTY},
+    ),
+    ActionSpec(action="status", legacy_name="skill_status"),
+    ActionSpec(
+        action="advance",
+        legacy_name="advance_skill",
+        properties={
+            "skip": {
+                "type": "boolean",
+                "description": "Skip the current step instead of completing it",
+            },
+            "reason": {
+                "type": "string",
+                "description": "Optional reason when skipping a step",
+            },
+        },
+    ),
+    ActionSpec(action="pause", legacy_name="pause_skill"),
+    ActionSpec(action="cancel", legacy_name="cancel_skill"),
+    ActionSpec(
+        action="create",
+        legacy_name="create_skill",
+        required=("name", "description", "body"),
+        properties={
+            "name": _SKILL_NAME_PROPERTY,
+            "description": _DESCRIPTION_PROPERTY,
+            "body": _BODY_PROPERTY,
+            "scope": _SCOPE_PROPERTY,
+            "personality_id": _PERSONALITY_ID_PROPERTY,
+            "skill_type": _SKILL_TYPE_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="update",
+        legacy_name="update_skill",
+        required=("name",),
+        properties={
+            "name": _SKILL_NAME_PROPERTY,
+            "description": _DESCRIPTION_PROPERTY,
+            "body": _BODY_PROPERTY,
+            "scope": _SCOPE_PROPERTY,
+            "personality_id": _PERSONALITY_ID_PROPERTY,
+            "skill_type": _SKILL_TYPE_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="delete",
+        legacy_name="delete_skill",
+        required=("name",),
+        properties={
+            "name": _SKILL_NAME_PROPERTY,
+            "scope": _SCOPE_PROPERTY,
+            "personality_id": _PERSONALITY_ID_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="read_file",
+        legacy_name="read_skill_file",
+        required=("path",),
+        properties={
+            "path": _PATH_PROPERTY,
+            "skill_name": _SKILL_NAME_REF_PROPERTY,
+        },
+    ),
+    ActionSpec(
+        action="write_file",
+        legacy_name="write_skill_file",
+        required=("skill_name", "path", "content"),
+        properties={
+            "skill_name": _SKILL_NAME_REF_PROPERTY,
+            "path": _PATH_PROPERTY,
+            "content": {"type": "string", "description": "Full file content to write"},
+        },
+    ),
+    ActionSpec(
+        action="update_pulse_config",
+        legacy_name="update_pulse_config",
+        required=("skill_name", "params"),
+        properties={
+            "skill_name": _SKILL_NAME_REF_PROPERTY,
+            "params": {
+                "type": "object",
+                "description": (
+                    "Keys: camera_switch_interval_s, cameras, conversation_min_silence_s, "
+                    "min_speak_interval_s, tick_interval_s, mandatory_cue_max_defer_s"
+                ),
+            },
+        },
+    ),
+)
+
+SKILL_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="skill",
+    description=(
+        "Skill workflow operations: built-in, shared, and persona-scoped guided workflows. "
+        "Use action=list to discover skills, action=start/status/advance/pause/cancel to run "
+        "a checklist or pulse session, action=create/update/delete to manage persona or shared "
+        "skills, action=read_file/write_file for skill resources, or action=update_pulse_config "
+        "to tune a pulse skill's session.yaml."
+    ),
+    actions=SKILL_ACTIONS,
+)
+
+SKILL_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [SKILL_TOOL_DEFINITION]
+SKILL_TOOL_NAMES = frozenset({"skill"})
 
 
 @dataclass(frozen=True)
@@ -994,24 +894,25 @@ def _format_step_message(
 def build_skill_instructions() -> str:
     return (
         "You have skills — structured guided workflows from built-ins, shared user skills, "
-        "and the active persona:\n"
-        "- list_skills: discover available skills (metadata, source: builtin/shared/personality, "
+        "and the active persona. Use the skill tool with an action:\n"
+        "- skill(action=list): discover available skills (metadata, source: builtin/shared/personality, "
         "and scope for shared skills)\n"
-        "- create_skill: write a new skill to the active persona's skills/ folder by default; "
+        "- skill(action=create): write a new skill to the active persona's skills/ folder by default; "
         "use scope shared only when the user wants cross-persona placement\n"
-        "- update_skill / delete_skill: change or remove persona or shared skills (not built-ins)\n"
-        "- start_skill: begin or resume a skill by name\n"
-        "- skill_status: check current step and progress\n"
-        "- advance_skill: move to the next checklist step after the user confirms verbally\n"
-        "- read_skill_file: load reference material from the active skill or a named skill "
+        "- skill(action=update) / skill(action=delete): change or remove persona or shared skills "
+        "(not built-ins)\n"
+        "- skill(action=start): begin or resume a skill by name\n"
+        "- skill(action=status): check current step and progress\n"
+        "- skill(action=advance): move to the next checklist step after the user confirms verbally\n"
+        "- skill(action=read_file): load reference material from the active skill or a named skill "
         "(references/, scripts/, assets/)\n"
-        "- write_skill_file: write resource files for a persona or shared skill (not built-ins)\n"
-        "- update_pulse_config: tune pulse timing and cameras in references/session.yaml "
+        "- skill(action=write_file): write resource files for a persona or shared skill (not built-ins)\n"
+        "- skill(action=update_pulse_config): tune pulse timing and cameras in references/session.yaml "
         "(re-start skill to apply)\n"
-        "- pause_skill / cancel_skill: suspend or abandon the active skill\n"
+        "- skill(action=pause) / skill(action=cancel): suspend or abandon the active skill\n"
         "For checklist skills, walk one step at a time. Wait for verbal confirmation before "
-        "calling advance_skill. The tool returns the authoritative next step — do not invent step order. "
-        "When authoring skills, prefer persona scope unless the user asks for a shared skill."
+        "calling skill(action=advance). The tool returns the authoritative next step — do not invent "
+        "step order. When authoring skills, prefer persona scope unless the user asks for a shared skill."
     )
 
 
@@ -1022,7 +923,7 @@ SKILL_TOOL_GROUP = ToolGroup(
         "User wants a guided workflow, checklist, pulse session, or to list/start/"
         "create/update skills for the active persona."
     ),
-    tools=tuple(SKILL_TOOL_DEFINITIONS),
+    tools=(SKILL_TOOL_DEFINITION,),
     instructions=build_skill_instructions(),
 )
 
@@ -1131,6 +1032,12 @@ def execute_skill_tool(
     tool_name: str,
     args: dict[str, Any],
 ) -> ToolExecutionResult:
+    if tool_name == "skill":
+        resolved = resolve_action_args("skill", args, SKILL_ACTIONS)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     personality = get_active_personality()
     memory_root.mkdir(parents=True, exist_ok=True)
 

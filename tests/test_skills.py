@@ -172,15 +172,7 @@ class SkillToolTests(unittest.TestCase):
 
     def test_registry_includes_skill_tools(self) -> None:
         names = {tool.name for tool in ALL_TOOL_DEFINITIONS}
-        self.assertIn("list_skills", names)
-        self.assertIn("start_skill", names)
-        self.assertIn("advance_skill", names)
-        self.assertIn("cancel_skill", names)
-        self.assertIn("create_skill", names)
-        self.assertIn("update_skill", names)
-        self.assertIn("delete_skill", names)
-        self.assertIn("write_skill_file", names)
-        self.assertIn("update_pulse_config", names)
+        self.assertIn("skill", names)
 
     def test_list_skills_returns_metadata_only(self) -> None:
         from buddy_tools.personality import set_active_personality
@@ -273,8 +265,8 @@ class SkillToolTests(unittest.TestCase):
         set_active_personality("coach")
         result = execute_tool(
             self.memory_root,
-            "list_skills",
-            "{}",
+            "skill",
+            '{"action":"list"}',
             persona_namespace="coach",
         )
         payload = json.loads(result.output)

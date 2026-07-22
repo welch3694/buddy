@@ -16,178 +16,150 @@ from buddy_tools.personality import (
     list_personalities,
     update_personality,
 )
+from buddy_tools.core.consolidate import ActionSpec, build_action_tool, resolve_action_args
 from buddy_tools.core.groups import ToolGroup
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import safe_tool_context, tool_error
 from buddy_tools.voice.voices import DEFAULT_VOICE_ID, list_voices
 
-_PERSONA_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="list_personalities",
-        description="List available assistant personalities by id.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="list_voices",
-        description="List available cloned voices by id.",
-        parameters={"type": "object", "properties": {}},
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="switch_personality",
-        description=(
-            "Switch to a different assistant personality. Use when the user asks to "
-            "become someone else, switch personas, or talk to a named personality."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {
-                    "type": "string",
-                    "description": "Personality id to activate, e.g. buddy or coach",
-                }
-            },
-            "required": ["personality_id"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="switch_voice",
-        description=(
-            "Change only the speaking voice without changing the full personality. "
-            "Use when the user asks to sound like a different cloned voice."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "voice_id": {
-                    "type": "string",
-                    "description": "Voice id from list_voices, e.g. cliff",
-                }
-            },
-            "required": ["voice_id"],
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="read_personality",
-        description=(
-            "Read the on-disk personality profile (prompt.md and profile.yaml fields only). "
-            "Use before update_personality to inspect current persona content — not the "
-            "assembled session instructions or memory snapshot."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {
-                    "type": "string",
-                    "description": "Personality id to read; defaults to the active personality",
-                }
-            },
-        },
-    ),
-    RealtimeFunctionTool(
-        type="function",
-        name="update_personality",
-        description=(
-            "Update an existing personality's name, description, prompt, or voice_id. "
-            "Use when the user wants to refine how a persona behaves or sounds. "
-            "The prompt field must be persona-only content for prompt.md."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {"type": "string"},
-                "name": {"type": "string"},
-                "description": {"type": "string"},
-                "prompt": {
-                    "type": "string",
-                    "description": (
-                        "Persona-only prompt.md content — identity, tone, role, traits. "
-                        "Not tool docs or system prompt stack."
-                    ),
-                },
-                "voice_id": {"type": "string"},
-            },
-            "required": ["personality_id"],
-        },
-    ),
-]
+_PERSONALITY_ID_PROPERTY = {
+    "type": "string",
+    "description": "Personality id, e.g. buddy or coach",
+}
 
-_PERSONA_ADMIN_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
-    RealtimeFunctionTool(
-        type="function",
-        name="create_personality",
-        description=(
-            "Create a new assistant personality after gathering name, role, tone, and "
-            "optional voice_id from the user."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {"type": "string"},
-                "name": {"type": "string", "description": "Display name, e.g. Coach"},
-                "prompt": {
-                    "type": "string",
-                    "description": (
-                        "Persona-only content for prompt.md — identity, tone, role, and traits. "
-                        "Never include tool instructions, memory snapshot, or system prompt boilerplate."
-                    ),
-                },
-                "description": {"type": "string"},
-                "voice_id": {
-                    "type": "string",
-                    "description": "Voice id from list_voices; defaults to cliff",
-                },
-            },
-            "required": ["personality_id", "name", "prompt"],
+PERSONA_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(action="list", legacy_name="list_personalities"),
+    ActionSpec(action="list_voices", legacy_name="list_voices"),
+    ActionSpec(
+        action="switch",
+        legacy_name="switch_personality",
+        required=("personality_id",),
+        properties={
+            "personality_id": {
+                "type": "string",
+                "description": "Personality id to activate, e.g. buddy or coach",
+            }
         },
     ),
-    RealtimeFunctionTool(
-        type="function",
-        name="delete_personality",
-        description=(
-            "Delete a personality. Cannot delete the default buddy personality."
-        ),
-        parameters={
-            "type": "object",
-            "properties": {
-                "personality_id": {"type": "string"},
-            },
-            "required": ["personality_id"],
+    ActionSpec(
+        action="switch_voice",
+        legacy_name="switch_voice",
+        required=("voice_id",),
+        properties={
+            "voice_id": {
+                "type": "string",
+                "description": "Voice id from persona(action=list_voices), e.g. cliff",
+            }
         },
     ),
-]
-
-PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = (
-    _PERSONA_TOOL_DEFINITIONS + _PERSONA_ADMIN_TOOL_DEFINITIONS
+    ActionSpec(
+        action="read",
+        legacy_name="read_personality",
+        properties={
+            "personality_id": {
+                "type": "string",
+                "description": "Personality id to read; defaults to the active personality",
+            }
+        },
+    ),
+    ActionSpec(
+        action="update",
+        legacy_name="update_personality",
+        required=("personality_id",),
+        properties={
+            "personality_id": _PERSONALITY_ID_PROPERTY,
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "prompt": {
+                "type": "string",
+                "description": (
+                    "Persona-only prompt.md content — identity, tone, role, traits. "
+                    "Not tool docs or system prompt stack."
+                ),
+            },
+            "voice_id": {"type": "string"},
+        },
+    ),
 )
-PERSONALITY_TOOL_NAMES = frozenset(tool.name for tool in PERSONALITY_TOOL_DEFINITIONS)
+
+PERSONA_ADMIN_ACTIONS: tuple[ActionSpec, ...] = (
+    ActionSpec(
+        action="create",
+        legacy_name="create_personality",
+        required=("personality_id", "name", "prompt"),
+        properties={
+            "personality_id": _PERSONALITY_ID_PROPERTY,
+            "name": {"type": "string", "description": "Display name, e.g. Coach"},
+            "prompt": {
+                "type": "string",
+                "description": (
+                    "Persona-only content for prompt.md — identity, tone, role, and traits. "
+                    "Never include tool instructions, memory snapshot, or system prompt boilerplate."
+                ),
+            },
+            "description": {"type": "string"},
+            "voice_id": {
+                "type": "string",
+                "description": "Voice id from persona(action=list_voices); defaults to cliff",
+            },
+        },
+    ),
+    ActionSpec(
+        action="delete",
+        legacy_name="delete_personality",
+        required=("personality_id",),
+        properties={"personality_id": _PERSONALITY_ID_PROPERTY},
+    ),
+)
+
+PERSONA_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="persona",
+    description=(
+        "Personality and voice operations. Use action=list/list_voices to see what is available, "
+        "action=read to inspect the on-disk personality profile, action=switch/switch_voice to "
+        "change persona or voice, or action=update to refine an existing persona."
+    ),
+    actions=PERSONA_ACTIONS,
+)
+
+PERSONA_ADMIN_TOOL_DEFINITION: RealtimeFunctionTool = build_action_tool(
+    name="persona_admin",
+    description=(
+        "Personality admin operations. Use action=create to make a new personality, "
+        "or action=delete to remove one (not the default buddy personality)."
+    ),
+    actions=PERSONA_ADMIN_ACTIONS,
+)
+
+PERSONALITY_TOOL_DEFINITIONS: list[RealtimeFunctionTool] = [
+    PERSONA_TOOL_DEFINITION,
+    PERSONA_ADMIN_TOOL_DEFINITION,
+]
+PERSONALITY_TOOL_NAMES = frozenset({"persona", "persona_admin"})
 
 
 def build_persona_instructions() -> str:
     return (
         "Identity rule: You are only the active personality. When the user asks for a "
         "different persona, to become someone else, or to talk to a named personality, "
-        "you MUST call switch_personality. Never impersonate another persona without that tool.\n"
-        "You can switch, inspect, and refine personalities and voices:\n"
-        "- list_personalities / list_voices: see what is available\n"
-        "- read_personality: load on-disk prompt.md and profile fields before editing\n"
-        "- switch_personality: become a different persona when asked\n"
-        "- switch_voice: change only the cloned voice\n"
-        "- update_personality: refine how a persona behaves or sounds (persona-only prompt.md content)\n"
+        "you MUST call persona(action=switch). Never impersonate another persona without that tool.\n"
+        "You can switch, inspect, and refine personalities and voices with the persona tool:\n"
+        "- persona(action=list) / persona(action=list_voices): see what is available\n"
+        "- persona(action=read): load on-disk prompt.md and profile fields before editing\n"
+        "- persona(action=switch, personality_id=...): become a different persona when asked\n"
+        "- persona(action=switch_voice, voice_id=...): change only the cloned voice\n"
+        "- persona(action=update, personality_id=...): refine how a persona behaves or sounds "
+        "(persona-only prompt.md content)\n"
         "After switching personalities, respond briefly in character without mentioning tools."
     )
 
 
 def build_persona_admin_instructions() -> str:
     return (
-        "You can create and delete assistant personalities:\n"
-        "- create_personality: make a new persona after asking what they should be like\n"
-        "- delete_personality: remove a persona (not buddy)\n"
-        "Prompt content for create_personality must be persona-only — never include tool "
+        "You can create and delete assistant personalities with the persona_admin tool:\n"
+        "- persona_admin(action=create): make a new persona after asking what they should be like\n"
+        "- persona_admin(action=delete): remove a persona (not buddy)\n"
+        "Prompt content for persona_admin(action=create) must be persona-only — never include tool "
         "instructions, memory snapshots, or system prompt boilerplate."
     )
 
@@ -202,9 +174,9 @@ PERSONA_TOOL_GROUP = ToolGroup(
     title="Persona",
     when_to_use=(
         "User asks to switch personas, change voice, list or read personalities, "
-        "or refine the active persona with update_personality. Prefer switch_personality over roleplay."
+        "or refine the active persona with persona(action=update). Prefer switch over roleplay."
     ),
-    tools=tuple(_PERSONA_TOOL_DEFINITIONS),
+    tools=(PERSONA_TOOL_DEFINITION,),
     instructions=build_persona_instructions(),
 )
 
@@ -214,7 +186,7 @@ PERSONA_ADMIN_TOOL_GROUP = ToolGroup(
     when_to_use=(
         "User asks to create or delete a personality (admin; not for roleplay or edits)."
     ),
-    tools=tuple(_PERSONA_ADMIN_TOOL_DEFINITIONS),
+    tools=(PERSONA_ADMIN_TOOL_DEFINITION,),
     instructions=build_persona_admin_instructions(),
     default_visible=False,
     admin_only=True,
@@ -222,6 +194,13 @@ PERSONA_ADMIN_TOOL_GROUP = ToolGroup(
 
 
 def execute_personality_tool(tool_name: str, args: dict[str, Any]) -> ToolExecutionResult:
+    if tool_name in ("persona", "persona_admin"):
+        actions = PERSONA_ACTIONS if tool_name == "persona" else PERSONA_ADMIN_ACTIONS
+        resolved = resolve_action_args(tool_name, args, actions)
+        if isinstance(resolved, ToolExecutionResult):
+            return resolved
+        tool_name, args = resolved
+
     if tool_name == "list_personalities":
         personalities = list_personalities()
         active = get_active_personality()

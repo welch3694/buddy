@@ -74,14 +74,14 @@ class ToolRoutingInstructionTests(unittest.TestCase):
         lowered = text.lower()
         for needle in ("persona", "memory", "episodic", "skills", "vision", "timers", "channels"):
             self.assertIn(needle, lowered)
-        self.assertIn("switch_personality", text)
+        self.assertIn("persona(action=switch", text)
         self.assertIn("Identity rule", text)
         self.assertIn("Never impersonate", text)
-        self.assertIn("update_personality", text)
-        self.assertIn("send_telegram_message", text)
-        self.assertIn("send_telegram_photo", text)
-        self.assertIn("speak_aloud", text)
-        self.assertNotIn("create_personality", text)
+        self.assertIn("persona(action=update)", text)
+        self.assertIn("channel(action=send_telegram_message)", text)
+        self.assertIn("channel(action=send_telegram_photo)", text)
+        self.assertIn("channel(action=speak_aloud)", text)
+        self.assertNotIn("persona_admin(action=create)", text)
 
     def test_active_context_and_admin_for_buddy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -108,7 +108,7 @@ class ToolRoutingInstructionTests(unittest.TestCase):
                 )
                 self.assertIn("## Active context", text)
                 self.assertIn("id: buddy", text)
-                self.assertIn("create_personality", text)
+                self.assertIn("persona_admin(action=create)", text)
                 self.assertIn("## Persona admin", text)
             finally:
                 set_personalities_dir(original_p)
@@ -136,16 +136,13 @@ class ToolVisibilityTests(unittest.TestCase):
 
     def test_non_buddy_hides_persona_admin(self) -> None:
         names = {t.name for t in visible_tool_definitions(TOOL_GROUPS, self._profile())}
-        self.assertIn("switch_personality", names)
-        self.assertIn("update_personality", names)
-        self.assertNotIn("create_personality", names)
-        self.assertNotIn("delete_personality", names)
+        self.assertIn("persona", names)
+        self.assertNotIn("persona_admin", names)
 
     def test_buddy_gets_persona_admin(self) -> None:
         names = {t.name for t in tools_for_personality(self._profile("buddy"))}
-        self.assertIn("create_personality", names)
-        self.assertIn("update_personality", names)
-        self.assertIn("delete_personality", names)
+        self.assertIn("persona", names)
+        self.assertIn("persona_admin", names)
 
     def test_opt_in_via_tool_groups(self) -> None:
         names = {
@@ -155,7 +152,7 @@ class ToolVisibilityTests(unittest.TestCase):
                 self._profile(tool_groups=("persona_admin",)),
             )
         }
-        self.assertIn("create_personality", names)
+        self.assertIn("persona_admin", names)
 
     def test_unknown_tool_group_raises(self) -> None:
         with self.assertRaises(ValueError) as ctx:
@@ -196,8 +193,8 @@ class RuntimeToolFilterTests(unittest.TestCase):
         runtime_config = RuntimeConfig()
         configure_runtime_tools(runtime_config, self.memory_root)
         names = {t.name for t in runtime_config.session.tools}
-        self.assertIn("switch_personality", names)
-        self.assertNotIn("create_personality", names)
+        self.assertIn("persona", names)
+        self.assertNotIn("persona_admin", names)
         self.assertIn("## Tool routing", runtime_config.session.instructions)
         self.assertIn("Identity rule", runtime_config.session.instructions)
 
@@ -211,7 +208,7 @@ class RuntimeToolFilterTests(unittest.TestCase):
         set_tts_handler(handler)
 
         configure_runtime_tools(runtime_config, self.memory_root)
-        self.assertIn("create_personality", {t.name for t in runtime_config.session.tools})
+        self.assertIn("persona_admin", {t.name for t in runtime_config.session.tools})
 
         apply_personality_switch(
             "coach",
@@ -220,8 +217,8 @@ class RuntimeToolFilterTests(unittest.TestCase):
             memory_root=self.memory_root,
         )
         names = {t.name for t in runtime_config.session.tools}
-        self.assertNotIn("create_personality", names)
-        self.assertIn("switch_personality", names)
+        self.assertNotIn("persona_admin", names)
+        self.assertIn("persona", names)
 
         update_personality("coach", tool_groups=["persona_admin"])
         apply_personality_switch(
@@ -230,7 +227,7 @@ class RuntimeToolFilterTests(unittest.TestCase):
             chat=chat,
             memory_root=self.memory_root,
         )
-        self.assertIn("create_personality", {t.name for t in runtime_config.session.tools})
+        self.assertIn("persona_admin", {t.name for t in runtime_config.session.tools})
 
 
 class ToolGroupHelperTests(unittest.TestCase):

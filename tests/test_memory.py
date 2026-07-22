@@ -101,8 +101,8 @@ class MemoryNamespaceTests(unittest.TestCase):
     def test_execute_tool_requires_persona_namespace(self) -> None:
         result = execute_tool(
             self.memory_root,
-            "list_memory",
-            "{}",
+            "memory",
+            '{"action":"list"}',
             persona_namespace="buddy",
         )
         payload = json.loads(result.output)

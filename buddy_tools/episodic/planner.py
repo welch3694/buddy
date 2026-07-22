@@ -44,8 +44,12 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
             "reason": (
                 f"Query references a relative calendar day — read the day summary for {resolved_date}."
             ),
-            "recommended_tools": ["read_episodic_summary"],
-            "recommended_args": {"level": "day", "date": resolved_date},
+            "recommended_tools": ["episodic"],
+            "recommended_args": {
+                "action": "read_summary",
+                "level": "day",
+                "date": resolved_date,
+            },
             "resolved_date": resolved_date,
         }
 
@@ -54,8 +58,11 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
         return {
             "depth": "turns",
             "reason": "Query references a specific session id — load raw turns for detail.",
-            "recommended_tools": ["read_episodic_turns"],
-            "recommended_args": {"session_id": session_id_match.group(0)},
+            "recommended_tools": ["episodic"],
+            "recommended_args": {
+                "action": "read_turns",
+                "session_id": session_id_match.group(0),
+            },
         }
 
     date_match = _DATE_RE.search(query_clean)
@@ -66,8 +73,12 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
             "reason": (
                 f"Query references calendar date {absolute_date} — read the day summary first."
             ),
-            "recommended_tools": ["read_episodic_summary"],
-            "recommended_args": {"level": "day", "date": absolute_date},
+            "recommended_tools": ["episodic"],
+            "recommended_args": {
+                "action": "read_summary",
+                "level": "day",
+                "date": absolute_date,
+            },
             "resolved_date": absolute_date,
         }
 
@@ -76,7 +87,8 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
             return {
                 "depth": "turns",
                 "reason": "Query asks for verbatim or exact wording from a conversation.",
-                "recommended_tools": ["read_episodic_turns"],
+                "recommended_tools": ["episodic"],
+                "recommended_args": {"action": "read_turns"},
             }
 
     for pattern in _PERIOD_PATTERNS:
@@ -84,20 +96,21 @@ def plan_episodic_recall(query: str) -> dict[str, Any]:
             return {
                 "depth": "period",
                 "reason": "Broad query spanning multiple sessions — start with year or month summaries.",
-                "recommended_tools": ["read_episodic_summary"],
+                "recommended_tools": ["episodic"],
+                "recommended_args": {"action": "read_summary"},
             }
 
     if re.search(r"\bwhen\s+did\s+we\b", query_lower) or re.search(r"\blast\s+time\b", query_lower):
         return {
             "depth": "session",
             "reason": "Temporal recall question — review matching session summaries first.",
-            "recommended_tools": ["read_episodic_summary"],
-            "recommended_args": {"level": "session"},
+            "recommended_tools": ["episodic"],
+            "recommended_args": {"action": "read_summary", "level": "session"},
         }
 
     return {
         "depth": "session",
         "reason": "Default to session-level summaries before loading turns.",
-        "recommended_tools": ["read_episodic_summary"],
-        "recommended_args": {"level": "session"},
+        "recommended_tools": ["episodic"],
+        "recommended_args": {"action": "read_summary", "level": "session"},
     }

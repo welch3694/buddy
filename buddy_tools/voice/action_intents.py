@@ -113,27 +113,36 @@ def match_action_intent(text: str) -> ActionIntent | None:
         return None
 
     if _matches_prefix(normalized, _CANCEL_PREFIXES):
-        return ActionIntent(tool_name="cancel_skill", arguments={})
+        return ActionIntent(tool_name="skill", arguments={"action": "cancel"})
 
     if _matches_prefix(normalized, _PAUSE_PREFIXES):
-        return ActionIntent(tool_name="pause_skill", arguments={})
+        return ActionIntent(tool_name="skill", arguments={"action": "pause"})
 
     if _matches_prefix(normalized, _LIVE_DIRECTOR_PREFIXES):
-        return ActionIntent(tool_name="start_skill", arguments={"name": "live-director"})
+        return ActionIntent(
+            tool_name="skill",
+            arguments={"action": "start", "name": "live-director"},
+        )
 
     if _matches_prefix(normalized, _REMEMBER_PREFIXES):
-        return ActionIntent(tool_name="start_skill", arguments={"name": "remember"})
+        return ActionIntent(
+            tool_name="skill",
+            arguments={"action": "start", "name": "remember"},
+        )
 
     if _matches_prefix(normalized, _EDIT_PERSONALITY_PREFIXES):
-        return ActionIntent(tool_name="start_skill", arguments={"name": "edit-personality"})
+        return ActionIntent(
+            tool_name="skill",
+            arguments={"action": "start", "name": "edit-personality"},
+        )
 
     switch_match = _SWITCH_PERSONALITY_RE.match(normalized)
     if switch_match is not None:
         personality_id = _sanitize_personality_id(switch_match.group(1))
         if personality_id is not None:
             return ActionIntent(
-                tool_name="switch_personality",
-                arguments={"personality_id": personality_id},
+                tool_name="persona",
+                arguments={"action": "switch", "personality_id": personality_id},
             )
 
     return None
