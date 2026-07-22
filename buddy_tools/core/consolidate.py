@@ -20,6 +20,8 @@ class ActionSpec:
     legacy_name: str
     required: tuple[str, ...] = ()
     properties: Mapping[str, Any] = field(default_factory=dict)
+    # Alias arg name → canonical name (e.g. skill_name → name when models mix keys).
+    aliases: Mapping[str, str] = field(default_factory=dict)
 
 
 def build_action_tool(
@@ -71,6 +73,19 @@ def _is_missing_required(value: Any) -> bool:
     return False
 
 
+def _apply_aliases(remaining: dict[str, Any], aliases: Mapping[str, str]) -> dict[str, Any]:
+    """Copy alias values onto missing canonical keys (does not remove aliases)."""
+    if not aliases:
+        return remaining
+    out = dict(remaining)
+    for alias, canonical in aliases.items():
+        if alias not in out or _is_missing_required(out.get(alias)):
+            continue
+        if canonical not in out or _is_missing_required(out.get(canonical)):
+            out[canonical] = out[alias]
+    return out
+
+
 def resolve_action_args(
     tool_name: str,
     args: dict[str, Any],
@@ -92,7 +107,10 @@ def resolve_action_args(
             context=safe_tool_context(args),
         )
 
-    remaining = {key: value for key, value in args.items() if key != "action"}
+    remaining = _apply_aliases(
+        {key: value for key, value in args.items() if key != "action"},
+        spec.aliases,
+    )
     missing = [
         key
         for key in spec.required
