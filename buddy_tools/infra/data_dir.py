@@ -18,11 +18,7 @@ from buddy_tools.personality import (
 )
 from buddy_tools.themes.catalog import set_themes_dir
 from buddy_tools.themes.schema import THEME_FILENAME, is_valid_theme_dir
-from buddy_tools.voice.voices import (
-    AUDIO_FILENAME,
-    REF_TEXT_FILENAME,
-    set_voices_dir,
-)
+from buddy_tools.voice.voices import is_valid_voice_dir, set_voices_dir
 
 logger = logging.getLogger(__name__)
 
@@ -103,10 +99,6 @@ def _is_valid_personality_dir(path: Path) -> bool:
     return (path / PROFILE_FILENAME).is_file() and (path / PROMPT_FILENAME).is_file()
 
 
-def _is_valid_voice_dir(path: Path) -> bool:
-    return (path / AUDIO_FILENAME).is_file() and (path / REF_TEXT_FILENAME).is_file()
-
-
 def _is_valid_theme_pack_dir(path: Path) -> bool:
     return (path / THEME_FILENAME).is_file() and is_valid_theme_dir(path)
 
@@ -120,7 +112,7 @@ def _memory_dir_has_content(memory_dir: Path) -> bool:
 def _voices_dir_has_content(voices_dir: Path) -> bool:
     if not voices_dir.is_dir():
         return False
-    return any(entry.is_dir() and _is_valid_voice_dir(entry) for entry in voices_dir.iterdir())
+    return any(entry.is_dir() and is_valid_voice_dir(entry) for entry in voices_dir.iterdir())
 
 
 def _copy_tree_contents(source: Path, dest: Path) -> None:
@@ -184,11 +176,11 @@ def seed_shipped_voices(shipped_dir: Path, user_dir: Path) -> list[str]:
     for entry in sorted(shipped_dir.iterdir()):
         if not entry.is_dir() or not _SAFE_NAME.match(entry.name):
             continue
-        if not _is_valid_voice_dir(entry):
+        if not is_valid_voice_dir(entry):
             continue
 
         target = user_dir / entry.name
-        if _is_valid_voice_dir(target):
+        if is_valid_voice_dir(target):
             continue
 
         if target.exists():

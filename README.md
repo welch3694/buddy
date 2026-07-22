@@ -45,7 +45,7 @@ Set `BUDDY_LLM_MODEL_DIR` and related paths in `.env` if your GGUF files live so
    .\start-speech-to-speech.ps1
    ```
 
-Voice cloning uses named voices under `{BUDDY_DATA_DIR}/voices/` (default voice: `cliff`). Each voice folder contains `audio.wav` and `ref_text.txt`. Shipped defaults are copied from `voices/` in the repo on first run. See `voices/README.md` to add voices manually.
+Voice cloning uses named voices under `{BUDDY_DATA_DIR}/voices/` (default voice: `cliff`). Each voice folder contains `audio.wav` or `audio.flac` plus `ref_text.txt` (WAV preferred if both exist). Shipped defaults are copied from `voices/` in the repo on first run. See `voices/README.md` to add voices manually.
 
 TTS defaults to **Pocket TTS** with voice cloning from `voices/cliff/audio.wav` (requires Hugging Face login and Kyutai terms). Set `$ttsBackend = "qwen3"` in `start-speech-to-speech.ps1` to use Qwen3 instead (occasional timbre drift; see issue #12).
 
