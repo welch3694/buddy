@@ -349,6 +349,32 @@ class TelegramBridge:
             logger.exception("Telegram send_photo failed for chat_id=%s", chat_id)
             raise
 
+    def send_document(
+        self,
+        chat_id: int,
+        file_bytes: bytes,
+        *,
+        filename: str = "capture.jpg",
+        caption: str | None = None,
+        message_thread_id: int | None = None,
+    ) -> None:
+        """Send raw file bytes via sendDocument (preserves full quality)."""
+        if self._loop is None or self._application is None:
+            logger.warning("Telegram bridge not ready; dropping document")
+            return
+        if not file_bytes:
+            raise ValueError("file_bytes is empty")
+        name = (filename or "").strip() or "capture.jpg"
+        future = asyncio.run_coroutine_threadsafe(
+            self._send_document(chat_id, file_bytes, name, caption, message_thread_id),
+            self._loop,
+        )
+        try:
+            future.result(timeout=60)
+        except Exception:
+            logger.exception("Telegram send_document failed for chat_id=%s", chat_id)
+            raise
+
     async def _send_message(self, chat_id: int, text: str, message_thread_id: int | None) -> None:
         kwargs: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if message_thread_id is not None:
@@ -373,6 +399,26 @@ class TelegramBridge:
         if message_thread_id is not None:
             kwargs["message_thread_id"] = message_thread_id
         await self._application.bot.send_photo(**kwargs)
+
+    async def _send_document(
+        self,
+        chat_id: int,
+        file_bytes: bytes,
+        filename: str,
+        caption: str | None,
+        message_thread_id: int | None,
+    ) -> None:
+        from io import BytesIO
+
+        from telegram import InputFile
+
+        document = InputFile(BytesIO(file_bytes), filename=filename)
+        kwargs: dict[str, Any] = {"chat_id": chat_id, "document": document}
+        if caption:
+            kwargs["caption"] = caption
+        if message_thread_id is not None:
+            kwargs["message_thread_id"] = message_thread_id
+        await self._application.bot.send_document(**kwargs)
 
     def _run_polling(self) -> None:
         loop = asyncio.new_event_loop()

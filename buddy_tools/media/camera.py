@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import sys
@@ -13,13 +12,14 @@ from openai.types.realtime import RealtimeFunctionTool
 
 from buddy_tools.core.result import ToolExecutionResult
 from buddy_tools.core.tool_logging import log_tool_failure, safe_tool_context, tool_error
+from buddy_tools.media.encode import DualJpegCapture, encode_preview_and_delivery
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DEVICE_INDEX = 0
 DEFAULT_MAX_WIDTH = 768
-JPEG_QUALITY = 85
 WARMUP_FRAMES = 3
+DELIVERY_FILENAME = "buddy-camera.jpg"
 
 _ENV_CAMERA_DEVICE = "BUDDY_CAMERA_DEVICE"
 _ENV_CAMERA_NAME = "BUDDY_CAMERA_NAME"
@@ -234,8 +234,8 @@ def _open_camera(device_index: int) -> cv2.VideoCapture:
 def capture_frame(
     device_index: int | None = None,
     max_width: int = DEFAULT_MAX_WIDTH,
-) -> str:
-    """Grab one JPEG frame and return a base64 data URI."""
+) -> DualJpegCapture:
+    """Grab one frame; return preview URI for analysis and full JPEG for delivery."""
     if device_index is None:
         resolved_index = resolve_camera_device_index()
     else:
@@ -253,19 +253,14 @@ def capture_frame(
         if not ok or frame is None:
             raise RuntimeError("Could not read a frame from the camera")
 
-        height, width = frame.shape[:2]
-        if width > max_width:
-            scale = max_width / width
-            frame = cv2.resize(frame, (max_width, int(height * scale)))
-
-        ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        if not ok:
-            raise RuntimeError("Could not encode camera frame as JPEG")
-
-        encoded = base64.b64encode(jpeg.tobytes()).decode("ascii")
-        data_uri = f"data:image/jpeg;base64,{encoded}"
-        logger.info("Captured camera frame (%dx%d, %d bytes)", frame.shape[1], frame.shape[0], len(jpeg))
-        return data_uri
+        captured = encode_preview_and_delivery(frame, max_width=max_width)
+        logger.info(
+            "Captured camera frame (%dx%d, preview+delivery %d bytes)",
+            captured.width,
+            captured.height,
+            len(captured.delivery_jpeg),
+        )
+        return captured
     finally:
         cap.release()
 
@@ -326,12 +321,14 @@ def execute_set_active_camera_tool(args: dict[str, Any]) -> ToolExecutionResult:
 
 def execute_camera_tool() -> ToolExecutionResult:
     try:
-        data_uri = capture_frame()
+        captured = capture_frame()
     except Exception as exc:
         log_tool_failure("capture_camera", f"camera capture failed: {exc}", exc=exc)
         return ToolExecutionResult(output=f"Error: camera capture failed: {exc}")
     return ToolExecutionResult(
         output="Camera capture succeeded.",
-        image_data_uri=data_uri,
+        image_data_uri=captured.preview_data_uri,
         image_caption="Here is what the camera sees.",
+        image_delivery_bytes=captured.delivery_jpeg,
+        image_delivery_filename=DELIVERY_FILENAME,
     )

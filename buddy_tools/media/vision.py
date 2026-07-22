@@ -66,7 +66,10 @@ def build_vision_instructions() -> str:
         "You can see the user's screen with vision(action=capture_screen). Call it when they ask "
         "what is on their screen, to read something visible, or to help with what they are looking "
         "at. After capturing, describe what you see in natural spoken language without mentioning "
-        "tools or screenshots."
+        "tools or screenshots.\n"
+        "When they ask you to take a picture or screenshot and send it to them, call the matching "
+        "vision capture action first, then channel(action=send_telegram_photo) to deliver the "
+        "full-resolution file."
     )
 
 
