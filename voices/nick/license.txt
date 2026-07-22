@@ -1,0 +1,17 @@
+https://www.openslr.org/12/
+
+LibriSpeech ASR corpus
+
+Identifier: SLR12
+
+LibriSpeech\dev-clean\5694\64029\5694-64029-0016.flac
+LibriSpeech\dev-clean\5694\64029\5694-64029-0024.flac
+
+Summary: Large-scale (1000 hours) corpus of read English speech
+
+Category: Speech
+
+License: CC BY 4.0
+
+https://creativecommons.org/licenses/by/4.0/deed.en
+
