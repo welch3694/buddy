@@ -35,6 +35,16 @@ class RefTextForAudioPathTests(unittest.TestCase):
 
         self.assertEqual(ref_text, "Matching transcript.")
 
+    def test_loads_ref_text_from_flac_voice_folder(self) -> None:
+        voice_dir = self.voices_root / "cliff"
+        voice_dir.mkdir()
+        (voice_dir / "audio.flac").write_bytes(b"fLaC")
+        (voice_dir / "ref_text.txt").write_text("FLAC transcript.", encoding="utf-8")
+
+        ref_text = ref_text_for_audio_path(voice_dir / "audio.flac")
+
+        self.assertEqual(ref_text, "FLAC transcript.")
+
     def test_returns_none_for_non_voice_paths(self) -> None:
         path = self.voices_root / "other.wav"
         path.write_bytes(b"RIFF")
