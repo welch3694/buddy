@@ -4,7 +4,7 @@ LibriSpeech ASR corpus
 
 Identifier: SLR12
 
-LibriSpeech\dev-clean\652\130726\652-130726-0011.flac
+LibriSpeech\train-clean-100\8747\293952\8747-293952-0000.flac
 
 Summary: Large-scale (1000 hours) corpus of read English speech
 
@@ -13,4 +13,3 @@ Category: Speech
 License: CC BY 4.0
 
 https://creativecommons.org/licenses/by/4.0/deed.en
-
