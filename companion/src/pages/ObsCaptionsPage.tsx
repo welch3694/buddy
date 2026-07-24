@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { BridgeStatus } from "../components/BridgeStatus";
-import { ObsKaraokeCaptions } from "../components/ObsKaraokeCaptions";
+import { ObsRollingCaptions } from "../components/ObsRollingCaptions";
 import { useCaptionHighlight } from "../hooks/useCaptionHighlight";
 import { useCompanionBridge } from "../hooks/useCompanionBridge";
 
 /**
- * Transparent OBS Browser Source widget: single-line karaoke captions.
+ * Transparent OBS Browser Source widget: rolling multi-line captions.
  * Production: http://127.0.0.1:5173/obs/captions
  * Setup:     http://127.0.0.1:5173/obs/captions?debug=1
  */
@@ -40,12 +40,10 @@ export function ObsCaptionsPage() {
         </div>
       ) : null}
       {live ? (
-        <ObsKaraokeCaptions
+        <ObsRollingCaptions
           words={captions.words}
           activeWordIndex={captions.activeWordIndex}
           phase={captions.phase}
-          captionText={captions.displayText || bridge.captionText}
-          speakingPlayback={bridge.speakingPlayback}
         />
       ) : null}
     </div>

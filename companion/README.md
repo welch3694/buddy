@@ -60,7 +60,7 @@ The companion app serves transparent stream widgets for OBS Studio. With Buddy v
 
 Recommended OBS settings (both):
 
-- **Width / height:** speaking e.g. `400` × `400`; captions e.g. `1280` × `100` (a short strip — scale in the preview as needed)
+- **Width / height:** speaking e.g. `400` × `400`; captions e.g. `1280` × `140` (two-line window — scale in the preview as needed)
 - **Shutdown source when not visible:** off (so the widget can appear instantly)
 - **Control audio via OBS:** off
 - Background is transparent — no chroma key required
@@ -68,7 +68,7 @@ Recommended OBS settings (both):
 Behavior:
 
 - **Speaking:** orb only while the bridge reports `turnState === "speaking"`, then a short fade-out
-- **Captions:** single-line karaoke strip — blank until speaking starts; active word stays slightly left-of-center with soft edge fades; fades out with the speaking orb (~450ms), then clears. Idle / disconnected stays fully transparent
+- **Captions:** word-wrapped rolling window (2 lines) — blank until speaking starts; older lines scroll up as speech advances; subtle active-word highlight; fades out with the speaking orb (~450ms). Idle / disconnected stays fully transparent
 - Production URLs never mock; `?debug=1` shows link status and runs mock turn/caption cycles for positioning
 
 Operator HUD remains at `http://127.0.0.1:5173/` (unchanged).

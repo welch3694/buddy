@@ -805,79 +805,74 @@ html.obs-transparent #root {
 .obs-captions {
   position: relative;
   display: grid;
-  place-items: stretch;
-  align-content: center;
+  place-items: center;
+  align-content: end;
   width: 100%;
   height: 100%;
   min-height: 100vh;
   margin: 0;
-  padding: 0;
+  padding: clamp(0.5rem, 2vh, 1.25rem) clamp(1rem, 3vw, 2rem);
   overflow: hidden;
   background: transparent;
 }
 
-.obs-karaoke {
+.obs-rolling {
   position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
+  width: min(48rem, 100%);
   overflow: hidden;
-  /* Soft fade at both edges so the strip can be any OBS width */
+  /* Soft fade at the top as older lines scroll away */
   -webkit-mask-image: linear-gradient(
-    to right,
+    to bottom,
     transparent 0%,
-    #000 7%,
-    #000 93%,
-    transparent 100%
+    #000 18%,
+    #000 100%
   );
   mask-image: linear-gradient(
-    to right,
+    to bottom,
     transparent 0%,
-    #000 7%,
-    #000 93%,
-    transparent 100%
+    #000 18%,
+    #000 100%
   );
 }
 
-.obs-karaoke__track {
+.obs-rolling__track {
   margin: 0;
-  padding: 0 1rem;
-  white-space: nowrap;
+  padding: 0;
+  text-align: center;
+  text-wrap: balance;
   will-change: transform, opacity;
   opacity: 1;
-  /* Blend between playback ticks so scroll feels continuous, not stepped */
   transition:
-    transform 160ms linear,
+    transform 280ms ease-out,
     opacity 450ms ease-out;
   font-family: var(--font-mono);
-  font-size: clamp(1.15rem, 3.2vw, 1.65rem);
-  line-height: 1.35;
+  font-size: clamp(1.05rem, 2.6vw, 1.45rem);
+  line-height: 1.45;
   letter-spacing: 0.04em;
   color: color-mix(in srgb, var(--ice) 55%, transparent);
 }
 
-.obs-karaoke__track--fade-out {
+.obs-rolling__track--fade-out {
   opacity: 0;
 }
 
-.obs-karaoke__word {
-  transition: color 120ms ease, text-shadow 160ms ease, opacity 120ms ease;
+.obs-rolling__word {
+  transition: color 120ms ease, text-shadow 160ms ease;
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.9),
     0 0 12px rgba(0, 0, 0, 0.65);
 }
 
-.obs-karaoke__word--spoken {
+.obs-rolling__word--spoken {
   color: color-mix(in srgb, var(--ice) 82%, transparent);
 }
 
-.obs-karaoke__word--active {
+.obs-rolling__word--active {
   color: var(--ice);
   text-shadow:
     0 1px 2px rgba(0, 0, 0, 0.95),
-    0 0 10px color-mix(in srgb, var(--cyan) 85%, transparent),
-    0 0 22px color-mix(in srgb, var(--teal) 45%, transparent);
+    0 0 10px color-mix(in srgb, var(--cyan) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--teal) 35%, transparent);
 }
 
 .obs-captions__debug {
@@ -913,12 +908,12 @@ html.obs-transparent #root {
   }
 
   .captions__word,
-  .obs-karaoke__word {
+  .obs-rolling__word {
     transition: none;
   }
 
   .obs-speaking__orb,
-  .obs-karaoke__track {
+  .obs-rolling__track {
     transition: none;
   }
 }
