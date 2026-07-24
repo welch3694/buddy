@@ -93,7 +93,16 @@ function resolveWsUrl(): string {
 
 function useMockMode(): boolean {
   if (typeof window === "undefined") return false;
-  return new URLSearchParams(window.location.search).get("mock") === "1";
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("mock") === "1") return true;
+  // OBS setup URL: ?debug=1 enables mock speaking cycles (never on production /obs URL).
+  if (
+    params.get("debug") === "1" &&
+    window.location.pathname.startsWith("/obs")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function appendCaptionChunk(existing: string, chunk: string): string {

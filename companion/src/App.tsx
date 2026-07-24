@@ -1,7 +1,9 @@
+import { Route, Routes } from "react-router-dom";
 import { CompanionShell } from "./components/CompanionShell";
 import { useCompanionBridge } from "./hooks/useCompanionBridge";
+import { ObsSpeakingPage } from "./pages/ObsSpeakingPage";
 
-export default function App() {
+function CompanionHud() {
   const bridge = useCompanionBridge();
 
   return (
@@ -17,5 +19,14 @@ export default function App() {
       onExpireToolCall={bridge.expireToolCall}
       mock={bridge.mock}
     />
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<CompanionHud />} />
+      <Route path="/obs/speaking" element={<ObsSpeakingPage />} />
+    </Routes>
   );
 }
