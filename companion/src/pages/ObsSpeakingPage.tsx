@@ -3,9 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { BridgeStatus } from "../components/BridgeStatus";
 import { CentralOrb } from "../components/CentralOrb";
 import { useCompanionBridge } from "../hooks/useCompanionBridge";
-
-/** Match orb breath timing — long enough to read as a soft exit, not a hard cut. */
-const FADE_OUT_MS = 450;
+import { OBS_FADE_OUT_MS } from "../obsTiming";
 
 /**
  * Transparent OBS Browser Source widget: speaking orb only.
@@ -42,7 +40,7 @@ export function ObsSpeakingPage() {
     const id = window.setTimeout(() => {
       setShowOrb(false);
       setFading(false);
-    }, FADE_OUT_MS);
+    }, OBS_FADE_OUT_MS);
     return () => window.clearTimeout(id);
   }, [speaking, showOrb]);
 

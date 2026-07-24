@@ -802,6 +802,99 @@ html.obs-transparent #root {
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.85);
 }
 
+.obs-captions {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: end;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: clamp(0.5rem, 2vh, 1.25rem) clamp(1rem, 3vw, 2rem);
+  overflow: hidden;
+  background: transparent;
+}
+
+.obs-rolling {
+  position: relative;
+  width: min(48rem, 100%);
+  overflow: hidden;
+  /* Soft fade at the top as older lines scroll away */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 18%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 18%,
+    #000 100%
+  );
+}
+
+.obs-rolling__track {
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  text-wrap: balance;
+  will-change: transform, opacity;
+  opacity: 1;
+  transition:
+    transform 280ms ease-out,
+    opacity 450ms ease-out;
+  font-family: var(--font-mono);
+  font-size: clamp(1.05rem, 2.6vw, 1.45rem);
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--ice) 55%, transparent);
+}
+
+.obs-rolling__track--fade-out {
+  opacity: 0;
+}
+
+.obs-rolling__word {
+  transition: color 120ms ease, text-shadow 160ms ease;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 12px rgba(0, 0, 0, 0.65);
+}
+
+.obs-rolling__word--spoken {
+  color: color-mix(in srgb, var(--ice) 82%, transparent);
+}
+
+.obs-rolling__word--active {
+  color: var(--ice);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 10px color-mix(in srgb, var(--cyan) 70%, transparent),
+    0 0 18px color-mix(in srgb, var(--teal) 35%, transparent);
+}
+
+.obs-captions__debug {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.obs-captions__debug-state {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ice);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.85);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orb__bloom,
   .orb__core,
@@ -814,11 +907,13 @@ html.obs-transparent #root {
     animation: none !important;
   }
 
-  .captions__word {
+  .captions__word,
+  .obs-rolling__word {
     transition: none;
   }
 
-  .obs-speaking__orb {
+  .obs-speaking__orb,
+  .obs-rolling__track {
     transition: none;
   }
 }
