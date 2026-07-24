@@ -49,9 +49,34 @@ BUDDY_COMPANION_BRIDGE_PORT=8766
 
 Event schema: `buddy_tools/companion/SCHEMA.md`.
 
+## OBS Browser Source (speaking indicator)
+
+The companion app also serves a transparent stream widget for OBS Studio. With Buddy voice running (so this panel and the bridge are up), add a **Browser Source**:
+
+| Purpose | URL |
+|---------|-----|
+| Stream (production) | `http://127.0.0.1:5173/obs/speaking` |
+| Setup / wiring | `http://127.0.0.1:5173/obs/speaking?debug=1` |
+
+Recommended OBS settings:
+
+- **Width / height:** e.g. `400` × `400` (scale in the preview as needed)
+- **Shutdown source when not visible:** off (so the icon can appear instantly)
+- **Control audio via OBS:** off
+- Background is transparent — no chroma key required
+
+Behavior:
+
+- Shows the speaking orb only while the bridge reports `turnState === "speaking"`, then a short fade-out
+- Production URL stays fully transparent when idle or disconnected (never mocks)
+- `?debug=1` shows link status and runs mock speaking cycles so you can position the source without a live voice session
+
+Operator HUD remains at `http://127.0.0.1:5173/` (unchanged).
+
 ## Ports
 
 | Service | Default |
 |---------|---------|
 | Vite dev / preview | `127.0.0.1:5173` |
 | Companion bridge WS | `127.0.0.1:8766` |
+| OBS speaking widget | `http://127.0.0.1:5173/obs/speaking` |
