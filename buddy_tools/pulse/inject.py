@@ -65,7 +65,7 @@ def get_pulse_cancel_scope() -> Any | None:
     return _pulse_cancel_scope
 
 
-def _drain_local_audio_output() -> None:
+def drain_local_audio_output() -> None:
     """Drop queued PCM and signal response-done so listening can resume."""
     from queue import Empty
 
@@ -87,6 +87,10 @@ def _drain_local_audio_output() -> None:
         logger.debug("Could not enqueue AUDIO_RESPONSE_DONE after pulse abort", exc_info=True)
     if drained:
         logger.info("Drained %d queued audio chunk(s) after pulse abort", drained)
+
+
+# Back-compat alias for internal callers.
+_drain_local_audio_output = drain_local_audio_output
 
 
 def _utc_now_iso() -> str:

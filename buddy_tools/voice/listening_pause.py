@@ -135,6 +135,26 @@ def process_transcription_with_listening_pause(
         configure_turn_state(text_output_queue=notifier.text_output_queue)
 
     if isinstance(transcription, PartialTranscription):
+        if transcription.text:
+            from buddy_tools.voice.barge_in import interrupt_for_barge_in, match_active_barge_in
+
+            if match_active_barge_in(str(transcription.text)) is not None:
+                if active_controller.paused:
+                    active_controller.resume()
+                interrupt_for_barge_in()
+                logger.info(
+                    "Barge-in wake detected on partial transcription: %s",
+                    str(transcription.text)[:80],
+                )
+                if transcription.text and not active_controller.paused:
+                    set_turn_state(
+                        VoiceTurnState.LISTENING,
+                        reason="barge_in_partial",
+                        turn_id=transcription.turn_id,
+                        turn_revision=transcription.turn_revision,
+                    )
+                return None
+
         if active_controller.paused and transcription.text:
             if notifier.text_output_queue is not None:
                 notifier.text_output_queue.put(
@@ -190,6 +210,27 @@ def process_transcription_with_listening_pause(
         active_controller.resume()
         _reenable_listen(notifier, active_controller)
         return iter(())
+
+    from buddy_tools.voice.barge_in import (
+        interrupt_for_barge_in,
+        match_active_barge_in,
+        set_barge_in_active,
+    )
+
+    barge_remainder = match_active_barge_in(transcript)
+    if barge_remainder is not None:
+        if active_controller.paused:
+            active_controller.resume()
+        interrupt_for_barge_in()
+        set_barge_in_active(True)
+        transcript = barge_remainder
+        logger.info(
+            "Barge-in matched; remainder=%r",
+            transcript[:80] if transcript else "",
+        )
+        if not transcript:
+            _reenable_listen(notifier, active_controller)
+            return iter(())
 
     if active_controller.paused:
         logger.info("Ignored while paused: %s", transcript)

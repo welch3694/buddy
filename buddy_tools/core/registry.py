@@ -11,6 +11,7 @@ from openai.types.realtime import RealtimeFunctionTool
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 
 from buddy_tools.voice.listening_pause import build_listening_pause_instructions
+from buddy_tools.voice.barge_in import build_barge_in_instructions
 from buddy_tools.episodic.retrieval import (
     EPISODIC_TOOL_GROUP,
     EPISODIC_TOOL_NAMES,
@@ -22,7 +23,7 @@ from buddy_tools.memory import (
     execute_memory_tool,
     load_memory_summary,
 )
-from buddy_tools.personality import DEFAULT_PERSONALITY_ID, PersonalityProfile, get_personality
+from buddy_tools.personality import DEFAULT_PERSONALITY_ID, PersonalityProfile, get_active_personality, get_personality
 from buddy_tools.personality.tools import (
     PERSONALITY_TOOL_NAMES,
     PERSONA_ADMIN_TOOL_GROUP,
@@ -158,6 +159,11 @@ def build_tool_instructions(
         parts.append(f"## {group.title}\n{group.instructions}")
 
     parts.append(build_listening_pause_instructions())
+    try:
+        active_name = get_active_personality(validate_voice=False).name
+    except (FileNotFoundError, ValueError):
+        active_name = "Buddy"
+    parts.append(build_barge_in_instructions(active_name))
 
     if memory_root is not None and persona_namespace and personality_id:
         try:
