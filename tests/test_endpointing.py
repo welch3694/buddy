@@ -504,9 +504,12 @@ class SilenceGatedOnlyTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        from buddy_tools.voice.barge_in import reset_barge_in_for_tests
+
         reset_endpointing_for_tests()
         reset_heuristic_config_for_tests()
         reset_short_utterance_config_for_tests()
+        reset_barge_in_for_tests()
 
     def _observe(self, text: str, *, turn_id: str = "t1", revision: int = 0) -> list[GenerateResponseRequest]:
         result = process_with_endpointing_gate(
@@ -585,6 +588,42 @@ class SilenceGatedOnlyTests(unittest.TestCase):
         self.assertEqual(outputs, [])
         self.runtime_config.chat.add_item.assert_not_called()
         side_effects.assert_called_once()
+
+    def test_sync_commit_allowed_when_silence_gated_only_and_barge_in(self) -> None:
+        from buddy_tools.voice.barge_in import reset_barge_in_for_tests, set_barge_in_active
+
+        reset_barge_in_for_tests()
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.return_value = True
+        set_barge_in_active(True)
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=True):
+            outputs = self._observe("Hello there")
+
+        self.assertEqual(len(outputs), 1)
+        self.assertIsInstance(outputs[0], GenerateResponseRequest)
+        self.runtime_config.chat.add_item.assert_called_once()
+
+    def test_timer_commit_allowed_when_silence_gated_only_and_barge_in(self) -> None:
+        from buddy_tools.voice.barge_in import reset_barge_in_for_tests, set_barge_in_active
+
+        reset_barge_in_for_tests()
+        self.tracker.is_committed.return_value = False
+        self.tracker.try_is_latest_after_reopen_grace.side_effect = [None, True]
+        self.tracker.has_pending_reopen_or_grace.return_value = False
+        self.tracker.commit = Mock()
+
+        with patch("buddy_tools.pulse.state.is_silence_gated_only_active", return_value=True):
+            with patch.object(Timer, "start", lambda self: None):
+                outputs = self._observe("finish this thought")
+                self.assertEqual(outputs, [])
+                set_barge_in_active(True)
+                get_endpointing_gate()._on_release_timer()
+
+        request = self.queue.get_nowait()
+        self.assertIsInstance(request, GenerateResponseRequest)
+        self.runtime_config.chat.add_item.assert_called_once()
+        self.tracker.commit.assert_called_once_with("t1", 0)
 
 
 class ShortUtteranceCommitTests(unittest.TestCase):

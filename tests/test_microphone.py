@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from buddy_tools.voice.microphone import (
     MicDeviceWatcher,
     describe_device,
+    fill_duplex_audio_frame,
     portaudio_default_input_fingerprint,
     refresh_portaudio_devices,
     reset_mic_device_watcher_for_tests,
@@ -96,6 +97,66 @@ class PlaybackDrainTests(unittest.TestCase):
         started = time.monotonic()
         wait_for_playback_drain(q, timeout_s=0.05, poll_s=0.01)
         self.assertGreaterEqual(time.monotonic() - started, 0.04)
+
+
+class DuplexCaptureTests(unittest.TestCase):
+    def test_captures_mic_while_playing_tts(self) -> None:
+        import numpy as np
+        from speech_to_speech.pipeline.messages import AUDIO_RESPONSE_DONE
+
+        chunk_size = 4
+        indata = np.arange(chunk_size, dtype=np.int16).reshape(chunk_size, 1)
+        outdata = np.zeros((chunk_size, 1), dtype=np.int16)
+        dither = np.full((chunk_size, 1), 7, dtype=np.int16)
+        input_queue: Queue[Any] = Queue()
+        output_queue: Queue[Any] = Queue()
+        should_listen = threading.Event()
+        tts = np.arange(10, 10 + chunk_size, dtype=np.int16)
+        output_queue.put(tts)
+
+        fill_duplex_audio_frame(
+            indata=indata,
+            outdata=outdata,
+            input_queue=input_queue,
+            output_queue=output_queue,
+            should_listen=should_listen,
+            dither=dither,
+            audio_response_done=AUDIO_RESPONSE_DONE,
+            np=np,
+        )
+
+        self.assertFalse(input_queue.empty())
+        captured = np.frombuffer(input_queue.get_nowait(), dtype=np.int16)
+        np.testing.assert_array_equal(captured, indata.reshape(-1))
+        np.testing.assert_array_equal(outdata.reshape(-1), tts)
+        self.assertTrue(output_queue.empty())
+
+    def test_dither_when_no_playback(self) -> None:
+        import numpy as np
+        from speech_to_speech.pipeline.messages import AUDIO_RESPONSE_DONE
+
+        chunk_size = 4
+        indata = np.ones((chunk_size, 1), dtype=np.int16)
+        outdata = np.zeros((chunk_size, 1), dtype=np.int16)
+        dither = np.full((chunk_size, 1), 3, dtype=np.int16)
+        input_queue: Queue[Any] = Queue()
+        output_queue: Queue[Any] = Queue()
+        should_listen = threading.Event()
+
+        fill_duplex_audio_frame(
+            indata=indata,
+            outdata=outdata,
+            input_queue=input_queue,
+            output_queue=output_queue,
+            should_listen=should_listen,
+            dither=dither,
+            audio_response_done=AUDIO_RESPONSE_DONE,
+            np=np,
+        )
+
+        self.assertFalse(input_queue.empty())
+        np.testing.assert_array_equal(outdata, dither)
+        self.assertFalse(should_listen.is_set())
 
 
 class MicDeviceWatcherTests(unittest.TestCase):

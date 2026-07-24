@@ -420,6 +420,7 @@ class EndpointingGate:
             return
 
         from buddy_tools.pulse.state import is_silence_gated_only_active
+        from buddy_tools.voice.barge_in import consume_barge_in_active
         from buddy_tools.voice.short_utterance_gate import should_discard_utterance
 
         discard_reason = should_discard_utterance(utterance.transcript)
@@ -441,7 +442,8 @@ class EndpointingGate:
                 )
             return
 
-        if is_silence_gated_only_active():
+        barge_in = consume_barge_in_active()
+        if is_silence_gated_only_active() and not barge_in:
             try:
                 perform_commit_side_effects(utterance)
                 if tracker is not None:
@@ -615,6 +617,7 @@ def commit_voice_turn(
         return iter(())
 
     from buddy_tools.pulse.state import is_silence_gated_only_active
+    from buddy_tools.voice.barge_in import consume_barge_in_active
     from buddy_tools.voice.short_utterance_gate import should_discard_utterance
 
     discard_reason = should_discard_utterance(utterance.transcript)
@@ -629,7 +632,8 @@ def commit_voice_turn(
         return iter(())
 
     perform_commit_side_effects(utterance)
-    if is_silence_gated_only_active():
+    barge_in = consume_barge_in_active()
+    if is_silence_gated_only_active() and not barge_in:
         logger.info(
             "Voice commit suppressed: silence_gated_only active (turn=%s rev=%s)",
             utterance.turn_id,
