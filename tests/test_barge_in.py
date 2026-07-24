@@ -19,6 +19,7 @@ from buddy_tools.voice.listening_pause import (
     ListeningPauseController,
     process_transcription_with_listening_pause,
 )
+from buddy_tools.voice.turn_state import VoiceTurnState, reset_turn_state_for_tests, set_turn_state
 from speech_to_speech.api.openai_realtime.runtime_config import RuntimeConfig
 from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.messages import GenerateResponseRequest, Transcription
@@ -85,6 +86,7 @@ class BargeInFlagTests(unittest.TestCase):
 class BargeInPipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_barge_in_for_tests()
+        reset_turn_state_for_tests()
         self.controller = ListeningPauseController(
             cancel_scope=CancelScope(),
             should_listen=Event(),
@@ -97,6 +99,7 @@ class BargeInPipelineTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         reset_barge_in_for_tests()
+        reset_turn_state_for_tests()
 
     def _complete(self, text: str) -> list[GenerateResponseRequest]:
         transcription = Transcription(text=text, language_code=None, turn_id="t1", turn_revision=0)
@@ -147,6 +150,29 @@ class BargeInPipelineTests(unittest.TestCase):
         self.notifier.runtime_config.chat.add_item.assert_not_called()
         interrupt.assert_called_once()
         self.assertTrue(is_barge_in_active())
+
+    def test_non_barge_in_dropped_while_speaking(self) -> None:
+        set_turn_state(VoiceTurnState.SPEAKING, reason="test")
+        with patch("buddy_tools.voice.barge_in.match_active_barge_in", return_value=None):
+            with patch("buddy_tools.voice.barge_in.interrupt_for_barge_in") as interrupt:
+                outputs = self._complete("every rep counts every drop of sweat")
+
+        self.assertEqual(outputs, [])
+        self.notifier.runtime_config.chat.add_item.assert_not_called()
+        interrupt.assert_not_called()
+
+    def test_barge_in_commits_while_speaking(self) -> None:
+        set_turn_state(VoiceTurnState.SPEAKING, reason="test")
+        with patch(
+            "buddy_tools.voice.barge_in.match_active_barge_in",
+            return_value="stop talking please",
+        ):
+            with patch("buddy_tools.voice.barge_in.interrupt_for_barge_in") as interrupt:
+                outputs = self._complete("hey coach, stop talking please")
+
+        self.assertEqual(len(outputs), 1)
+        interrupt.assert_called_once()
+        self.notifier.runtime_config.chat.add_item.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,12 @@ from speech_to_speech.pipeline.cancel_scope import CancelScope
 from speech_to_speech.pipeline.events import PartialTranscriptionEvent, TranscriptionCompletedEvent
 from speech_to_speech.pipeline.messages import PartialTranscription, Transcription
 
-from buddy_tools.voice.turn_state import VoiceTurnState, configure_turn_state, set_turn_state
+from buddy_tools.voice.turn_state import (
+    VoiceTurnState,
+    configure_turn_state,
+    current_turn_state,
+    set_turn_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +223,8 @@ def process_transcription_with_listening_pause(
     )
 
     barge_remainder = match_active_barge_in(transcript)
-    if barge_remainder is not None:
+    barge_matched = barge_remainder is not None
+    if barge_matched:
         if active_controller.paused:
             active_controller.resume()
         interrupt_for_barge_in()
@@ -234,6 +240,13 @@ def process_transcription_with_listening_pause(
 
     if active_controller.paused:
         logger.info("Ignored while paused: %s", transcript)
+        _reenable_listen(notifier, active_controller)
+        return iter(())
+
+    # Duplex capture during TTS can pick up speaker echo — only barge-in
+    # turns may commit while Buddy is speaking.
+    if not barge_matched and current_turn_state() is VoiceTurnState.SPEAKING:
+        logger.info("Ignored while speaking (non-barge-in): %s", transcript[:80])
         _reenable_listen(notifier, active_controller)
         return iter(())
 

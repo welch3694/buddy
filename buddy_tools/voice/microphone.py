@@ -247,11 +247,49 @@ def reset_mic_device_watcher_for_tests() -> None:
         _watcher = None
 
 
+def fill_duplex_audio_frame(
+    *,
+    indata: Any,
+    outdata: Any,
+    input_queue: Any,
+    output_queue: Any,
+    should_listen: Any,
+    dither: Any,
+    audio_response_done: Any,
+    np: Any,
+) -> None:
+    """Always capture mic PCM; play TTS when queued, otherwise dither.
+
+    Upstream LocalAudioStreamer is half-duplex (drops mic while playing). Buddy
+    captures during playback so keyword barge-in can hear the user over TTS.
+    """
+    pcm = np.ascontiguousarray(indata, dtype=np.int16)
+    input_queue.put(pcm.tobytes())
+
+    if output_queue.empty():
+        outdata[:] = dither
+        return
+
+    try:
+        audio_chunk = output_queue.get_nowait()
+        if isinstance(audio_chunk, np.ndarray):
+            outdata[:] = audio_chunk[:, np.newaxis]
+        elif audio_chunk == audio_response_done:
+            should_listen.set()
+            logger.debug("Response complete, listening re-enabled")
+            outdata[:] = 0 * outdata
+        else:
+            outdata[:] = 0 * outdata
+    except Exception:
+        outdata[:] = 0 * outdata
+
+
 def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None:
     """Run duplex capture/playback, reopening when the default mic changes.
 
     Replaces upstream ``LocalAudioStreamer.run`` so Buddy can follow OS default
-    device changes without a process restart. Callback semantics match upstream.
+    device changes without a process restart. Unlike upstream, mic capture
+    continues while TTS is playing (required for keyword barge-in).
     """
     import numpy as np
 
@@ -292,23 +330,16 @@ def run_local_audio_with_reload(streamer: Any, *, sd: Any | None = None) -> None
         else:
             bad_status_streak = 0
 
-        if streamer.output_queue.empty():
-            pcm = np.ascontiguousarray(indata, dtype=np.int16)
-            streamer.input_queue.put(pcm.tobytes())
-            outdata[:] = dither
-        else:
-            try:
-                audio_chunk = streamer.output_queue.get_nowait()
-                if isinstance(audio_chunk, np.ndarray):
-                    outdata[:] = audio_chunk[:, np.newaxis]
-                elif audio_chunk == AUDIO_RESPONSE_DONE:
-                    streamer.should_listen.set()
-                    logger.debug("Response complete, listening re-enabled")
-                    outdata[:] = 0 * outdata
-                else:
-                    outdata[:] = 0 * outdata
-            except Exception:
-                outdata[:] = 0 * outdata
+        fill_duplex_audio_frame(
+            indata=indata,
+            outdata=outdata,
+            input_queue=streamer.input_queue,
+            output_queue=streamer.output_queue,
+            should_listen=streamer.should_listen,
+            dither=dither,
+            audio_response_done=AUDIO_RESPONSE_DONE,
+            np=np,
+        )
 
     watcher = get_mic_device_watcher()
     watcher.start(request_reload)
