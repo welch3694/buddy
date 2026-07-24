@@ -56,6 +56,7 @@ The companion app serves transparent stream widgets for OBS Studio. With Buddy v
 | Widget | Stream (production) | Setup / wiring |
 |--------|---------------------|----------------|
 | Speaking orb | `http://127.0.0.1:5173/obs/speaking` | `…/obs/speaking?debug=1` |
+| Speaking orb + persona name | `http://127.0.0.1:5173/obs/speaking?name=1` | `…/obs/speaking?name=1&debug=1` |
 | Captions | `http://127.0.0.1:5173/obs/captions` | `…/obs/captions?debug=1` |
 
 Recommended OBS settings (both):
@@ -68,6 +69,7 @@ Recommended OBS settings (both):
 Behavior:
 
 - **Speaking:** orb only while the bridge reports `turnState === "speaking"`, then a short fade-out
+- **Persona name:** optional on the same speaking source via `?name=1` — overlays the active persona on the orb (no extra Browser Source); fades with the orb
 - **Captions:** word-wrapped rolling window (2 lines) — blank until speaking starts; older lines scroll up as speech advances; subtle active-word highlight; fades out with the speaking orb (~450ms). Idle / disconnected stays fully transparent
 - Production URLs never mock; `?debug=1` shows link status and runs mock turn/caption cycles for positioning
 

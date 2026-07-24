@@ -782,6 +782,38 @@ html.obs-transparent #root {
   opacity: 0;
 }
 
+.obs-speaking__stack {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.obs-speaking__persona {
+  position: absolute;
+  /* Default: lower third of the orb — tweak via OBS crop/position or CSS later */
+  top: 68%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  max-width: min(90%, 14rem);
+  padding: 0.15em 0.4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: clamp(0.85rem, 4.5vmin, 1.35rem);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--ice);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 12px rgba(0, 0, 0, 0.7),
+    0 0 18px color-mix(in srgb, var(--cyan) 45%, transparent);
+  pointer-events: none;
+}
+
 .obs-speaking__debug {
   position: absolute;
   top: 0.75rem;
