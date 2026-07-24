@@ -802,6 +802,104 @@ html.obs-transparent #root {
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.85);
 }
 
+.obs-captions {
+  position: relative;
+  display: grid;
+  place-items: stretch;
+  align-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.obs-karaoke {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  /* Soft fade at both edges so the strip can be any OBS width */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 7%,
+    #000 93%,
+    transparent 100%
+  );
+}
+
+.obs-karaoke__track {
+  margin: 0;
+  padding: 0 1rem;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  opacity: 1;
+  /* Blend between playback ticks so scroll feels continuous, not stepped */
+  transition:
+    transform 160ms linear,
+    opacity 450ms ease-out;
+  font-family: var(--font-mono);
+  font-size: clamp(1.15rem, 3.2vw, 1.65rem);
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--ice) 55%, transparent);
+}
+
+.obs-karaoke__track--fade-out {
+  opacity: 0;
+}
+
+.obs-karaoke__word {
+  transition: color 120ms ease, text-shadow 160ms ease, opacity 120ms ease;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 12px rgba(0, 0, 0, 0.65);
+}
+
+.obs-karaoke__word--spoken {
+  color: color-mix(in srgb, var(--ice) 82%, transparent);
+}
+
+.obs-karaoke__word--active {
+  color: var(--ice);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 10px color-mix(in srgb, var(--cyan) 85%, transparent),
+    0 0 22px color-mix(in srgb, var(--teal) 45%, transparent);
+}
+
+.obs-captions__debug {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+
+.obs-captions__debug-state {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ice);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.85);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orb__bloom,
   .orb__core,
@@ -814,11 +912,13 @@ html.obs-transparent #root {
     animation: none !important;
   }
 
-  .captions__word {
+  .captions__word,
+  .obs-karaoke__word {
     transition: none;
   }
 
-  .obs-speaking__orb {
+  .obs-speaking__orb,
+  .obs-karaoke__track {
     transition: none;
   }
 }

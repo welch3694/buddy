@@ -49,27 +49,27 @@ BUDDY_COMPANION_BRIDGE_PORT=8766
 
 Event schema: `buddy_tools/companion/SCHEMA.md`.
 
-## OBS Browser Source (speaking indicator)
+## OBS Browser Source widgets
 
-The companion app also serves a transparent stream widget for OBS Studio. With Buddy voice running (so this panel and the bridge are up), add a **Browser Source**:
+The companion app serves transparent stream widgets for OBS Studio. With Buddy voice running (so this panel and the bridge are up), add **Browser Source** entries for the pieces you want — each URL is independently placeable:
 
-| Purpose | URL |
-|---------|-----|
-| Stream (production) | `http://127.0.0.1:5173/obs/speaking` |
-| Setup / wiring | `http://127.0.0.1:5173/obs/speaking?debug=1` |
+| Widget | Stream (production) | Setup / wiring |
+|--------|---------------------|----------------|
+| Speaking orb | `http://127.0.0.1:5173/obs/speaking` | `…/obs/speaking?debug=1` |
+| Captions | `http://127.0.0.1:5173/obs/captions` | `…/obs/captions?debug=1` |
 
-Recommended OBS settings:
+Recommended OBS settings (both):
 
-- **Width / height:** e.g. `400` × `400` (scale in the preview as needed)
-- **Shutdown source when not visible:** off (so the icon can appear instantly)
+- **Width / height:** speaking e.g. `400` × `400`; captions e.g. `1280` × `100` (a short strip — scale in the preview as needed)
+- **Shutdown source when not visible:** off (so the widget can appear instantly)
 - **Control audio via OBS:** off
 - Background is transparent — no chroma key required
 
 Behavior:
 
-- Shows the speaking orb only while the bridge reports `turnState === "speaking"`, then a short fade-out
-- Production URL stays fully transparent when idle or disconnected (never mocks)
-- `?debug=1` shows link status and runs mock speaking cycles so you can position the source without a live voice session
+- **Speaking:** orb only while the bridge reports `turnState === "speaking"`, then a short fade-out
+- **Captions:** single-line karaoke strip — blank until speaking starts; active word stays slightly left-of-center with soft edge fades; fades out with the speaking orb (~450ms), then clears. Idle / disconnected stays fully transparent
+- Production URLs never mock; `?debug=1` shows link status and runs mock turn/caption cycles for positioning
 
 Operator HUD remains at `http://127.0.0.1:5173/` (unchanged).
 
@@ -80,3 +80,4 @@ Operator HUD remains at `http://127.0.0.1:5173/` (unchanged).
 | Vite dev / preview | `127.0.0.1:5173` |
 | Companion bridge WS | `127.0.0.1:8766` |
 | OBS speaking widget | `http://127.0.0.1:5173/obs/speaking` |
+| OBS captions widget | `http://127.0.0.1:5173/obs/captions` |

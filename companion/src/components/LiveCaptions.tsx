@@ -4,10 +4,18 @@ type LiveCaptionsProps = {
   words: string[];
   activeWordIndex: number;
   phase: CaptionPhase;
+  /** When true, render nothing instead of the idle placeholder (OBS stream-safe). */
+  hideWhenEmpty?: boolean;
 };
 
-export function LiveCaptions({ words, activeWordIndex, phase }: LiveCaptionsProps) {
+export function LiveCaptions({
+  words,
+  activeWordIndex,
+  phase,
+  hideWhenEmpty = false,
+}: LiveCaptionsProps) {
   if (phase === "idle" || words.length === 0) {
+    if (hideWhenEmpty) return null;
     return (
       <div className="captions captions--empty" aria-live="polite">
         <span className="captions__placeholder">AWAITING TRANSMISSION</span>

@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import { CompanionShell } from "./components/CompanionShell";
 import { useCompanionBridge } from "./hooks/useCompanionBridge";
+import { ObsCaptionsPage } from "./pages/ObsCaptionsPage";
 import { ObsSpeakingPage } from "./pages/ObsSpeakingPage";
 
 function CompanionHud() {
@@ -27,6 +28,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<CompanionHud />} />
       <Route path="/obs/speaking" element={<ObsSpeakingPage />} />
+      <Route path="/obs/captions" element={<ObsCaptionsPage />} />
     </Routes>
   );
 }
